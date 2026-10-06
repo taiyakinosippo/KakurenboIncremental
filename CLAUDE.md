@@ -17,12 +17,12 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 |---|---|
 | `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁の設置・鬼のスポーン）。数値は UPROPERTY |
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル）。HUD はここを読む |
-| `KakurenboPlayerController` | 入力（毎フレームのキー状態をポーリング）、設置の照準、デバッグ用 Exec コマンド |
-| `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示） |
-| `HiderCharacter` / `OniCharacter` | プレイヤー / 鬼（状態遷移 AI） |
+| `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、デバッグ用 Exec コマンド |
+| `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）、鬼の方向表示 |
+| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰カメラ・一人称カメラ・手元の明かり） / 鬼（状態遷移 AI） |
 | `GridPathfinder` | ワールドに依存しない A*。壁マスに「壊すコスト」を持たせる |
 | `KakurenboGridSubsystem` | グリッドとブロック配置（積み上げ・範囲ダメージ・落下） |
-| `KakurenboArena` | 床・外周の壁・ライトを C++ で生成（レベルアセット不要） |
+| `KakurenboArena` | 床・外周の壁・外側の地面・ライト・ポストプロセス（露出の下限、モーションブラーなし）を C++ で生成（レベルアセット不要） |
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
@@ -34,11 +34,23 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
-powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Loop  # Loop / Oni / Build
+powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Oni / Build
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
-  スクリーンショットを Read で確認して見た目も検証すること
+  スクリーンショットを Read で確認して見た目も検証すること。最後に `CHECK: n passed, m failed` が出る
+- 入力が絡む変更は、`PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(...))` で疑似入力を流して検証する
+  （`SetControlRotation` などで直接状態を書き換えるテストでは、入力の経路のバグを見逃す）
+- `-ExtraExec "ShowFlag.VisualizeHDR 1,"` を付けると露出（EV100）の実測値が画面に出る
+- ユーザーが UE エディタを開いているとリンクに失敗する（DLL がロックされる）。エディタのプロセスは勝手に終了せず、閉じてもらう
+
+### UE の入力まわりの注意（ハマった点）
+
+- 視点の回転入力は `PostProcessInput` で加える。`PlayerTick` の `Super` の後で `AddYawInput` しても、その回転は捨てられる
+- `GetInputMouseDelta` には DefaultInput.ini の感度（0.07）がかかる。生の値は `PlayerInput->GetRawKeyValue(EKeys::MouseX)`
+- このプロジェクトは「Enable Legacy Input Scales」が有効で、`AddYawInput`/`AddPitchInput` に ×2.5 / ×-2.5（上下反転）がかかる。
+  マウス視点は `RotationInput` に直接足している
+- マウスの移動量はビューポートがマウスをキャプチャしているときしか届かない（カーソル表示中は届かない）
 - 実行中のゲームにユーザーのキー入力が入ることがあるので、ログに想定外の遷移があればそれを疑う
 - エディタが起動中で Live Coding が有効だと、外部ビルドが失敗することがある
 - 実行時のログ: `KakurenboIncremental/Saved/Logs/KakurenboIncremental.log`

@@ -14,7 +14,8 @@ public class KakurenboIncremental : ModuleRules
 		PrivateIncludePaths.Add(ModuleDirectory);
 
 		// Slate/SlateCore: HUD の文字描画（FSlateFontInfo）で使う
-		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		// RenderCore: HUD の図形描画（GWhiteTexture）で使う
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore", "RenderCore" });
 		
 		// Uncomment if you are using online features
 		// PrivateDependencyModuleNames.Add("OnlineSubsystem");

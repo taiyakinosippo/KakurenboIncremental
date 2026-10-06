@@ -3,16 +3,17 @@
 // （後で Enhanced Input のアセットに置き換えてもよい）
 //
 // 操作:
-//   共通        マウス: 視点移動 / Enter: 次のパートへ
-//   購入パート  1〜: 商品を買う
-//   設置パート  WASD: 移動 / Space: ジャンプ / 左クリック: 壁を置く / 右クリック: 壁を回収
-//               数字キー・ホイール: 壁の種類を選ぶ
-//   かくれんぼ  Space または 左クリック: 連打
+//   共通                Enter: 次のパートへ
+//   購入・リザルト（俯瞰）マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入
+//   設置（俯瞰）         WASD: 移動 / Space: ジャンプ / カーソル+左クリック: 壁を置く / 右クリック: 回収
+//                        数字キー: 壁の種類 / Q・E / ホイールクリックしながらドラッグ: カメラ回転 / ホイール: ズーム
+//   かくれんぼ（一人称）  マウス: 見回す / Space・左クリック: 連打
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "KakurenboTypes.h"
 #include "KakurenboPlayerController.generated.h"
 
 class AKakurenboGameMode;
@@ -27,13 +28,25 @@ class KAKURENBOINCREMENTAL_API AKakurenboPlayerController : public APlayerContro
 public:
 	AKakurenboPlayerController();
 
-	/** マウス感度（1 カウントあたりの回転角度） */
+	/** マウス感度（マウスの移動 1 カウントあたりの回転角度・度） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
-	float MouseSensitivity = 0.15f;
+	float MouseSensitivity = 0.12f;
 
-	/** 壁を置ける距離（カメラから、cm） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Build")
-	float BuildReach = 1200.f;
+	/** マウスの上下を反転する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	bool bInvertMouseY = false;
+
+	/** 俯瞰カメラの Q/E 回転速度（度/秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float OverheadRotateSpeed = 120.f;
+
+	/** ホイールクリックしながらドラッグしたときの回転量（度/ピクセル） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float OverheadDragSensitivity = 0.3f;
+
+	/** ホイール 1 目盛りのズーム量（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float OverheadZoomStep = 250.f;
 
 	// ===== 設置パートの状態（HUD が読む） =====
 
@@ -41,7 +54,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Build")
 	int32 SelectedWallType = 0;
 
-	/** 照準の先に置き場所があるか */
+	/** カーソルの先に置き場所があるか */
 	UPROPERTY(BlueprintReadOnly, Category = "Build")
 	bool bHasBuildTarget = false;
 
@@ -56,9 +69,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Build")
 	FIntPoint BuildTargetCell = FIntPoint::ZeroValue;
 
-	/** 照準の先にある、回収できる壁 */
+	/** カーソルの先にある、回収できる壁 */
 	UPROPERTY(BlueprintReadOnly, Category = "Build")
 	TObjectPtr<APlaceableBlock> PickUpTarget;
+
+	/** 画面上の位置（ピクセル）から置き場所と回収対象を求める。設置パートではカーソル位置で毎フレーム呼ばれる */
+	void UpdateBuildTargetAt(const FVector2D& ScreenPosition);
+
+	AHiderCharacter* GetHider() const;
 
 	// ===== デバッグ用コンソールコマンド（プレイ中にコンソールを開いて入力） =====
 
@@ -74,7 +92,7 @@ public:
 	UFUNCTION(Exec)
 	void KakuNext();
 
-	/** 連打を 1 回行う（テスト用） */
+	/** 連打を行う（テスト用） */
 	UFUNCTION(Exec)
 	void KakuMash(int32 Count = 1);
 
@@ -86,9 +104,13 @@ public:
 	UFUNCTION(Exec)
 	void KakuPlaceWall(int32 X, int32 Y, int32 WallType);
 
+	/** マウス感度を変える。例: KakuSens 0.2 */
+	UFUNCTION(Exec)
+	void KakuSens(float Sensitivity);
+
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
-	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Build（壁の設置と破壊）
+	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Build（壁の設置と破壊） / Camera（視点と操作）
 	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Oni"
 	 * 実装は KakurenboAutoTest.cpp
 	 */
@@ -98,23 +120,38 @@ public:
 protected:
 	virtual void PlayerTick(float DeltaTime) override;
 
-	void TickLook();
-	void TickShop();
-	void TickBuild();
-	void TickHide();
+	/**
+	 * このフレームの入力が確定した直後・視点の更新（UpdateRotation）の直前に呼ばれる。
+	 * 視点の回転入力はここで加えないと反映されない（PlayerTick の Super の後では捨てられる）。
+	 */
+	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
+
+	/** パートが変わったら視点（俯瞰／一人称）と入力モード（カーソル表示）を切り替える */
+	void ApplyViewForPhase(EKakurenboPhase Phase);
+
+	void HandleFirstPersonLook();
+	void HandleOverheadCamera(float DeltaTime, bool bMouseOrbits);
+	void HandleShopInput();
+	void HandleBuildInput();
+	void HandleHideInput();
 
 	void DoMash();
-
-	/** カメラの照準から置き場所・回収対象を求める */
-	void UpdateBuildTarget();
 	void DrawBuildPreview() const;
+	void ClearBuildTarget();
 
 	/** 購入パートの商品を番号で買う（1 始まり） */
 	bool BuyItem(int32 ItemNumber);
 
 	AKakurenboGameMode* GetKakurenboGameMode() const;
-	AHiderCharacter* GetHider() const;
 
 	/** 数字キー 1〜9 のうち、このフレームに押されたものを返す（無ければ 0） */
 	int32 GetPressedNumberKey() const;
+
+private:
+	bool bViewInitialized = false;
+	EKakurenboPhase ViewPhase = EKakurenboPhase::Hide;
+
+	/** ホイールクリックでのドラッグ回転用 */
+	bool bDraggingCamera = false;
+	FVector2D LastDragMousePosition = FVector2D::ZeroVector;
 };

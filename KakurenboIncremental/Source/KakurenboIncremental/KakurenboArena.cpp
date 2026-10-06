@@ -1,6 +1,7 @@
 ﻿#include "KakurenboArena.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PostProcessComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -18,6 +19,11 @@ AKakurenboArena::AKakurenboArena()
 	// エンジン付属の 100cm 立方体を使う（コンストラクタ内でのみ使えるアセット読み込み方法）
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	CubeMesh = CubeFinder.Object;
+
+	// bUnbound: 範囲を限定せず、ワールド全体に効かせる
+	PostProcess = CreateDefaultSubobject<UPostProcessComponent>(TEXT("PostProcess"));
+	PostProcess->SetupAttachment(RootComponent);
+	PostProcess->bUnbound = true;
 }
 
 FVector AKakurenboArena::GetGridOrigin() const
@@ -30,6 +36,13 @@ void AKakurenboArena::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 見た目の設定（bOverride_〇〇 を true にした項目だけが上書きされる）
+	FPostProcessSettings& Look = PostProcess->Settings;
+	Look.bOverride_AutoExposureMinBrightness = true;
+	Look.AutoExposureMinBrightness = MinExposureEV100;
+	Look.bOverride_MotionBlurAmount = bDisableMotionBlur;
+	Look.MotionBlurAmount = 0.f;
+
 	const float SizeX = GridSizeX * CellSize;
 	const float SizeY = GridSizeY * CellSize;
 	const FVector C = GetActorLocation();
@@ -38,6 +51,10 @@ void AKakurenboArena::BeginPlay()
 
 	// 床：上面が Z=0 になるように半分下げる
 	AddCube(C + FVector(0, 0, -FloorThickness * 0.5f), FVector(SizeX + BorderThickness * 2, SizeY + BorderThickness * 2, FloorThickness), FloorColor);
+
+	// 舞台の外側の地面（俯瞰で見たときに外が真っ暗にならないように。床より一段低い）
+	constexpr float OuterSize = 30000.f;
+	AddCube(C + FVector(0, 0, -FloorThickness - 10.f), FVector(OuterSize, OuterSize, 20.f), OuterGroundColor);
 
 	// 外周の壁（4 辺）
 	const float Hz = BorderHeight * 0.5f;

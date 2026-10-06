@@ -15,6 +15,14 @@ enum class EKakurenboPhase : uint8
 	Result UMETA(DisplayName = "Result"),
 };
 
+/** プレイヤーの視点 */
+UENUM(BlueprintType)
+enum class EHiderViewMode : uint8
+{
+	Overhead    UMETA(DisplayName = "Overhead"),    // 俯瞰（購入・設置・リザルト）
+	FirstPerson UMETA(DisplayName = "FirstPerson"), // 一人称（かくれんぼ）
+};
+
 /** 鬼の状態（HUD 表示にも使う） */
 UENUM(BlueprintType)
 enum class EOniState : uint8
