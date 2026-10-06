@@ -3,11 +3,11 @@
 // （後で Enhanced Input のアセットに置き換えてもよい）
 //
 // 操作:
-//   共通                Enter: 次のパートへ
-//   購入・リザルト（俯瞰）マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入
-//   設置（俯瞰）         WASD: 移動 / Space: ジャンプ / カーソル+左クリック: 壁を置く / 右クリック: 回収
-//                        数字キー: 壁の種類 / Q・E / ホイールクリックしながらドラッグ: カメラ回転 / ホイール: ズーム
-//   かくれんぼ（一人称）  マウス: 見回す / Space・左クリック: 連打
+//   共通                 Enter: 次のパートへ
+//   購入・リザルト（俯瞰） マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入
+//   設置（俯瞰）          WASD: 移動 / Space: ジャンプ / カーソル+左クリック: 壁を置く / 右クリック: 回収
+//                         数字キー: 壁の種類 / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
+//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / 左クリック・F: 連打 / ホイール: カメラの距離
 
 #pragma once
 
@@ -40,13 +40,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	float OverheadRotateSpeed = 120.f;
 
-	/** ホイールクリックしながらドラッグしたときの回転量（度/ピクセル） */
+	/** ホイールを押しながらドラッグしたときの回転量（度/ピクセル） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	float OverheadDragSensitivity = 0.3f;
 
 	/** ホイール 1 目盛りのズーム量（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	float OverheadZoomStep = 250.f;
+	float ZoomStep = 250.f;
+
+	/** 三人称カメラの上下の角度の範囲（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float ThirdPersonPitchMin = -75.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float ThirdPersonPitchMax = 15.f;
 
 	// ===== 設置パートの状態（HUD が読む） =====
 
@@ -110,14 +117,16 @@ public:
 
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
-	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Touch（ぶつかったら発見） / Build（壁の設置と破壊） / Camera（視点と操作）
-	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Oni"
+	 * Scenario: Loop（基本ループ） / Senses（鬼の追跡・見失い） / Touch（ぶつかったら発見）
+	 *           Treasure（お宝） / Build（壁の設置・破壊・自動修復） / Camera（視点と操作）
+	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Senses"
 	 * 実装は KakurenboAutoTest.cpp
 	 */
 	UFUNCTION(Exec)
 	void KakuAutoTest(const FString& Scenario);
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void PlayerTick(float DeltaTime) override;
 
 	/**
@@ -126,11 +135,13 @@ protected:
 	 */
 	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
 
-	/** パートが変わったら視点（俯瞰／一人称）と入力モード（カーソル表示）を切り替える */
+	/** パートが変わったら視点（俯瞰／三人称）と入力モード（カーソル表示）を切り替える */
 	void ApplyViewForPhase(EKakurenboPhase Phase);
 
-	void HandleFirstPersonLook();
+	void HandleMouseLook();
 	void HandleOverheadCamera(float DeltaTime, bool bMouseOrbits);
+	void HandleCharacterMovement();
+	void HandleZoom();
 	void HandleShopInput();
 	void HandleBuildInput();
 	void HandleHideInput();
@@ -148,10 +159,14 @@ protected:
 	int32 GetPressedNumberKey() const;
 
 private:
+	/** 自動テスト中は、実際のキーボード・マウス入力を無視する（テストの疑似入力だけを通す） */
+	void ApplyAutoTestInputIsolation();
+	bool bIgnoreRealInputForAutoTest = false;
+
 	bool bViewInitialized = false;
 	EKakurenboPhase ViewPhase = EKakurenboPhase::Hide;
 
-	/** ホイールクリックでのドラッグ回転用 */
+	/** ホイールを押しながらのドラッグ回転用 */
 	bool bDraggingCamera = false;
 	FVector2D LastDragMousePosition = FVector2D::ZeroVector;
 };

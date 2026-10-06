@@ -20,7 +20,7 @@ UENUM(BlueprintType)
 enum class EHiderViewMode : uint8
 {
 	Overhead    UMETA(DisplayName = "Overhead"),    // 俯瞰（購入・設置・リザルト）
-	FirstPerson UMETA(DisplayName = "FirstPerson"), // 一人称（かくれんぼ）
+	ThirdPerson UMETA(DisplayName = "ThirdPerson"), // 三人称（かくれんぼ）：自分の背後の少し上から見る。マウスで回せる
 };
 
 /** 鬼の状態（HUD 表示にも使う） */
@@ -29,6 +29,7 @@ enum class EOniState : uint8
 {
 	Wander      UMETA(DisplayName = "Wander"),      // うろうろ
 	Investigate UMETA(DisplayName = "Investigate"), // 音のした方へ向かう
+	Chase       UMETA(DisplayName = "Chase"),       // プレイヤーを見つけて追いかける
 	Attack      UMETA(DisplayName = "Attack"),      // 壁を壊している
 };
 

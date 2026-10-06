@@ -2,6 +2,7 @@
 // エディタの Tools → Session Frontend → Automation からも「Kakurenbo」で検索して実行できる。
 
 #include "GridPathfinder.h"
+#include "KakurenboLayout.h"
 #include "KakurenboLibrary.h"
 #include "Misc/AutomationTest.h"
 
@@ -118,6 +119,51 @@ bool FKakurenboPathWallGoalTest::RunTest(const FString& Parameters)
 	// 壁へは斜めに入らないので、最後の 1 歩は縦か横
 	const FIntPoint Before = Path.Num() >= 2 ? Path[Path.Num() - 2] : FIntPoint(0, 0);
 	TestTrue(TEXT("orthogonal entry"), FMath::Abs(Before.X - 4) + FMath::Abs(Before.Y - 4) == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboRepairPlanTest, "Kakurenbo.Layout.RepairPlan", TestFlags)
+bool FKakurenboRepairPlanTest::RunTest(const FString& Parameters)
+{
+	using namespace KakurenboLayout;
+	constexpr int32 Wood = 0, Stone = 1;
+
+	// 設計図 [木, 石]、下の木が壊れて石が落ちてきた → 木を作り直して [木, 石] に戻す
+	{
+		TArray<int32> Stock = { 1, 0 };
+		TArray<FRepairEntry> Plan;
+		PlanColumnRepair({ Wood, Stone }, { Stone }, Stock, Plan);
+		TestEqual(TEXT("plan length"), Plan.Num(), 2);
+		TestTrue(TEXT("bottom wood rebuilt"), Plan[0].Step == ERepairStep::Build && Plan[0].Type == Wood);
+		TestTrue(TEXT("stone kept"), Plan[1].Step == ERepairStep::Keep && Plan[1].LiveIndex == 0);
+		TestEqual(TEXT("wood stock used"), Stock[Wood], 0);
+	}
+	// 在庫が足りない → 作れない分は Missing（設計図には残る）
+	{
+		TArray<int32> Stock = { 0, 0 };
+		TArray<FRepairEntry> Plan;
+		PlanColumnRepair({ Wood, Stone }, { Stone }, Stock, Plan);
+		TestTrue(TEXT("wood missing"), Plan[0].Step == ERepairStep::Missing);
+		TestTrue(TEXT("stone still kept"), Plan[1].Step == ERepairStep::Keep);
+	}
+	// 全部壊れた列を、在庫の範囲で下から直す
+	{
+		TArray<int32> Stock = { 1, 5 };
+		TArray<FRepairEntry> Plan;
+		PlanColumnRepair({ Wood, Wood, Stone }, {}, Stock, Plan);
+		TestTrue(TEXT("first wood built"), Plan[0].Step == ERepairStep::Build);
+		TestTrue(TEXT("second wood missing (no stock)"), Plan[1].Step == ERepairStep::Missing);
+		TestTrue(TEXT("stone built"), Plan[2].Step == ERepairStep::Build);
+		TestEqual(TEXT("stone stock used"), Stock[Stone], 4);
+	}
+	// 壊れていない列はそのまま
+	{
+		TArray<int32> Stock = { 3, 3 };
+		TArray<FRepairEntry> Plan;
+		PlanColumnRepair({ Stone, Wood }, { Stone, Wood }, Stock, Plan);
+		TestTrue(TEXT("all kept"), Plan[0].Step == ERepairStep::Keep && Plan[1].Step == ERepairStep::Keep);
+		TestEqual(TEXT("no stock used"), Stock[Wood] + Stock[Stone], 6);
+	}
 	return true;
 }
 

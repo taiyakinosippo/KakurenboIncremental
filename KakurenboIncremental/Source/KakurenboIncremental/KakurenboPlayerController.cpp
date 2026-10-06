@@ -1,6 +1,9 @@
 ﻿#include "KakurenboPlayerController.h"
 
+#include "Camera/PlayerCameraManager.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/GameViewportClient.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerInput.h"
 #include "HiderCharacter.h"
@@ -23,6 +26,18 @@ AKakurenboGameMode* AKakurenboPlayerController::GetKakurenboGameMode() const
 AHiderCharacter* AKakurenboPlayerController::GetHider() const
 {
 	return Cast<AHiderCharacter>(GetPawn());
+}
+
+void AKakurenboPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// 三人称カメラの上下の角度を制限する（真上・真下まで回り込まないように）
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->ViewPitchMin = ThirdPersonPitchMin;
+		PlayerCameraManager->ViewPitchMax = ThirdPersonPitchMax;
+	}
 }
 
 void AKakurenboPlayerController::PlayerTick(float DeltaTime)
@@ -56,7 +71,7 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 			HandleBuildInput();
 			break;
 		case EKakurenboPhase::Hide:
-			HandleFirstPersonLook();
+			HandleMouseLook();
 			HandleHideInput();
 			break;
 		case EKakurenboPhase::Result:
@@ -83,26 +98,28 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	{
 		return;
 	}
+	const bool bFirstTime = !bViewInitialized;
 	bViewInitialized = true;
 	ViewPhase = Phase;
 
 	if (Phase == EKakurenboPhase::Hide)
 	{
-		// 俯瞰 → 一人称：俯瞰カメラが向いていた方向を向いて始める（向きの感覚がつながるように）
-		if (Hider->GetViewMode() == EHiderViewMode::Overhead)
+		// 俯瞰 → 三人称：俯瞰カメラが向いていた方向を、少し見下ろす角度で向いて始める
+		if (bFirstTime || Hider->GetViewMode() == EHiderViewMode::Overhead)
 		{
-			SetControlRotation(FRotator(-10.f, Hider->GetOverheadYaw(), 0.f));
+			SetControlRotation(FRotator(-20.f, bFirstTime ? GetControlRotation().Yaw : Hider->GetOverheadYaw(), 0.f));
 		}
-		Hider->SetViewMode(EHiderViewMode::FirstPerson);
+		Hider->SetViewMode(EHiderViewMode::ThirdPerson);
 
-		// カーソルを消してマウスを捕まえる（マウスの動き＝視点の動き）
+		// カーソルを消してマウスを捕まえる（マウスの動き＝カメラの回転）
 		bShowMouseCursor = false;
 		SetInputMode(FInputModeGameOnly());
+		ApplyAutoTestInputIsolation();
 		return;
 	}
 
-	// 一人称 → 俯瞰：一人称で向いていた方向から見下ろす
-	if (Hider->GetViewMode() == EHiderViewMode::FirstPerson)
+	// 三人称 → 俯瞰：三人称で向いていた方向から見下ろす
+	if (Hider->GetViewMode() == EHiderViewMode::ThirdPerson)
 	{
 		Hider->SetOverheadYaw(GetControlRotation().Yaw);
 	}
@@ -123,10 +140,20 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 		bShowMouseCursor = false;
 		SetInputMode(FInputModeGameOnly());
 	}
+	ApplyAutoTestInputIsolation();
 	ClearBuildTarget();
 }
 
-void AKakurenboPlayerController::HandleFirstPersonLook()
+void AKakurenboPlayerController::ApplyAutoTestInputIsolation()
+{
+	// SetInputMode は入力の無視を解除してしまうので、切り替えのたびにかけ直す
+	if (bIgnoreRealInputForAutoTest && GetLocalPlayer() && GetLocalPlayer()->ViewportClient)
+	{
+		GetLocalPlayer()->ViewportClient->SetIgnoreInput(true);
+	}
+}
+
+void AKakurenboPlayerController::HandleMouseLook()
 {
 	if (!PlayerInput)
 	{
@@ -159,7 +186,7 @@ void AKakurenboPlayerController::HandleOverheadCamera(float DeltaTime, bool bMou
 		Hider->AddOverheadYaw(PlayerInput->GetRawKeyValue(EKeys::MouseX) * MouseSensitivity);
 	}
 
-	// ホイールクリックしながらドラッグで回す（カーソルの移動量で判定）
+	// ホイールを押しながらドラッグで回す（カーソルの移動量で判定）
 	float MouseX = 0.f, MouseY = 0.f;
 	if (IsInputKeyDown(EKeys::MiddleMouseButton) && GetMousePosition(MouseX, MouseY))
 	{
@@ -175,14 +202,42 @@ void AKakurenboPlayerController::HandleOverheadCamera(float DeltaTime, bool bMou
 		bDraggingCamera = false;
 	}
 
-	// ホイールでズーム
+	HandleZoom();
+}
+
+void AKakurenboPlayerController::HandleZoom()
+{
+	AHiderCharacter* Hider = GetHider();
 	if (WasInputKeyJustPressed(EKeys::MouseScrollUp))
 	{
-		Hider->AddOverheadZoom(-OverheadZoomStep);
+		Hider->AddZoom(-ZoomStep);
 	}
 	if (WasInputKeyJustPressed(EKeys::MouseScrollDown))
 	{
-		Hider->AddOverheadZoom(OverheadZoomStep);
+		Hider->AddZoom(ZoomStep);
+	}
+}
+
+void AKakurenboPlayerController::HandleCharacterMovement()
+{
+	AHiderCharacter* Hider = GetHider();
+
+	// WASD を今のカメラの向き基準の移動に変換する（画面の奥＝W）
+	const FRotator YawRot(0.f, Hider->GetViewYaw(), 0.f);
+	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+	float F = 0.f, R = 0.f;
+	if (IsInputKeyDown(EKeys::W)) F += 1.f;
+	if (IsInputKeyDown(EKeys::S)) F -= 1.f;
+	if (IsInputKeyDown(EKeys::D)) R += 1.f;
+	if (IsInputKeyDown(EKeys::A)) R -= 1.f;
+	Hider->AddMovementInput(Forward, F);
+	Hider->AddMovementInput(Right, R);
+
+	if (WasInputKeyJustPressed(EKeys::SpaceBar))
+	{
+		Hider->Jump();
 	}
 }
 
@@ -225,26 +280,9 @@ bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 
 void AKakurenboPlayerController::HandleBuildInput()
 {
-	AHiderCharacter* Hider = GetHider();
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
 
-	// WASD を俯瞰カメラの向き基準の移動に変換する（画面の上＝W）
-	const FRotator YawRot(0.f, Hider->GetOverheadYaw(), 0.f);
-	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
-	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
-
-	float F = 0.f, R = 0.f;
-	if (IsInputKeyDown(EKeys::W)) F += 1.f;
-	if (IsInputKeyDown(EKeys::S)) F -= 1.f;
-	if (IsInputKeyDown(EKeys::D)) R += 1.f;
-	if (IsInputKeyDown(EKeys::A)) R -= 1.f;
-	Hider->AddMovementInput(Forward, F);
-	Hider->AddMovementInput(Right, R);
-
-	if (WasInputKeyJustPressed(EKeys::SpaceBar))
-	{
-		Hider->Jump();
-	}
+	HandleCharacterMovement();
 
 	// 壁の種類を選ぶ
 	const int32 NumTypes = GM->WallTypes.Num();
@@ -330,6 +368,7 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 		return;
 	}
 	const float Cell = Grid->GetCellSize();
+	const FVector BlockExtent(Cell * 0.5f, Cell * 0.5f, Grid->GetBlockHeight() * 0.5f);
 
 	// 床にグリッド線を引く
 	const FVector Origin = Grid->CellFloorCenter(FIntPoint(0, 0)) - FVector(Cell * 0.5f, Cell * 0.5f, -1.f);
@@ -345,16 +384,31 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 		DrawDebugLine(GetWorld(), Origin + FVector(0, Y * Cell, 0), Origin + FVector(LenX, Y * Cell, 0), LineColor, false, 0.f, 0, 1.f);
 	}
 
+	// 壊れたまま直せていない壁（設計図にはある）を赤い枠で示す
+	for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < Grid->GetSizeX(); ++X)
+		{
+			const FIntPoint C(X, Y);
+			const int32 Height = Grid->GetColumnHeight(C);
+			const int32 DesignHeight = Grid->GetDesignHeight(C);
+			for (int32 Level = Height; Level < DesignHeight; ++Level)
+			{
+				DrawDebugBox(GetWorld(), Grid->CellToWorld(C, Level), BlockExtent * 0.95f, FColor(255, 60, 60), false, 0.f, 0, 2.f);
+			}
+		}
+	}
+
 	// 置き場所のプレビュー（緑: 置ける / 赤: 置けない）
 	if (bHasBuildTarget)
 	{
 		const FVector Center = Grid->CellToWorld(BuildTargetCell, Grid->GetColumnHeight(BuildTargetCell));
-		DrawDebugBox(GetWorld(), Center, FVector(Cell * 0.5f), bCanPlaceAtTarget ? FColor(80, 255, 80) : FColor(255, 70, 70), false, 0.f, 0, 3.f);
+		DrawDebugBox(GetWorld(), Center, BlockExtent, bCanPlaceAtTarget ? FColor(80, 255, 80) : FColor(255, 70, 70), false, 0.f, 0, 3.f);
 	}
 	// 回収できる壁を黄色で囲む
 	if (PickUpTarget)
 	{
-		DrawDebugBox(GetWorld(), PickUpTarget->GetActorLocation(), FVector(Cell * 0.52f), FColor(255, 220, 60), false, 0.f, 0, 2.f);
+		DrawDebugBox(GetWorld(), PickUpTarget->GetActorLocation(), BlockExtent * 1.04f, FColor(255, 220, 60), false, 0.f, 0, 2.f);
 	}
 }
 
@@ -362,8 +416,10 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 
 void AKakurenboPlayerController::HandleHideInput()
 {
-	// かくれんぼ中は移動できない（連打のみ）
-	if (WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::LeftMouseButton))
+	HandleCharacterMovement();
+	HandleZoom();
+
+	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) || WasInputKeyJustPressed(EKeys::F))
 	{
 		DoMash();
 	}

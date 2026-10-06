@@ -1,15 +1,17 @@
 ﻿#include "KakurenboGridSubsystem.h"
 
 #include "Engine/World.h"
+#include "KakurenboLayout.h"
 #include "PlaceableBlock.h"
 
-void UKakurenboGridSubsystem::Configure(const FVector& InOrigin, int32 InSizeX, int32 InSizeY, float InCellSize, int32 InMaxStackHeight)
+void UKakurenboGridSubsystem::Configure(const FVector& InOrigin, int32 InSizeX, int32 InSizeY, float InCellSize, float InBlockHeight, int32 InMaxStackHeight)
 {
 	ClearAllBlocks();
 	Origin = InOrigin;
 	SizeX = FMath::Max(1, InSizeX);
 	SizeY = FMath::Max(1, InSizeY);
 	CellSize = InCellSize;
+	BlockHeight = InBlockHeight;
 	MaxStackHeight = FMath::Max(1, InMaxStackHeight);
 	Columns.SetNum(SizeX * SizeY);
 	MarkChanged();
@@ -29,7 +31,7 @@ FVector UKakurenboGridSubsystem::CellToWorld(const FIntPoint& Cell, int32 Level)
 	return FVector(
 		Origin.X + (Cell.X + 0.5f) * CellSize,
 		Origin.Y + (Cell.Y + 0.5f) * CellSize,
-		Origin.Z + (Level + 0.5f) * CellSize);
+		Origin.Z + (Level + 0.5f) * BlockHeight);
 }
 
 FVector UKakurenboGridSubsystem::CellFloorCenter(const FIntPoint& Cell) const
@@ -84,6 +86,23 @@ bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutRea
 	return true;
 }
 
+APlaceableBlock* UKakurenboGridSubsystem::SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color)
+{
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APlaceableBlock* Block = GetWorld()->SpawnActor<APlaceableBlock>(APlaceableBlock::StaticClass(), CellToWorld(Cell, Level), FRotator::ZeroRotator, Params);
+	if (!Block)
+	{
+		return nullptr;
+	}
+	// 立方体メッシュは 100cm なので、マスの幅とブロックの高さに合わせて伸ばす
+	Block->SetActorScale3D(FVector(CellSize / 100.f, CellSize / 100.f, BlockHeight / 100.f));
+	Block->InitBlock(WallTypeIndex, MaxHP, Color);
+	Block->Cell = Cell;
+	Block->Level = Level;
+	return Block;
+}
+
 APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color)
 {
 	if (!CanPlaceBlock(Cell))
@@ -92,27 +111,20 @@ APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int3
 	}
 
 	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
-	const int32 Level = Column.Blocks.Num();
-
-	FActorSpawnParameters Params;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	APlaceableBlock* Block = GetWorld()->SpawnActor<APlaceableBlock>(APlaceableBlock::StaticClass(), CellToWorld(Cell, Level), FRotator::ZeroRotator, Params);
+	APlaceableBlock* Block = SpawnBlockActor(Cell, Column.Blocks.Num(), WallTypeIndex, MaxHP, Color);
 	if (!Block)
 	{
 		return nullptr;
 	}
-	// 立方体メッシュは 100cm なので、マスの大きさに合わせる
-	Block->SetActorScale3D(FVector(CellSize / 100.f));
-	Block->InitBlock(WallTypeIndex, MaxHP, Color);
-	Block->Cell = Cell;
-	Block->Level = Level;
 	Column.Blocks.Add(Block);
 
+	// プレイヤーが手で変えた列は、今の状態を新しい設計図にする
+	SyncDesignToBlocks(Cell);
 	MarkChanged();
 	return Block;
 }
 
-bool UKakurenboGridSubsystem::RemoveBlock(APlaceableBlock* Block)
+bool UKakurenboGridSubsystem::PickUpBlock(APlaceableBlock* Block)
 {
 	if (!Block || !IsInside(Block->Cell))
 	{
@@ -123,7 +135,9 @@ bool UKakurenboGridSubsystem::RemoveBlock(APlaceableBlock* Block)
 	{
 		return false;
 	}
-	RemoveAtLevel(Block->Cell, Level);
+	const FIntPoint Cell = Block->Cell;
+	RemoveAtLevel(Cell, Level);
+	SyncDesignToBlocks(Cell);
 	MarkChanged();
 	return true;
 }
@@ -138,12 +152,31 @@ void UKakurenboGridSubsystem::RemoveAtLevel(const FIntPoint& Cell, int32 Level)
 	Blocks.RemoveAt(Level);
 
 	// 上の段を 1 段ずつ落とす
-	for (int32 i = Level; i < Blocks.Num(); ++i)
+	RestackColumn(Cell);
+}
+
+void UKakurenboGridSubsystem::RestackColumn(const FIntPoint& Cell)
+{
+	TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
+	for (int32 i = 0; i < Blocks.Num(); ++i)
 	{
-		if (APlaceableBlock* Above = Blocks[i])
+		if (APlaceableBlock* Block = Blocks[i])
 		{
-			Above->Level = i;
-			Above->SetActorLocation(CellToWorld(Cell, i));
+			Block->Level = i;
+			Block->SetActorLocation(CellToWorld(Cell, i));
+		}
+	}
+}
+
+void UKakurenboGridSubsystem::SyncDesignToBlocks(const FIntPoint& Cell)
+{
+	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+	Column.Design.Reset();
+	for (const APlaceableBlock* Block : Column.Blocks)
+	{
+		if (Block)
+		{
+			Column.Design.Add(Block->WallTypeIndex);
 		}
 	}
 }
@@ -180,6 +213,7 @@ int32 UKakurenboGridSubsystem::DamageBlocksInRadius(const FVector& Center, float
 				RemoveAtLevel(Cell, BrokenLevels[i]);
 				++Destroyed;
 			}
+			// 設計図はそのまま（あとで修復できるように）
 		}
 	}
 
@@ -202,6 +236,7 @@ void UKakurenboGridSubsystem::ClearAllBlocks()
 			}
 		}
 		Column.Blocks.Reset();
+		Column.Design.Reset();
 	}
 	MarkChanged();
 }
@@ -212,7 +247,113 @@ void UKakurenboGridSubsystem::MarkChanged()
 	OnGridChanged.Broadcast();
 }
 
-// ---------------------------------------------------------------- 経路探索
+// ---------------------------------------------------------------- 設計図と修復
+
+int32 UKakurenboGridSubsystem::GetMissingCount(const FIntPoint& Cell) const
+{
+	if (!IsInside(Cell))
+	{
+		return 0;
+	}
+	const FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+	return FMath::Max(0, Column.Design.Num() - Column.Blocks.Num());
+}
+
+int32 UKakurenboGridSubsystem::GetTotalMissing() const
+{
+	int32 Total = 0;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		Total += FMath::Max(0, Column.Design.Num() - Column.Blocks.Num());
+	}
+	return Total;
+}
+
+int32 UKakurenboGridSubsystem::GetDesignHeight(const FIntPoint& Cell) const
+{
+	return IsInside(Cell) ? Columns[ToIndex(Cell)].Design.Num() : 0;
+}
+
+void UKakurenboGridSubsystem::RepairFromDesign(TArray<int32>& InOutStock, const TArray<FWallTypeDef>& WallTypes,
+	TFunctionRef<bool(const FIntPoint& Cell, int32 Level)> CanSpawnAt, int32& OutRepaired, int32& OutMissing)
+{
+	OutRepaired = 0;
+	OutMissing = 0;
+
+	for (int32 Y = 0; Y < SizeY; ++Y)
+	{
+		for (int32 X = 0; X < SizeX; ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+			if (Column.Design.Num() <= Column.Blocks.Num())
+			{
+				continue; // 壊れていない
+			}
+
+			// プレイヤーがこの列に立っている（上に乗っている）なら、閉じ込めないよう今回は直さない
+			if (!CanSpawnAt(Cell, 0))
+			{
+				OutMissing += Column.Design.Num() - Column.Blocks.Num();
+				continue;
+			}
+
+			TArray<int32> LiveTypes;
+			for (const APlaceableBlock* Block : Column.Blocks)
+			{
+				LiveTypes.Add(Block ? Block->WallTypeIndex : INDEX_NONE);
+			}
+
+			TArray<KakurenboLayout::FRepairEntry> Plan;
+			KakurenboLayout::PlanColumnRepair(Column.Design, LiveTypes, InOutStock, Plan);
+
+			TArray<TObjectPtr<APlaceableBlock>> NewBlocks;
+			for (const KakurenboLayout::FRepairEntry& Entry : Plan)
+			{
+				switch (Entry.Step)
+				{
+				case KakurenboLayout::ERepairStep::Keep:
+					NewBlocks.Add(Column.Blocks[Entry.LiveIndex]);
+					break;
+
+				case KakurenboLayout::ERepairStep::Build:
+				{
+					APlaceableBlock* Block = nullptr;
+					if (WallTypes.IsValidIndex(Entry.Type) && NewBlocks.Num() < MaxStackHeight)
+					{
+						const FWallTypeDef& Def = WallTypes[Entry.Type];
+						Block = SpawnBlockActor(Cell, NewBlocks.Num(), Entry.Type, Def.MaxHP, Def.Color);
+					}
+					if (Block)
+					{
+						NewBlocks.Add(Block);
+						++OutRepaired;
+					}
+					else
+					{
+						++InOutStock[Entry.Type]; // 作れなかったので在庫を返す
+						++OutMissing;
+					}
+					break;
+				}
+
+				case KakurenboLayout::ERepairStep::Missing:
+					++OutMissing;
+					break;
+				}
+			}
+			Column.Blocks = MoveTemp(NewBlocks);
+			RestackColumn(Cell);
+		}
+	}
+
+	if (OutRepaired > 0)
+	{
+		MarkChanged();
+	}
+}
+
+// ---------------------------------------------------------------- 経路探索・出現位置
 
 FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, float CostPerAttack) const
 {
@@ -229,26 +370,67 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, f
 			{
 				continue;
 			}
-			// 範囲攻撃は 1 回でだいたい下 2 段に当たるので、必要な攻撃回数をざっくり見積もる
-			double HitsNeeded = 0.0;
+			// 範囲攻撃は一番下の段に当たり、壊すと上の段が落ちてくる。全部壊すのに必要な攻撃回数を数える
+			double Attacks = 0.0;
 			for (const APlaceableBlock* Block : Blocks)
 			{
 				if (Block)
 				{
-					HitsNeeded += FMath::CeilToDouble(Block->HP / SafeDamage);
+					Attacks += FMath::CeilToDouble(Block->HP / SafeDamage);
 				}
 			}
-			const float Attacks = FMath::Max(1.f, static_cast<float>(FMath::CeilToDouble(HitsNeeded / 2.0)));
-			Grid.SetExtra(FIntPoint(X, Y), Attacks * CostPerAttack);
+			Grid.SetExtra(FIntPoint(X, Y), FMath::Max(1.f, static_cast<float>(Attacks)) * CostPerAttack);
 		}
 	}
 	return Grid;
 }
 
-FIntPoint UKakurenboGridSubsystem::FindFarthestFreeCell(const FVector& From) const
+TArray<FIntPoint> UKakurenboGridSubsystem::FindSpreadFreeCells(const TArray<FVector>& AvoidPoints, int32 Count) const
 {
-	FIntPoint Best(0, 0);
-	float BestDistSq = -1.f;
+	TArray<FVector> Avoid = AvoidPoints;
+	TArray<FIntPoint> Result;
+	for (int32 k = 0; k < Count; ++k)
+	{
+		FIntPoint Best(0, 0);
+		float BestScore = -1.f;
+		for (int32 Y = 0; Y < SizeY; ++Y)
+		{
+			for (int32 X = 0; X < SizeX; ++X)
+			{
+				const FIntPoint Cell(X, Y);
+				if (GetColumnHeight(Cell) > 0 || Result.Contains(Cell))
+				{
+					continue;
+				}
+				// 避けたい点のうち一番近いものまでの距離が、一番大きいマスを選ぶ
+				float MinDistSq = TNumericLimits<float>::Max();
+				for (const FVector& P : Avoid)
+				{
+					MinDistSq = FMath::Min(MinDistSq, static_cast<float>(FVector::DistSquared2D(CellFloorCenter(Cell), P)));
+				}
+				if (MinDistSq > BestScore)
+				{
+					BestScore = MinDistSq;
+					Best = Cell;
+				}
+			}
+		}
+		if (BestScore < 0.f)
+		{
+			break;
+		}
+		Result.Add(Best);
+		Avoid.Add(CellFloorCenter(Best));
+	}
+	return Result;
+}
+
+TArray<FIntPoint> UKakurenboGridSubsystem::FindRandomFreeCells(int32 Count, const TArray<FVector>& AvoidPoints, float MinDistanceCells, FRandomStream& Stream) const
+{
+	const float MinDistCm = MinDistanceCells * CellSize;
+
+	// 条件を満たす空きマスを集めて、ランダムに並べ替える
+	TArray<FIntPoint> Candidates;
 	for (int32 Y = 0; Y < SizeY; ++Y)
 	{
 		for (int32 X = 0; X < SizeX; ++X)
@@ -258,15 +440,49 @@ FIntPoint UKakurenboGridSubsystem::FindFarthestFreeCell(const FVector& From) con
 			{
 				continue;
 			}
-			const float DistSq = FVector::DistSquared2D(CellFloorCenter(Cell), From);
-			if (DistSq > BestDistSq)
+			bool bTooClose = false;
+			for (const FVector& P : AvoidPoints)
 			{
-				BestDistSq = DistSq;
-				Best = Cell;
+				if (FVector::Dist2D(CellFloorCenter(Cell), P) < MinDistCm)
+				{
+					bTooClose = true;
+					break;
+				}
+			}
+			if (!bTooClose)
+			{
+				Candidates.Add(Cell);
 			}
 		}
 	}
-	return Best;
+	for (int32 i = Candidates.Num() - 1; i > 0; --i)
+	{
+		Candidates.Swap(i, Stream.RandRange(0, i));
+	}
+
+	// 選んだマスどうしも離す
+	TArray<FIntPoint> Result;
+	for (const FIntPoint& Cell : Candidates)
+	{
+		if (Result.Num() >= Count)
+		{
+			break;
+		}
+		bool bTooClose = false;
+		for (const FIntPoint& Picked : Result)
+		{
+			if (FVector::Dist2D(CellFloorCenter(Cell), CellFloorCenter(Picked)) < MinDistCm)
+			{
+				bTooClose = true;
+				break;
+			}
+		}
+		if (!bTooClose)
+		{
+			Result.Add(Cell);
+		}
+	}
+	return Result;
 }
 
 bool UKakurenboGridSubsystem::FindRandomFreeCell(FIntPoint& OutCell, const FRandomStream* Stream) const

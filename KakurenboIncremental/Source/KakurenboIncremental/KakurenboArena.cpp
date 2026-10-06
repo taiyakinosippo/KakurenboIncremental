@@ -63,6 +63,21 @@ void AKakurenboArena::BeginPlay()
 	AddCube(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Hz), FVector(SizeX, BorderThickness, BorderHeight), BorderColor);
 	AddCube(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Hz), FVector(SizeX, BorderThickness, BorderHeight), BorderColor);
 
+	// 外周の上の見えない柵（ブロックに乗ってジャンプしても外へ出られないように。三人称カメラも外へ出さない）。
+	// 設置のカーソルや鬼の視線（Visibility）は通す
+	constexpr float FenceHeight = 3000.f;
+	const float Fz = BorderHeight + FenceHeight * 0.5f;
+	auto AddFence = [this](const FVector& Center, const FVector& Size)
+	{
+		UStaticMeshComponent* Fence = AddCube(Center, Size, BorderColor);
+		Fence->SetHiddenInGame(true);
+		Fence->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
+	};
+	AddFence(C + FVector((SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
+	AddFence(C + FVector(-(SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
+	AddFence(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
+	AddFence(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
+
 	if (bSpawnLightingIfMissing)
 	{
 		// TActorIterator: ワールド内の指定クラスのアクターを列挙する

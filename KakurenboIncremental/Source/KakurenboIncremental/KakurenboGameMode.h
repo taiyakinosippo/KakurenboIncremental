@@ -1,5 +1,5 @@
 ﻿// ゲームのルールと進行を管理するクラス。
-// パートの切り替え・コインの計算・購入処理はすべてここに集める。
+// パートの切り替え・コインの計算・購入処理・鬼とお宝の出現はすべてここに集める。
 // 数値はすべて UPROPERTY なので、BP の派生クラスやエディタの詳細パネルで調整できる。
 
 #pragma once
@@ -13,6 +13,7 @@ class AKakurenboArena;
 class AKakurenboGameState;
 class AOniCharacter;
 class APlaceableBlock;
+class ATreasureActor;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
@@ -72,6 +73,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double TimeUpgradeCostGrowth = 1.7;
 
+	// ===== お宝 =====
+
+	/** 1 ラウンドに出現するお宝の数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	int32 NumTreasures = 3;
+
+	/** お宝 1 個の価値（そのステージの逃げ切り報酬に対する割合） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	double TreasureRewardRatio = 0.3;
+
+	/** お宝はプレイヤー・鬼・他のお宝からこのマス数以上離して置く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float TreasureMinDistanceCells = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	TSubclassOf<ATreasureActor> TreasureClass;
+
 	// ===== 壁 =====
 
 	/** 購入できる壁の種類（ショップの並び順） */
@@ -84,11 +102,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	TSubclassOf<AOniCharacter> OniClass;
 
+	/** 鬼の数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	int32 NumOnis = 2;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniWanderSpeedBase = 200.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniInvestigateSpeedBase = 340.f;
+
+	/** 追いかけるときの速さ。プレイヤー（420）より少し遅いので、うまく逃げれば振り切れる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniChaseSpeedBase = 400.f;
 
 	/** ステージごとの移動速度の増加（cm/秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -133,9 +159,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
 	float CellSize = 100.f;
 
+	/** ブロック 1 段の高さ（cm）。プレイヤーの背の高さ（160cm）と同じにして、1 段で体が隠れるようにする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
+	float BlockHeight = 160.f;
+
 	/** ブロックを積める最大の段数 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
-	int32 MaxStackHeight = 4;
+	int32 MaxStackHeight = 3;
 
 	// ===== 計算 =====
 
@@ -155,6 +185,9 @@ public:
 	double GetClearReward() const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetTreasureValue() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetHideDuration() const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -163,10 +196,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetOniHearingRadius() const;
 
-	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
-	AOniCharacter* GetOni() const { return Oni; }
+	/** 今いる鬼（かくれんぼ中・リザルト中のみ） */
+	const TArray<TObjectPtr<AOniCharacter>>& GetOnis() const { return Onis; }
 
-	// ===== 操作（PlayerController や UI から呼ぶ） =====
+	/** 今あるお宝（かくれんぼ中のみ） */
+	const TArray<TObjectPtr<ATreasureActor>>& GetTreasures() const { return Treasures; }
+
+	// ===== 購入 =====
 
 	/** 購入パートの商品一覧（表示順＝番号キー順） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -185,6 +221,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyWall(int32 WallTypeIndex);
 
+	// ===== 設置 =====
+
 	/** 設置パート：在庫の壁をマスの一番上に置けるか（置けない理由も返す） */
 	bool CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex, FText* OutReason = nullptr) const;
 
@@ -196,13 +234,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool PickUpWall(APlaceableBlock* Block);
 
+	// ===== かくれんぼ =====
+
 	/** 連打 1 回分の処理（コイン獲得＋音を出す） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void HandleMash(const FVector& NoiseLocation);
 
+	/** お宝を取得する（お宝がプレイヤーに触れたときに呼ぶ） */
+	void CollectTreasure(ATreasureActor* Treasure);
+
+	// ===== パート遷移 =====
+
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void StartShopPhase();
 
+	/** 設置パートへ。壊れた壁は在庫があれば自動で修復する */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void StartBuildPhase();
 
@@ -237,15 +283,31 @@ protected:
 
 	void SetPhase(EKakurenboPhase NewPhase);
 	AKakurenboGameState* GS() const;
+	ACharacter* GetPlayerCharacter() const;
 
-	void SpawnOni();
-	void DespawnOni();
+	void SpawnOnis();
+	void DespawnOnis();
 	void HandleOniFoundHider();
 	void HandleOniDestroyedWalls(int32 Count);
+
+	void SpawnTreasures();
+	void ClearTreasures();
+
+	/** 壊れた壁を設計図どおりに在庫から直す */
+	void RepairWalls();
+
+	/** プレイヤーの体がそのマスの範囲（縦方向は問わない）に入っているか */
+	bool IsPlayerInCellColumn(const FIntPoint& Cell) const;
 
 	UPROPERTY()
 	TObjectPtr<AKakurenboArena> Arena;
 
 	UPROPERTY()
-	TObjectPtr<AOniCharacter> Oni;
+	TArray<TObjectPtr<AOniCharacter>> Onis;
+
+	UPROPERTY()
+	TArray<TObjectPtr<ATreasureActor>> Treasures;
+
+	bool bOnisSpawnedThisRound = false;
+	FRandomStream TreasureRandom;
 };

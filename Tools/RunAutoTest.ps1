@@ -7,7 +7,8 @@ $Engine = "C:\Program Files\Epic Games\UE_5.8"
 $Project = Join-Path $PSScriptRoot "..\KakurenboIncremental\KakurenboIncremental.uproject" | Resolve-Path
 $Saved = Join-Path (Split-Path $Project) "Saved"
 
-Remove-Item (Join-Path $Saved "AutoTest") -Recurse -Force -ErrorAction SilentlyContinue
+# このシナリオの古いスクリーンショットだけを消す（他のシナリオの分は残す）
+Get-ChildItem (Join-Path $Saved "AutoTest") -Filter "$($Scenario.ToLower())_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 $GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-NoSound", "-ExecCmds=`"$ExtraExec KakuAutoTest $Scenario`"", "-log")
 $Proc = Start-Process -FilePath "$Engine\Engine\Binaries\Win64\UnrealEditor.exe" -ArgumentList $GameArgs -PassThru
@@ -21,4 +22,4 @@ Select-String -Path $Log -Pattern "\[AutoTest\]|Error|Ensure|Assertion" | Where-
 $Failed = @(Select-String -Path $Log -Pattern "CHECK FAILED").Count
 $Passed = @(Select-String -Path $Log -Pattern "CHECK OK").Count
 Write-Host "CHECK: $Passed passed, $Failed failed"
-Get-ChildItem (Join-Path $Saved "AutoTest") -ErrorAction SilentlyContinue | ForEach-Object FullName
+Get-ChildItem (Join-Path $Saved "AutoTest") -Filter "$($Scenario.ToLower())_*.png" -ErrorAction SilentlyContinue | ForEach-Object FullName

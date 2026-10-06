@@ -13,6 +13,8 @@ APlaceableBlock::APlaceableBlock()
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetStaticMesh(CubeFinder.Object);
 	Mesh->SetCollisionProfileName(TEXT("BlockAll"));
+	// 三人称カメラはブロックをすり抜ける（壁で囲んでも外から自分が見えるように）
+	Mesh->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	Mesh->SetMobility(EComponentMobility::Movable); // 下の段が壊れたら落ちるので Movable
 	RootComponent = Mesh;
 }

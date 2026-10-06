@@ -19,7 +19,9 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル）。HUD はここを読む |
 | `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）、鬼の方向表示 |
-| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰カメラ・一人称カメラ・手元の明かり） / 鬼（状態遷移 AI） |
+| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・三人称カメラ） / 鬼（Wander/Investigate/Chase/Attack。ぶつかったらアウト） |
+| `TreasureActor` | お宝（距離で取得） |
+| `KakurenboLayout` | 設計図からの修復計画（純粋ロジック・単体テストあり） |
 | `GridPathfinder` | ワールドに依存しない A*。壁マスに「壊すコスト」を持たせる |
 | `KakurenboGridSubsystem` | グリッドとブロック配置（積み上げ・範囲ダメージ・落下） |
 | `KakurenboArena` | 床・外周の壁・外側の地面・ライト・ポストプロセス（露出の下限、モーションブラーなし）を C++ で生成（レベルアセット不要） |
@@ -34,7 +36,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
-powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Oni / Touch / Build
+powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Senses / Touch / Treasure / Build
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
@@ -53,7 +55,7 @@ powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera 
 - このプロジェクトは「Enable Legacy Input Scales」が有効で、`AddYawInput`/`AddPitchInput` に ×2.5 / ×-2.5（上下反転）がかかる。
   マウス視点は `RotationInput` に直接足している
 - マウスの移動量はビューポートがマウスをキャプチャしているときしか届かない（カーソル表示中は届かない）
-- 実行中のゲームにユーザーのキー入力が入ることがあるので、ログに想定外の遷移があればそれを疑う
+- 自動テスト中は実際のキーボード・マウス入力を無視する（ViewportClient->SetIgnoreInput。疑似入力だけが届く）
 - エディタが起動中で Live Coding が有効だと、外部ビルドが失敗することがある
 - 実行時のログ: `KakurenboIncremental/Saved/Logs/KakurenboIncremental.log`
 

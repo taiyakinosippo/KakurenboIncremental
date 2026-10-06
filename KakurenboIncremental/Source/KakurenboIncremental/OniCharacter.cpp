@@ -14,9 +14,12 @@
 
 namespace
 {
-	constexpr float EyeHeight = 60.f;      // カプセル中心から目までの高さ
-	constexpr float ReachDistance = 25.f;  // マスの中心にこれだけ近づいたら「着いた」
-	constexpr float RepathInterval = 1.f;  // 定期的に経路を作り直す間隔（秒）
+	constexpr float EyeHeight = 60.f;          // カプセル中心から目までの高さ
+	constexpr float ReachDistance = 25.f;      // マスの中心にこれだけ近づいたら「着いた」
+	constexpr float RepathInterval = 1.f;      // 定期的に経路を作り直す間隔（秒）
+	constexpr float ChaseRepathInterval = 0.3f; // 追いかけ中は相手が動くので頻繁に作り直す
+	constexpr float SenseInterval = 0.1f;      // 視界チェックの間隔（秒）
+	const FVector BodyScale(0.76f, 0.76f, 1.9f);
 }
 
 AOniCharacter::AOniCharacter()
@@ -42,7 +45,7 @@ AOniCharacter::AOniCharacter()
 	BodyMesh->SetupAttachment(RootComponent);
 	BodyMesh->SetStaticMesh(CylinderFinder.Object);
 	BodyMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	BodyMesh->SetRelativeScale3D(FVector(0.76f, 0.76f, 1.9f));
+	BodyMesh->SetRelativeScale3D(BodyScale);
 
 	FaceMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FaceMesh"));
 	FaceMesh->SetupAttachment(RootComponent);
@@ -76,6 +79,7 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 {
 	Target = InTarget;
 	bActive = true;
+	FoundReason = NAME_None;
 	LastProgressLocation = GetActorLocation();
 
 	// 懐中電灯を視界と同じ形にする
@@ -87,13 +91,63 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 	IdleTimer = 0.5f;
 }
 
+void AOniCharacter::Deactivate()
+{
+	bActive = false;
+	GetCharacterMovement()->StopMovementImmediately();
+	ResetBodyScale();
+}
+
+// ---------------------------------------------------------------- 状態
+
 void AOniCharacter::SetState(EOniState NewState)
 {
 	State = NewState;
-	GetCharacterMovement()->MaxWalkSpeed = (State == EOniState::Investigate) ? InvestigateSpeed : WanderSpeed;
-	if (State == EOniState::Attack)
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	switch (State)
 	{
-		GetCharacterMovement()->StopMovementImmediately();
+	case EOniState::Wander:      Move->MaxWalkSpeed = WanderSpeed; break;
+	case EOniState::Investigate: Move->MaxWalkSpeed = InvestigateSpeed; break;
+	case EOniState::Chase:       Move->MaxWalkSpeed = ChaseSpeed; break;
+	case EOniState::Attack:      Move->StopMovementImmediately(); break;
+	}
+}
+
+void AOniCharacter::StartInvestigate(const FIntPoint& Cell)
+{
+	ResetBodyScale();
+	SetState(EOniState::Investigate);
+	StateBeforeAttack = EOniState::Investigate;
+	IntentElapsed = 0.f;
+	if (!RequestPathTo(Cell, true))
+	{
+		bHasGoal = false;
+		SearchTimer = SearchDuration;
+	}
+}
+
+void AOniCharacter::StartChase()
+{
+	ResetBodyScale();
+	SetState(EOniState::Chase);
+	StateBeforeAttack = EOniState::Chase;
+	IntentElapsed = 0.f;
+	LostSightTimer = 0.f;
+	ChaseRepathTimer = 0.f;
+	bHasGoal = false;
+}
+
+void AOniCharacter::ReturnToWander(bool bWithSightCooldown)
+{
+	ResetBodyScale();
+	SetState(EOniState::Wander);
+	StateBeforeAttack = EOniState::Wander;
+	bHasGoal = false;
+	IdleTimer = 0.5f;
+	IntentElapsed = 0.f;
+	if (bWithSightCooldown)
+	{
+		SightCooldown = GiveUpSightCooldown;
 	}
 }
 
@@ -108,69 +162,135 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// ぶつかったら（体が触れたら）向きや視線に関係なく即発見。一瞬の接触も逃さないよう毎フレーム調べる
+	// ぶつかったら（体が触れたら）発見。一瞬の接触も逃さないよう毎フレーム調べる
 	if (IsTouchingTarget())
 	{
 		FoundTarget(TEXT("touch"));
 		return;
 	}
 
-	// 視界チェックは 0.1 秒ごと（毎フレームでなくても十分）
+	IntentElapsed += DeltaSeconds;
+	SightCooldown = FMath::Max(0.f, SightCooldown - DeltaSeconds);
+
+	// 視界チェック（見えたら追いかける。見えただけでは負けにならない）
 	SenseTimer += DeltaSeconds;
-	if (SenseTimer >= 0.1f)
+	if (SenseTimer >= SenseInterval)
 	{
 		SenseTimer = 0.f;
-		if (CanSeeTarget())
+		bTargetInSight = CanSeeTarget();
+		if (GetIntent() == EOniState::Chase)
 		{
-			FoundTarget(TEXT("sight"));
-			return;
+			LostSightTimer = bTargetInSight ? 0.f : LostSightTimer + SenseInterval;
 		}
+		else if (bTargetInSight && SightCooldown <= 0.f)
+		{
+			StartChase();
+		}
+	}
+
+	// 一定時間たった／見失ったら、うろうろに戻る（壁を壊している途中でも）
+	const EOniState Intent = GetIntent();
+	if (Intent == EOniState::Chase && LostSightTimer >= LoseSightDuration)
+	{
+		ReturnToWander(false); // 見失っただけなので、また見つけたら追いかける
+	}
+	else if (Intent == EOniState::Chase && IntentElapsed >= ChaseMaxDuration)
+	{
+		ReturnToWander(true); // 時間切れ。見えたままでもしばらく追わない（追いかけっこが終わらなくなるのを防ぐ）
+	}
+	else if (Intent == EOniState::Investigate && IntentElapsed >= InvestigateMaxDuration)
+	{
+		ReturnToWander(false);
 	}
 
 	switch (State)
 	{
-	case EOniState::Attack:
-		TickAttack(DeltaSeconds);
-		break;
-
-	case EOniState::Wander:
-		if (bHasGoal)
-		{
-			FollowPath(DeltaSeconds);
-		}
-		else
-		{
-			IdleTimer -= DeltaSeconds;
-			AddActorWorldRotation(FRotator(0.f, 60.f * DeltaSeconds, 0.f));
-			if (IdleTimer <= 0.f)
-			{
-				PickWanderTarget();
-			}
-		}
-		break;
-
-	case EOniState::Investigate:
-		if (bHasGoal)
-		{
-			FollowPath(DeltaSeconds);
-		}
-		else
-		{
-			// 音のした場所で見回す
-			SearchTimer -= DeltaSeconds;
-			AddActorWorldRotation(FRotator(0.f, 150.f * DeltaSeconds, 0.f));
-			if (SearchTimer <= 0.f)
-			{
-				SetState(EOniState::Wander);
-				IdleTimer = 0.f;
-			}
-		}
-		break;
+	case EOniState::Attack:      TickAttack(DeltaSeconds); break;
+	case EOniState::Wander:      TickWander(DeltaSeconds); break;
+	case EOniState::Investigate: TickInvestigate(DeltaSeconds); break;
+	case EOniState::Chase:       TickChase(DeltaSeconds); break;
 	}
 
 	if (bDrawDebug)
 	{
 		DrawDebug();
+	}
+}
+
+void AOniCharacter::TickWander(float DeltaSeconds)
+{
+	if (bHasGoal)
+	{
+		const EFollowResult Result = FollowPath(DeltaSeconds, false);
+		if (Result == EFollowResult::Arrived || Result == EFollowResult::Failed)
+		{
+			bHasGoal = false;
+			IdleTimer = FMath::FRandRange(0.3f, 1.2f);
+		}
+		return;
+	}
+
+	IdleTimer -= DeltaSeconds;
+	AddActorWorldRotation(FRotator(0.f, 60.f * DeltaSeconds, 0.f));
+	if (IdleTimer <= 0.f)
+	{
+		PickWanderTarget();
+	}
+}
+
+void AOniCharacter::TickInvestigate(float DeltaSeconds)
+{
+	if (bHasGoal)
+	{
+		const EFollowResult Result = FollowPath(DeltaSeconds, true);
+		if (Result == EFollowResult::Arrived || Result == EFollowResult::Failed)
+		{
+			bHasGoal = false;
+			SearchTimer = SearchDuration;
+		}
+		return;
+	}
+
+	// 音のした場所で見回す。何も見つからなければ（見失ったら）うろうろに戻る
+	SearchTimer -= DeltaSeconds;
+	AddActorWorldRotation(FRotator(0.f, 150.f * DeltaSeconds, 0.f));
+	if (SearchTimer <= 0.f)
+	{
+		ReturnToWander(false);
+	}
+}
+
+void AOniCharacter::TickChase(float DeltaSeconds)
+{
+	if (!Target)
+	{
+		ReturnToWander(false);
+		return;
+	}
+
+	// 相手は動くので、相手のいるマスへの経路をこまめに作り直す
+	const FIntPoint TargetCell = ClampToGrid(Grid()->WorldToCell(Target->GetActorLocation()));
+	ChaseRepathTimer -= DeltaSeconds;
+	if (!bHasGoal || TargetCell != GoalCell || ChaseRepathTimer <= 0.f)
+	{
+		ChaseRepathTimer = ChaseRepathInterval;
+		if (!RequestPathTo(TargetCell, true))
+		{
+			bHasGoal = false;
+		}
+	}
+
+	const FVector ToTarget = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	if (!bHasGoal)
+	{
+		AddMovementInput(ToTarget);
+		return;
+	}
+
+	// 同じマスまで来たら、まっすぐ相手に向かう（ぶつかれば発見）
+	if (FollowPath(DeltaSeconds, true) == EFollowResult::Arrived)
+	{
+		AddMovementInput(ToTarget);
 	}
 }
 
@@ -181,11 +301,12 @@ void AOniCharacter::FoundTarget(FName Reason)
 	bActive = false;
 	FoundReason = Reason;
 	GetCharacterMovement()->StopMovementImmediately();
+	ResetBodyScale();
 	if (Target)
 	{
 		SetActorRotation(FRotator(0.f, (Target->GetActorLocation() - GetActorLocation()).Rotation().Yaw, 0.f));
 	}
-	UE_LOG(LogTemp, Log, TEXT("Oni found the hider by %s"), *Reason.ToString());
+	UE_LOG(LogTemp, Log, TEXT("Oni %s found the hider by %s"), *GetName(), *Reason.ToString());
 	OnFoundHider.Broadcast();
 }
 
@@ -253,6 +374,11 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 	{
 		return;
 	}
+	// 追いかけている間は、音より目で追うのを優先する
+	if (GetIntent() == EOniState::Chase)
+	{
+		return;
+	}
 	const float Dist = FVector::Dist(NoiseLocation, GetActorLocation());
 	const float Range = HearingRadius * Loudness;
 	if (Dist > Range)
@@ -261,15 +387,13 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 	}
 
 	// 遠い音ほど場所がずれて聞こえる
-	const float ErrorCm = NoiseInaccuracyCells * G->GetCellSize() * (Dist / Range);
+	const float ErrorCm = NoiseInaccuracyCells * G->GetCellSize() * (Dist / FMath::Max(Range, 1.f));
 	const FVector2D Offset = FMath::RandPointInCircle(ErrorCm);
-	FIntPoint Cell = G->WorldToCell(NoiseLocation + FVector(Offset.X, Offset.Y, 0.f));
-	Cell.X = FMath::Clamp(Cell.X, 0, G->GetSizeX() - 1);
-	Cell.Y = FMath::Clamp(Cell.Y, 0, G->GetSizeY() - 1);
+	const FIntPoint Cell = ClampToGrid(G->WorldToCell(NoiseLocation + FVector(Offset.X, Offset.Y, 0.f)));
 
 	// すでにその辺りへ向かっているなら、経路は作り直さない（連打のたびに迷わないように）
-	const bool bAlreadyGoingThere = (State == EOniState::Investigate || StateBeforeAttack == EOniState::Investigate)
-		&& bHasGoal && FMath::Abs(Cell.X - NoiseCell.X) + FMath::Abs(Cell.Y - NoiseCell.Y) <= 2;
+	const bool bAlreadyGoingThere = GetIntent() == EOniState::Investigate && bHasGoal
+		&& FMath::Abs(Cell.X - NoiseCell.X) + FMath::Abs(Cell.Y - NoiseCell.Y) <= 2;
 	if (bAlreadyGoingThere)
 	{
 		return;
@@ -280,20 +404,21 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 	{
 		// 攻撃が終わったら音の方へ向かう
 		StateBeforeAttack = EOniState::Investigate;
+		IntentElapsed = 0.f;
 		GoalCell = Cell;
 		bHasGoal = true;
 		return;
 	}
-
-	SetState(EOniState::Investigate);
-	if (!RequestPathTo(Cell, true))
-	{
-		bHasGoal = false;
-		SearchTimer = SearchDuration;
-	}
+	StartInvestigate(Cell);
 }
 
 // ---------------------------------------------------------------- 移動
+
+FIntPoint AOniCharacter::ClampToGrid(const FIntPoint& Cell) const
+{
+	const UKakurenboGridSubsystem* G = Grid();
+	return FIntPoint(FMath::Clamp(Cell.X, 0, G->GetSizeX() - 1), FMath::Clamp(Cell.Y, 0, G->GetSizeY() - 1));
+}
 
 bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, bool bAllowWalls)
 {
@@ -304,9 +429,7 @@ bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, bool bAllowWalls)
 	}
 
 	FKakurenboPathGrid PathGrid = G->BuildPathGrid(AttackDamage, PathCostPerAttack);
-	FIntPoint Start = G->WorldToCell(GetActorLocation());
-	Start.X = FMath::Clamp(Start.X, 0, G->GetSizeX() - 1);
-	Start.Y = FMath::Clamp(Start.Y, 0, G->GetSizeY() - 1);
+	const FIntPoint Start = ClampToGrid(G->WorldToCell(GetActorLocation()));
 	PathGrid.SetExtra(Start, 0.f); // 自分のいるマスは常に通れる扱い
 
 	TArray<FIntPoint> NewPath;
@@ -344,10 +467,9 @@ void AOniCharacter::PickWanderTarget()
 	IdleTimer = 1.f; // 見つからなければ少し待って再挑戦
 }
 
-void AOniCharacter::FollowPath(float DeltaSeconds)
+AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds, bool bAllowWalls)
 {
 	UKakurenboGridSubsystem* G = Grid();
-	const bool bAllowWalls = (State == EOniState::Investigate);
 
 	// 配置が変わった・一定時間たった → 経路を作り直す
 	RepathTimer -= DeltaSeconds;
@@ -355,26 +477,13 @@ void AOniCharacter::FollowPath(float DeltaSeconds)
 	{
 		if (!RequestPathTo(GoalCell, bAllowWalls))
 		{
-			bHasGoal = false;
-			IdleTimer = 0.5f;
-			SearchTimer = SearchDuration;
-			return;
+			return EFollowResult::Failed;
 		}
 	}
 
 	if (PathIndex >= Path.Num())
 	{
-		// 到着
-		bHasGoal = false;
-		if (State == EOniState::Investigate)
-		{
-			SearchTimer = SearchDuration;
-		}
-		else
-		{
-			IdleTimer = FMath::FRandRange(0.3f, 1.2f);
-		}
-		return;
+		return EFollowResult::Arrived;
 	}
 
 	const FIntPoint Next = Path[PathIndex];
@@ -388,13 +497,13 @@ void AOniCharacter::FollowPath(float DeltaSeconds)
 		if (Dist2D <= G->GetCellSize() * 1.1f)
 		{
 			BeginAttack(Next);
-			return;
+			return EFollowResult::Attacking;
 		}
 	}
 	else if (Dist2D <= ReachDistance)
 	{
 		++PathIndex;
-		return;
+		return PathIndex >= Path.Num() ? EFollowResult::Arrived : EFollowResult::Moving;
 	}
 
 	AddMovementInput((NextCenter - Loc).GetSafeNormal2D());
@@ -411,6 +520,7 @@ void AOniCharacter::FollowPath(float DeltaSeconds)
 			RepathTimer = 0.f;
 		}
 	}
+	return EFollowResult::Moving;
 }
 
 void AOniCharacter::FaceTowards(const FVector& Location, float DeltaSeconds, float DegreesPerSecond)
@@ -434,6 +544,11 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 	SetState(EOniState::Attack);
 }
 
+void AOniCharacter::ResetBodyScale()
+{
+	BodyMesh->SetRelativeScale3D(BodyScale);
+}
+
 void AOniCharacter::TickAttack(float DeltaSeconds)
 {
 	UKakurenboGridSubsystem* G = Grid();
@@ -444,7 +559,7 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 	// 溜め中は体を縮める（見た目の予兆）
 	const float Windup = FMath::Clamp(AttackTimer / AttackWindup, 0.f, 1.f);
 	const float Squash = bAttackFired ? 1.f : 1.f - 0.25f * Windup;
-	BodyMesh->SetRelativeScale3D(FVector(0.76f / FMath::Sqrt(Squash), 0.76f / FMath::Sqrt(Squash), 1.9f * Squash));
+	BodyMesh->SetRelativeScale3D(FVector(BodyScale.X / FMath::Sqrt(Squash), BodyScale.Y / FMath::Sqrt(Squash), BodyScale.Z * Squash));
 
 	if (!bAttackFired && AttackTimer >= AttackWindup)
 	{
@@ -467,10 +582,14 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 			return;
 		}
 
-		// 壊し終わった → 元の行動に戻って経路を作り直す
+		// 壊し終わった → 元の行動に戻る（経路は次の Tick で作り直す）
+		ResetBodyScale();
 		SetState(StateBeforeAttack);
-		StateBeforeAttack = EOniState::Wander;
-		if (bHasGoal && !RequestPathTo(GoalCell, State == EOniState::Investigate))
+		if (State == EOniState::Chase)
+		{
+			bHasGoal = false;
+		}
+		else if (bHasGoal && !RequestPathTo(GoalCell, State == EOniState::Investigate))
 		{
 			bHasGoal = false;
 			SearchTimer = SearchDuration;

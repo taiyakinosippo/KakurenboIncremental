@@ -9,7 +9,6 @@
 
 class AKakurenboGameMode;
 class AKakurenboGameState;
-class AOniCharacter;
 class UFont;
 struct FSlateFontInfo;
 
@@ -25,13 +24,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
 	bool bShowOniIndicator = true;
 
+	/** かくれんぼ中にお宝の位置を表示する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	bool bShowTreasureIndicator = true;
+
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawResult(AKakurenboGameState* State, AKakurenboGameMode* GM);
-	void DrawOniIndicator(const AOniCharacter* Oni, const AKakurenboGameState* State);
+
+	/**
+	 * ワールド上の位置を示す目印を描く。画面内なら ▼ とラベル、画面外なら画面の縁に方向を示す矢印。
+	 * @param ArrowRadiusRatio 矢印を並べる円の半径（画面の高さに対する割合）
+	 */
+	void DrawWorldIndicator(const FVector& WorldLocation, const FString& Label, const FLinearColor& Color, float ArrowRadiusRatio, float Scale);
 
 	/** 連打したときに「+〇」を画面中央の下に浮かべる（カメラを揺らさない手応え） */
 	void DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM);

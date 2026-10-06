@@ -1,9 +1,11 @@
 ﻿// プレイヤー（隠れる側）のキャラクター。
 // 入力の処理は KakurenboPlayerController が行い、ここは見た目・カメラ・移動能力を持つ。
 //
-// カメラは 2 種類あり、パートによって切り替える：
+// カメラは 1 本のアーム（SpringArm）の先に付いていて、パートによって向きと長さを変える：
 //   俯瞰（Overhead）    : 購入・設置・リザルト。斜め上から見下ろす。Q/E で回転、ホイールでズーム
-//   一人称（FirstPerson）: かくれんぼ。自分の目の高さから、マウスで自由に見回す
+//   三人称（ThirdPerson）: かくれんぼ。自分の背後の少し上から見る。マウスで回す、ホイールで距離を変える
+// 置いたブロックはカメラがすり抜けるので、壁で囲まれても周りが見える。
+// 三人称では舞台の外周の壁には当たって手前に寄る（舞台の外へ出ない）。
 
 #pragma once
 
@@ -13,7 +15,6 @@
 #include "HiderCharacter.generated.h"
 
 class UCameraComponent;
-class UPointLightComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
 
@@ -25,32 +26,27 @@ class KAKURENBOINCREMENTAL_API AHiderCharacter : public ACharacter
 public:
 	AHiderCharacter();
 
-	/** 俯瞰カメラを支えるアーム（向きはワールド固定。プレイヤーの向きには追従しない） */
+	/** カメラを支えるアーム（向きはワールド固定で、Tick で設定する） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider|Camera")
 	TObjectPtr<USpringArmComponent> CameraBoom;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider|Camera")
-	TObjectPtr<UCameraComponent> OverheadCamera;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider|Camera")
-	TObjectPtr<UCameraComponent> FirstPersonCamera;
+	TObjectPtr<UCameraComponent> Camera;
 
 	/** 仮の見た目（円柱）。BP でメッシュを差し替えてよい */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
 	TObjectPtr<UStaticMeshComponent> BodyMesh;
 
-	/** 一人称のときだけ点く、身の回りを照らす弱い明かり（壁で囲まれた中でも壁の色が分かるように） */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider|Camera")
-	TObjectPtr<UPointLightComponent> HideLight;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider")
 	FLinearColor BodyColor = FLinearColor(0.1f, 0.4f, 1.f);
 
-	/** 俯瞰カメラの見下ろす角度（度。-90 で真上から） */
+	// ===== 俯瞰カメラ =====
+
+	/** 見下ろす角度（度。-90 で真上から） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float OverheadPitch = -60.f;
 
-	/** 俯瞰カメラの距離（cm）。ホイールで変わる */
+	/** 距離（cm）。ホイールで変わる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float OverheadDistance = 1800.f;
 
@@ -60,21 +56,38 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float OverheadMaxDistance = 3500.f;
 
-	/** 一人称カメラの高さ（カプセルの中心から、cm） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
-	float EyeHeight = 64.f;
+	// ===== 三人称カメラ =====
 
-	/** 視点を切り替える（カメラ・体の表示・向きの制御をまとめて変える） */
+	/** 距離（cm）。ホイールで変わる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float ThirdPersonDistance = 550.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float ThirdPersonMinDistance = 250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float ThirdPersonMaxDistance = 1100.f;
+
+	/** 注視点をプレイヤーの中心からどれだけ上げるか（壁越しに見渡しやすくする） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float ThirdPersonLookHeight = 70.f;
+
+	/** 視点を切り替える（アームの動かし方・体の向きの制御をまとめて変える） */
 	void SetViewMode(EHiderViewMode NewMode);
 	EHiderViewMode GetViewMode() const { return ViewMode; }
+
+	/** 今のカメラが水平方向に向いている角度（WASD をカメラ基準にするのに使う） */
+	float GetViewYaw() const;
 
 	/** 俯瞰カメラの水平方向の向き（度） */
 	float GetOverheadYaw() const { return OverheadYaw; }
 	void SetOverheadYaw(float Yaw);
 	void AddOverheadYaw(float DeltaDegrees);
-	void AddOverheadZoom(float DeltaCm);
 
-	/** 連打したときの見た目の反応（体が縮む。一人称のカメラは動かさない） */
+	/** ホイールでのズーム（今の視点の距離を変える） */
+	void AddZoom(float DeltaCm);
+
+	/** 連打したときの見た目の反応（体が縮む。カメラは動かさない） */
 	void PlayMashFeedback();
 
 	/** 鬼の視線チェックで狙う点（頭・体・足） */
@@ -85,7 +98,7 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
-	EHiderViewMode ViewMode = EHiderViewMode::FirstPerson;
+	EHiderViewMode ViewMode = EHiderViewMode::ThirdPerson;
 	float OverheadYaw = 0.f;
 	float MashPulse = 0.f;
 	FVector BodyBaseScale = FVector::OneVector;

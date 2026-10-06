@@ -67,12 +67,24 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 LastRoundWallsDestroyed = 0;
 
-	// ---- 鬼（HUD 表示用） ----
+	// ---- お宝 ----
+	/** このラウンドに出現したお宝の数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
-	bool bOniActive = false;
+	int32 TreasuresThisRound = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
-	EOniState OniState = EOniState::Wander;
+	int32 TreasuresCollectedThisRound = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	double TreasureCoinsThisRound = 0.0;
+
+	// ---- 壁の自動修復（設置パートの開始時） ----
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 LastRepairedWalls = 0;
+
+	/** 在庫不足などで直せなかった壁の数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 LastUnrepairedWalls = 0;
 
 	UPROPERTY(BlueprintAssignable, Category = "Kakurenbo")
 	FOnKakurenboPhaseChanged OnPhaseChanged;

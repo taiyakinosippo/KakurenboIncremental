@@ -1,18 +1,19 @@
 ﻿#include "KakurenboGameMode.h"
 
+#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
 #include "HiderCharacter.h"
 #include "KakurenboArena.h"
-#include "DrawDebugHelpers.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
-#include "OniCharacter.h"
-#include "PlaceableBlock.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboPlayerController.h"
+#include "OniCharacter.h"
+#include "PlaceableBlock.h"
+#include "TreasureActor.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKakurenbo, Log, All);
 
@@ -26,6 +27,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	GameStateClass = AKakurenboGameState::StaticClass();
 	HUDClass = AKakurenboHUD::StaticClass();
 	OniClass = AOniCharacter::StaticClass();
+	TreasureClass = ATreasureActor::StaticClass();
 
 	// 壁の初期設定。鬼の攻撃力はステージごとに 1.6 倍になるので、
 	// 木は常に一撃、石はステージ 4 から一撃、鉄はステージ 7 から一撃で壊れる
@@ -47,9 +49,17 @@ AKakurenboGameState* AKakurenboGameMode::GS() const
 	return GetGameState<AKakurenboGameState>();
 }
 
+ACharacter* AKakurenboGameMode::GetPlayerCharacter() const
+{
+	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	return PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+}
+
 void AKakurenboGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+
+	TreasureRandom.GenerateNewSeed();
 
 	// レベルに舞台が置かれていなければ自動で作る
 	for (TActorIterator<AKakurenboArena> It(GetWorld()); It; ++It)
@@ -75,10 +85,10 @@ void AKakurenboGameMode::BeginPlay()
 	// グリッド（ブロック配置・鬼の経路探索）を舞台に合わせて初期化
 	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
-		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, MaxStackHeight);
+		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, BlockHeight, MaxStackHeight);
 	}
 
-	// 最初のラウンドは「何もない空間で棒立ちのまま連打」から始まる
+	// 最初のラウンドは「何もない空間で連打」から始まる
 	StartHidePhase();
 }
 
@@ -114,17 +124,12 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 	if (State->HideStartCountdown > 0.f)
 	{
 		State->HideStartCountdown = FMath::Max(0.f, State->HideStartCountdown - DeltaSeconds);
-		if (State->HideStartCountdown <= 0.f)
-		{
-			SpawnOni();
-		}
 		return;
 	}
-
-	State->bOniActive = Oni != nullptr;
-	if (Oni)
+	if (!bOnisSpawnedThisRound)
 	{
-		State->OniState = Oni->GetOniState();
+		bOnisSpawnedThisRound = true;
+		SpawnOnis();
 	}
 
 	// 時間収入（毎フレーム、経過時間ぶんだけ加算）
@@ -170,6 +175,11 @@ double AKakurenboGameMode::GetClearReward() const
 	return UKakurenboLibrary::ExpCurve(ClearRewardBase, ClearRewardGrowth, State ? State->Stage - 1 : 0);
 }
 
+double AKakurenboGameMode::GetTreasureValue() const
+{
+	return GetClearReward() * TreasureRewardRatio;
+}
+
 float AKakurenboGameMode::GetHideDuration() const
 {
 	const AKakurenboGameState* State = GS();
@@ -196,7 +206,7 @@ EKakurenboPhase AKakurenboGameMode::GetPhase() const
 
 // ---------------------------------------------------------------- 購入
 
-// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2〜] 壁（M3 で追加）
+// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2〜] 壁
 namespace KakurenboShop
 {
 	constexpr int32 MashUpgrade = 0;
@@ -256,6 +266,32 @@ bool AKakurenboGameMode::TryBuyShopItem(int32 Index)
 	}
 }
 
+bool AKakurenboGameMode::TryBuyMashUpgrade()
+{
+	AKakurenboGameState* State = GS();
+	const double Cost = GetMashUpgradeCost();
+	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
+	{
+		return false;
+	}
+	State->Coins -= Cost;
+	State->MashIncomeLevel++;
+	return true;
+}
+
+bool AKakurenboGameMode::TryBuyTimeUpgrade()
+{
+	AKakurenboGameState* State = GS();
+	const double Cost = GetTimeUpgradeCost();
+	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
+	{
+		return false;
+	}
+	State->Coins -= Cost;
+	State->TimeIncomeLevel++;
+	return true;
+}
+
 bool AKakurenboGameMode::TryBuyWall(int32 WallTypeIndex)
 {
 	AKakurenboGameState* State = GS();
@@ -276,6 +312,24 @@ bool AKakurenboGameMode::TryBuyWall(int32 WallTypeIndex)
 
 // ---------------------------------------------------------------- 設置
 
+bool AKakurenboGameMode::IsPlayerInCellColumn(const FIntPoint& Cell) const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player)
+	{
+		return false;
+	}
+	// プレイヤーの円（カプセルを真上から見たもの）とマスの正方形が交わるか
+	const float Half = Grid->GetCellSize() * 0.5f;
+	const FVector Center = Grid->CellFloorCenter(Cell);
+	const FVector P = Player->GetActorLocation();
+	const float Radius = Player->GetSimpleCollisionRadius();
+	const float DX = FMath::Max(0.f, FMath::Abs(P.X - Center.X) - Half);
+	const float DY = FMath::Max(0.f, FMath::Abs(P.Y - Center.Y) - Half);
+	return DX * DX + DY * DY < Radius * Radius;
+}
+
 bool AKakurenboGameMode::CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex, FText* OutReason) const
 {
 	const AKakurenboGameState* State = GS();
@@ -294,20 +348,12 @@ bool AKakurenboGameMode::CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex
 		return false;
 	}
 
-	// プレイヤーと重なる場所には置けない（カプセルとブロックの箱が交わるかを調べる）
-	if (const ACharacter* Pawn = Cast<ACharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr))
+	// プレイヤーと重なる場所には置けない（真上から見て重なり、高さも重なるか）
+	if (const ACharacter* Player = GetPlayerCharacter())
 	{
-		const float Half = Grid->GetCellSize() * 0.5f;
 		const FVector BoxCenter = Grid->CellToWorld(Cell, Grid->GetColumnHeight(Cell));
-		const FVector P = Pawn->GetActorLocation();
-		const float Radius = Pawn->GetSimpleCollisionRadius();
-		const float HalfHeight = Pawn->GetSimpleCollisionHalfHeight();
-
-		const float DX = FMath::Max(0.f, FMath::Abs(P.X - BoxCenter.X) - Half);
-		const float DY = FMath::Max(0.f, FMath::Abs(P.Y - BoxCenter.Y) - Half);
-		const bool bOverlapXY = DX * DX + DY * DY < Radius * Radius;
-		const bool bOverlapZ = FMath::Abs(P.Z - BoxCenter.Z) < HalfHeight + Half;
-		if (bOverlapXY && bOverlapZ)
+		const bool bOverlapZ = FMath::Abs(Player->GetActorLocation().Z - BoxCenter.Z) < Player->GetSimpleCollisionHalfHeight() + Grid->GetBlockHeight() * 0.5f;
+		if (IsPlayerInCellColumn(Cell) && bOverlapZ)
 		{
 			if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlacePlayer", "自分と重なる場所には置けません");
 			return false;
@@ -341,7 +387,7 @@ bool AKakurenboGameMode::PickUpWall(APlaceableBlock* Block)
 		return false;
 	}
 	const int32 TypeIndex = Block->WallTypeIndex;
-	if (!Grid->RemoveBlock(Block))
+	if (!Grid->PickUpBlock(Block))
 	{
 		return false;
 	}
@@ -353,30 +399,29 @@ bool AKakurenboGameMode::PickUpWall(APlaceableBlock* Block)
 	return true;
 }
 
-bool AKakurenboGameMode::TryBuyMashUpgrade()
+void AKakurenboGameMode::RepairWalls()
 {
 	AKakurenboGameState* State = GS();
-	const double Cost = GetMashUpgradeCost();
-	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid)
 	{
-		return false;
+		return;
 	}
-	State->Coins -= Cost;
-	State->MashIncomeLevel++;
-	return true;
-}
+	State->WallStock.SetNum(WallTypes.Num());
 
-bool AKakurenboGameMode::TryBuyTimeUpgrade()
-{
-	AKakurenboGameState* State = GS();
-	const double Cost = GetTimeUpgradeCost();
-	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
+	int32 Repaired = 0;
+	int32 Missing = 0;
+	// プレイヤーが立っている（上に乗っている）列は、閉じ込めないよう直さない
+	Grid->RepairFromDesign(State->WallStock, WallTypes,
+		[this](const FIntPoint& Cell, int32 Level) { return !IsPlayerInCellColumn(Cell); },
+		Repaired, Missing);
+
+	State->LastRepairedWalls = Repaired;
+	State->LastUnrepairedWalls = Missing;
+	if (Repaired > 0 || Missing > 0)
 	{
-		return false;
+		UE_LOG(LogKakurenbo, Log, TEXT("Walls repaired: %d, not repaired: %d"), Repaired, Missing);
 	}
-	State->Coins -= Cost;
-	State->TimeIncomeLevel++;
-	return true;
 }
 
 // ---------------------------------------------------------------- かくれんぼ
@@ -392,9 +437,12 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->MashCountThisRound++;
 
 	// 連打の音が鬼に届く
-	if (Oni)
+	for (AOniCharacter* Oni : Onis)
 	{
-		Oni->HearNoise(NoiseLocation);
+		if (Oni)
+		{
+			Oni->HearNoise(NoiseLocation);
+		}
 	}
 	if (bShowNoiseRing)
 	{
@@ -404,59 +452,121 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	}
 }
 
-// ---------------------------------------------------------------- 鬼
-
-void AKakurenboGameMode::SpawnOni()
+void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
 {
-	DespawnOni();
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Hide || !Treasure || !Treasures.Contains(Treasure))
+	{
+		return;
+	}
+	State->AddCoins(Treasure->Value, true);
+	State->TreasuresCollectedThisRound++;
+	State->TreasureCoinsThisRound += Treasure->Value;
+	UE_LOG(LogKakurenbo, Log, TEXT("Treasure collected (+%s)"), *UKakurenboLibrary::FormatBigNumber(Treasure->Value));
+
+	Treasures.Remove(Treasure);
+	Treasure->Destroy();
+}
+
+void AKakurenboGameMode::SpawnTreasures()
+{
+	ClearTreasures();
 
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
-	AHiderCharacter* Hider = Cast<AHiderCharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr);
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !TreasureClass)
+	{
+		return;
+	}
+
+	// 毎回ランダムな空きマス。プレイヤーのすぐ近くと、お宝どうしは離す
+	const TArray<FIntPoint> Cells = Grid->FindRandomFreeCells(NumTreasures, { Player->GetActorLocation() }, TreasureMinDistanceCells, TreasureRandom);
+	for (const FIntPoint& Cell : Cells)
+	{
+		ATreasureActor* Treasure = GetWorld()->SpawnActorDeferred<ATreasureActor>(TreasureClass, FTransform(Grid->CellFloorCenter(Cell)));
+		if (!Treasure)
+		{
+			continue;
+		}
+		Treasure->Value = GetTreasureValue();
+		Treasure->FinishSpawning(FTransform(Grid->CellFloorCenter(Cell)));
+		Treasures.Add(Treasure);
+	}
+
+	if (AKakurenboGameState* State = GS())
+	{
+		State->TreasuresThisRound = Treasures.Num();
+	}
+}
+
+void AKakurenboGameMode::ClearTreasures()
+{
+	for (ATreasureActor* Treasure : Treasures)
+	{
+		if (Treasure)
+		{
+			Treasure->Destroy();
+		}
+	}
+	Treasures.Reset();
+}
+
+// ---------------------------------------------------------------- 鬼
+
+void AKakurenboGameMode::SpawnOnis()
+{
+	DespawnOnis();
+
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter());
 	if (!Grid || !Hider || !OniClass)
 	{
 		return;
 	}
 
-	// プレイヤーからいちばん遠い空きマスに出現
-	const FIntPoint Cell = Grid->FindFarthestFreeCell(Hider->GetActorLocation());
-	const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
-	const FRotator Facing(0.f, (Hider->GetActorLocation() - Location).Rotation().Yaw, 0.f);
-
-	Oni = GetWorld()->SpawnActorDeferred<AOniCharacter>(OniClass, FTransform(Facing, Location), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
-	if (!Oni)
-	{
-		return;
-	}
-
+	// プレイヤーからも、鬼どうしでも、なるべく遠い空きマスに出現させる
+	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, NumOnis);
 	const int32 Stage = GS()->Stage;
-	Oni->WanderSpeed = OniWanderSpeedBase + OniSpeedPerStage * (Stage - 1);
-	Oni->InvestigateSpeed = OniInvestigateSpeedBase + OniSpeedPerStage * (Stage - 1);
-	Oni->SightRadius = OniSightRadius;
-	Oni->SightHalfAngle = OniSightHalfAngle;
-	Oni->HearingRadius = GetOniHearingRadius();
-	Oni->AttackDamage = GetOniAttackDamage();
-	Oni->bDrawDebug = bDebugOni;
-	Oni->FinishSpawning(FTransform(Facing, Location));
+	for (const FIntPoint& Cell : Cells)
+	{
+		const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
+		const FRotator Facing(0.f, (Hider->GetActorLocation() - Location).Rotation().Yaw, 0.f);
 
-	// 鬼からの通知を受け取る（C# の event += に相当）
-	Oni->OnFoundHider.AddUObject(this, &AKakurenboGameMode::HandleOniFoundHider);
-	Oni->OnDestroyedWalls.AddUObject(this, &AKakurenboGameMode::HandleOniDestroyedWalls);
-	Oni->Activate(Hider);
+		AOniCharacter* Oni = GetWorld()->SpawnActorDeferred<AOniCharacter>(OniClass, FTransform(Facing, Location), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
+		if (!Oni)
+		{
+			continue;
+		}
+		Oni->WanderSpeed = OniWanderSpeedBase + OniSpeedPerStage * (Stage - 1);
+		Oni->InvestigateSpeed = OniInvestigateSpeedBase + OniSpeedPerStage * (Stage - 1);
+		Oni->ChaseSpeed = OniChaseSpeedBase + OniSpeedPerStage * (Stage - 1);
+		Oni->SightRadius = OniSightRadius;
+		Oni->SightHalfAngle = OniSightHalfAngle;
+		Oni->HearingRadius = GetOniHearingRadius();
+		Oni->AttackDamage = GetOniAttackDamage();
+		Oni->bDrawDebug = bDebugOni;
+		Oni->FinishSpawning(FTransform(Facing, Location));
 
-	UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f"), Cell.X, Cell.Y, Oni->AttackDamage);
+		// 鬼からの通知を受け取る（C# の event += に相当）
+		Oni->OnFoundHider.AddUObject(this, &AKakurenboGameMode::HandleOniFoundHider);
+		Oni->OnDestroyedWalls.AddUObject(this, &AKakurenboGameMode::HandleOniDestroyedWalls);
+		Oni->Activate(Hider);
+		Onis.Add(Oni);
+
+		UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f"), Cell.X, Cell.Y, Oni->AttackDamage);
+	}
 }
 
-void AKakurenboGameMode::DespawnOni()
+void AKakurenboGameMode::DespawnOnis()
 {
-	if (Oni)
+	for (AOniCharacter* Oni : Onis)
 	{
-		Oni->Destroy();
-		Oni = nullptr;
+		if (Oni)
+		{
+			Oni->Destroy();
+		}
 	}
-	if (AKakurenboGameState* State = GS())
-	{
-		State->bOniActive = false;
-	}
+	Onis.Reset();
 }
 
 void AKakurenboGameMode::HandleOniFoundHider()
@@ -490,12 +600,15 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 
 void AKakurenboGameMode::StartShopPhase()
 {
-	DespawnOni();
+	DespawnOnis();
+	ClearTreasures();
 	SetPhase(EKakurenboPhase::Shop);
 }
 
 void AKakurenboGameMode::StartBuildPhase()
 {
+	// 購入パートで買い足した在庫も使って、壊れた壁を設計図どおりに直す
+	RepairWalls();
 	SetPhase(EKakurenboPhase::Build);
 }
 
@@ -509,9 +622,15 @@ void AKakurenboGameMode::StartHidePhase()
 	State->CoinsEarnedThisRound = 0.0;
 	State->MashCountThisRound = 0;
 	State->LastRoundWallsDestroyed = 0;
+	State->TreasuresCollectedThisRound = 0;
+	State->TreasureCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
 	State->HideTimeRemaining = State->HideTimeLimit;
 	State->HideStartCountdown = HideStartDelay;
+	bOnisSpawnedThisRound = false;
+
+	// お宝は最初から置いておく（鬼が来る前に取りに行ける）
+	SpawnTreasures();
 	SetPhase(EKakurenboPhase::Hide);
 }
 
@@ -537,12 +656,20 @@ void AKakurenboGameMode::EndHidePhase(bool bCleared)
 	// 見つかったときは鬼の姿を少しの間見せたいので、リザルト画面を抜けるときに消す
 	if (bCleared)
 	{
-		DespawnOni();
+		DespawnOnis();
 	}
-	else if (Oni)
+	else
 	{
-		Oni->SetActorTickEnabled(false);
+		for (AOniCharacter* Oni : Onis)
+		{
+			if (Oni)
+			{
+				Oni->Deactivate();
+			}
+		}
 	}
+	// 取れなかったお宝は消える
+	ClearTreasures();
 
 	SetPhase(EKakurenboPhase::Result);
 }
