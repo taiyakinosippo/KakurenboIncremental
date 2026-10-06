@@ -12,7 +12,7 @@
 | 列 | 意味 |
 |---|---|
 | HideDuration | 制限時間（秒） |
-| OniTypes | 出てくる鬼の種類と数。`"(Balanced,Scout,Careful,Careful)"` のように並べる（同じ種類を 2 回書けば 2 体）。名前は OniTypes.csv の行の名前 |
+| OniTypes | 出てくる鬼の種類と数。`"(Balanced,Scout,Careful,Careful)"` のように並べる（同じ種類を 2 回書けば 2 体。最大 6 体＝出入り口のマスの数）。名前は OniTypes.csv の行の名前。並べ方の考え方は docs/GameDesign.md の「レベルデザイン」 |
 | NumTreasures | お宝の数 |
 | ClearReward | 逃げ切り報酬（コイン）。お宝 1 個はこの 30% |
 | OniDamage | 鬼の攻撃力の基本値（壁の耐久値と比べる）。種類ごとの倍率（OniTypes.csv の DamageScale）がかかる |
@@ -29,7 +29,10 @@
 | SpeedScale | 速さの倍率（うろうろ・調べる・追いかける すべてにかかる） |
 | DamageScale | 壁を壊す力の倍率 |
 | SightRadius / SightHalfAngle | 見える距離（cm）/ 見える角度の半分（度。40 なら正面 80 度） |
-| HearingScale | 音が聞こえる距離の倍率。0 なら連打の音を気にしない |
+| HearingScale | プレイヤーの音（連打・ダッシュ）が聞こえる距離の倍率。0 なら気にしない（スピード鬼は 1.5＝音に敏感） |
+| DecoyHearingScale | おとりの音が聞こえる距離の倍率。0 ならおとりにだまされない（スピード鬼）。大きいほど遠くから寄っていく（パワー鬼 1.6） |
+| StunScale | トリモチで動けない時間の倍率（スピード鬼 1.5＝弱い、パワー鬼 0.4＝強い） |
+| bDisarmTraps | True なら、トリモチから抜け出した直後（3 秒間）に踏んだトリモチを壊す（パワー鬼） |
 | bSingleTargetAttack | True なら目の前の壁 1 個だけを壊す（範囲攻撃しない） |
 | AttackRadius / AttackWindup | 範囲攻撃の半径（cm）/ 攻撃の溜め時間（秒） |
 | PocketInspectChance | うろうろ中に「壁で囲まれた空洞」を見つけたとき、調べに行く（壊して入る）確率（0〜1） |
@@ -59,7 +62,7 @@
 
 ## PrestigeUpgrades.csv（転生のお店）
 
-転生ポイントで買う永続強化（転生しても残る）。行の名前（WallHP / Treasure / DashSpeed / DashCooldown / Jump）は
+転生ポイントで買う永続強化（転生しても残る）。行の名前（WallHP / Treasure / DashSpeed / DashCooldown / Jump / QuietHP）は
 プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
 
 | 列 | 意味 |
@@ -76,6 +79,7 @@
 | DashSpeed | ダッシュの速さの倍率。**Lv0 はダッシュできない**（Lv1 で解放） |
 | DashCooldown | ダッシュのクールタイム（秒）。ValueGrowth を 1 より小さくすると短くなる |
 | Jump | **Lv0 はジャンプできない**（Lv1 で解放）。値は使わない |
+| QuietHP | 消音壁が音を消せる回数（Walls.csv の SoundHP）の倍率 |
 
 ## Walls.csv（壁）
 
@@ -84,10 +88,11 @@
 | 列 | 意味 |
 |---|---|
 | DisplayName | 表示名 |
-| MaxHP | 耐久値（転生の倍率をかける前の値） |
-| Cost | 価格 |
+| MaxHP | 耐久値（転生のお店の「壁の硬さ」をかける前の値） |
+| Cost / CostGrowth | 価格 = Cost × CostGrowth ^ 持っている数（在庫＋置いてある数。壊れた分は数えない）。普通の壁は 1.04〜1.08、消音壁は罠と同じくらい（1.5） |
 | Color | 色（"(R=0〜1,G=0〜1,B=0〜1,A=1.0)" の形。カンマを含むので " で囲む） |
 | NoiseDamping | 音を小さくする割合（0〜1。消音壁は 0.8）。プレイヤーが壁に囲まれた空洞にいるときだけ、囲んでいる壁の平均だけ連打・ダッシュの音が小さくなる |
+| SoundHP | 音を消せる回数（消音壁は 40）。音を小さくするたびに連打 1・ダッシュ 3 減り、0 で壊れる。0 なら減らない（普通の壁）。転生のお店の「消音壁の丈夫さ」で増える |
 
 行の順番を入れ替えると、セーブデータの壁の種類がずれるので、新しい壁は最後に足してください。
 
@@ -101,7 +106,7 @@
 |---|---|
 | DisplayName | 表示名 |
 | Kind | 働き。`Sticky`（トリモチ: 踏んだ鬼を動けなくする。1 回で消える）か `Decoy`（おとり: 音で鬼を呼ぶ。鬼が触れると壊れる） |
-| Cost / CostGrowth | 価格 = Cost × CostGrowth ^ 持っている数（在庫＋置いてある数。発動して消えた分は数えない） |
+| Cost / CostGrowth | 価格 = Cost × CostGrowth ^ 持っている数（在庫＋置いてある数。発動して消えた分は数えない）。トリモチ 1.5・おとり 1.6 |
 | StunSeconds | トリモチ: 鬼が動けない時間（秒）。抜け出した後 3 秒は罠にかからない |
 | NoiseInterval | おとり: 音を出す間隔（秒） |
 | NoiseLoudness | おとり: 音の大きさ（1 なら連打の音と同じ距離まで届く） |

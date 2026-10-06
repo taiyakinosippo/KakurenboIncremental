@@ -32,6 +32,15 @@ public:
 	/** 自分以外の鬼が向かっているマスの近く（RadiusCells 以内）か */
 	bool IsNearOthersTarget(const AOniCharacter* Self, const FIntPoint& Cell, int32 RadiusCells) const;
 
+	/**
+	 * 鬼が調べている・壊している「建物」（つながった壁とその中の空洞）を登録する。
+	 * 他の慎重鬼はそこに興味を示さず、別の壁・空洞へ向かう。ClearReservedTarget で一緒に消える
+	 */
+	void SetReservedArea(const AOniCharacter* Oni, const TArray<FIntPoint>& Cells);
+
+	/** 自分以外の鬼が登録した建物のマスか */
+	bool IsInOthersArea(const AOniCharacter* Self, const FIntPoint& Cell) const;
+
 	int32 GetCheckedCount(float Now, float MemorySeconds) const;
 
 private:
@@ -44,4 +53,5 @@ private:
 	TArray<float> CheckedTime;
 
 	TMap<TWeakObjectPtr<const AOniCharacter>, FIntPoint> ReservedTargets;
+	TMap<TWeakObjectPtr<const AOniCharacter>, TSet<FIntPoint>> ReservedAreas;
 };

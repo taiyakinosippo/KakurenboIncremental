@@ -79,13 +79,18 @@ public:
 
 	int32 GetColumnHeight(const FIntPoint& Cell) const;
 	APlaceableBlock* GetTopBlock(const FIntPoint& Cell) const;
+	/** そのマスの段 Level のブロック（無ければ null） */
+	APlaceableBlock* GetBlock(const FIntPoint& Cell, int32 Level) const;
 	int32 GetBlockCount() const;
 
 	/** そのマスの一番上にブロックを置けるか。置けない理由を返す */
 	bool CanPlaceBlock(const FIntPoint& Cell, FText* OutReason = nullptr) const;
 
-	/** プレイヤーが置く：マスの一番上にブロックを置き、設計図もその状態にする */
-	APlaceableBlock* PlaceBlock(const FIntPoint& Cell, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color);
+	/** プレイヤーが置く：マスの一番上にブロックを置き、設計図もその状態にする（SoundHP は消音壁の音を消せる回数） */
+	APlaceableBlock* PlaceBlock(const FIntPoint& Cell, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP = 0.0);
+
+	/** 今あるその種類の壁の数 */
+	int32 GetLiveBlockCount(int32 WallTypeIndex) const;
 
 	/** プレイヤーが回収する：ブロックを取り除き（上の段は 1 段落ちる）、設計図もその状態にする */
 	bool PickUpBlock(APlaceableBlock* Block);
@@ -111,6 +116,16 @@ public:
 
 	/** 置いてある壁の耐久をすべて Factor 倍にする（転生のお店で壁の硬さを買ったとき） */
 	void ScaleAllBlockHP(double Factor);
+
+	/** 置いてある消音壁の音を消せる回数をすべて Factor 倍にする（転生のお店で消音壁の丈夫さを買ったとき） */
+	void ScaleAllBlockSoundHP(double Factor);
+
+	/**
+	 * 消音壁が音を消した：マスの一番下の段が消音壁なら、音を消せる回数を Amount 減らす。尽きたら壊れる（上の段は落ちる）。
+	 * 設計図は変えない（あとで修復できるように）
+	 * @return 壊れた壁の数
+	 */
+	int32 DamageSound(const TArray<FIntPoint>& Cells, double Amount);
 
 	// ===== 鬼の出入り口 =====
 
@@ -177,7 +192,7 @@ public:
 	 * Cell が壁に囲まれた空洞の中なら、囲んでいる壁（一番下の段の種類）の NoiseDamping の平均を返す。囲まれていなければ 0。
 	 * @param OutBoundaryWalls 囲んでいる壁の数
 	 */
-	float GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls = nullptr) const;
+	float GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls = nullptr, TArray<FIntPoint>* OutWallCells = nullptr) const;
 
 	/** 設計図の段数 */
 	int32 GetDesignHeight(const FIntPoint& Cell) const;
@@ -213,6 +228,15 @@ public:
 	/** 壁に囲まれて歩いては入れない空きマスのまとまり（空洞）。一番大きな空き地は含まない */
 	TArray<TArray<FIntPoint>> FindEnclosedPockets() const;
 
+	/** 一番大きな空き地（壁に囲まれていない場所）のマスか */
+	bool IsInMainArea(const FIntPoint& Cell) const;
+
+	/**
+	 * そのマスを含む「建物」：つながっている壁（斜めも含めて隣り合う壁のまとまり）と、それに接する空洞のマス。
+	 * 慎重鬼が「仲間が壊している壁とその周り（ドーナツ形の壁の真ん中など）」を避けるのに使う
+	 */
+	TArray<FIntPoint> GetStructureAround(const FIntPoint& Cell) const;
+
 	/** 配置が変わるたびに増える番号（鬼が経路を作り直すタイミングの判定に使う） */
 	int32 GetGridVersion() const { return GridVersion; }
 
@@ -237,7 +261,7 @@ private:
 	int32 ToIndex(const FIntPoint& Cell) const { return Cell.Y * SizeX + Cell.X; }
 	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
 	TArray<bool> BuildMainAreaMask() const;
-	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color);
+	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP = 0.0);
 	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);

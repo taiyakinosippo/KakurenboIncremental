@@ -200,11 +200,16 @@ TArray<TArray<FIntPoint>> KakurenboPathfinding::FindEnclosedPockets(const FKakur
 	return Pockets;
 }
 
-float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping, int32* OutBoundaryWalls)
+float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping,
+	int32* OutBoundaryWalls, TArray<FIntPoint>* OutBoundaryCells)
 {
 	if (OutBoundaryWalls)
 	{
 		*OutBoundaryWalls = 0;
+	}
+	if (OutBoundaryCells)
+	{
+		OutBoundaryCells->Reset();
 	}
 	if (!Grid.IsFree(Cell))
 	{
@@ -247,6 +252,10 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 	for (const int32 Index : Walls)
 	{
 		Sum += CellDamping.IsValidIndex(Index) ? FMath::Clamp(CellDamping[Index], 0.f, 1.f) : 0.f;
+		if (OutBoundaryCells)
+		{
+			OutBoundaryCells->Add(Grid.FromIndex(Index));
+		}
 	}
 	if (OutBoundaryWalls)
 	{

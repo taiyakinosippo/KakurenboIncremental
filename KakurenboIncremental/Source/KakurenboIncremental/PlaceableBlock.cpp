@@ -19,13 +19,41 @@ APlaceableBlock::APlaceableBlock()
 	RootComponent = Mesh;
 }
 
-void APlaceableBlock::InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor)
+void APlaceableBlock::InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP)
 {
 	WallTypeIndex = InWallTypeIndex;
 	MaxHP = FMath::Max(InMaxHP, 0.0001);
 	HP = MaxHP;
+	MaxSoundHP = FMath::Max(InSoundHP, 0.0);
+	SoundHP = MaxSoundHP;
 	BaseColor = InColor;
 	UKakurenboLibrary::ApplyColor(Mesh, BaseColor);
+}
+
+bool APlaceableBlock::ApplySoundDamage(double Amount)
+{
+	if (!IsSoundBreakable())
+	{
+		return false;
+	}
+	SoundHP -= Amount;
+	if (SoundHP <= 0.0)
+	{
+		SoundHP = 0.0;
+		return true;
+	}
+	UpdateColor();
+	return false;
+}
+
+void APlaceableBlock::ScaleSoundHP(double Factor)
+{
+	if (IsSoundBreakable())
+	{
+		MaxSoundHP = FMath::Max(MaxSoundHP * Factor, 0.0001);
+		SoundHP *= Factor;
+		UpdateColor();
+	}
 }
 
 bool APlaceableBlock::ApplyBlockDamage(double Damage)
@@ -49,8 +77,12 @@ void APlaceableBlock::ScaleHP(double Factor)
 
 void APlaceableBlock::UpdateColor()
 {
-	// 傷ついた壁は暗く・赤っぽくする
-	const float Ratio = static_cast<float>(HP / MaxHP);
+	// 傷ついた壁（消音壁は音を消して弱った壁も）は暗く・赤っぽくする
+	float Ratio = static_cast<float>(HP / MaxHP);
+	if (IsSoundBreakable())
+	{
+		Ratio = FMath::Min(Ratio, static_cast<float>(SoundHP / MaxSoundHP));
+	}
 	const FLinearColor Damaged = FMath::Lerp(FLinearColor(0.35f, 0.05f, 0.05f), BaseColor, Ratio);
 	if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(0)))
 	{

@@ -71,6 +71,8 @@ namespace KakurenboPathfinding
 	 * CellDamping の平均を返す。囲まれていなければ 0。
 	 * @param CellDamping マスごとの「音を小さくする割合」（0〜1。壁の無いマスは使わない）
 	 * @param OutBoundaryWalls 囲んでいる壁の数
+	 * @param OutBoundaryCells 囲んでいる壁のマス
 	 */
-	KAKURENBOINCREMENTAL_API float ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping, int32* OutBoundaryWalls = nullptr);
+	KAKURENBOINCREMENTAL_API float ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping,
+		int32* OutBoundaryWalls = nullptr, TArray<FIntPoint>* OutBoundaryCells = nullptr);
 }

@@ -37,15 +37,31 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Block")
 	int32 Level = 0;
 
-	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor);
+	/** 消音壁：音を消せる残りの回数（0 以下なら普通の壁で、減らない） */
+	UPROPERTY(BlueprintReadOnly, Category = "Block")
+	double SoundHP = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Block")
+	double MaxSoundHP = 0.0;
+
+	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP = 0.0);
 
 	/** ダメージを与える。壊れたら true（アクターの破棄はグリッド側が行う） */
 	bool ApplyBlockDamage(double Damage);
+
+	/** 消音壁：音を消した。音を消せる回数が尽きたら true（壊れる。アクターの破棄はグリッド側が行う） */
+	bool ApplySoundDamage(double Amount);
+
+	/** 音を消すと減っていく壁か */
+	bool IsSoundBreakable() const { return MaxSoundHP > 0.0; }
 
 	bool IsDamaged() const { return HP < MaxHP; }
 
 	/** 耐久を Factor 倍にする（転生のお店で壁の硬さを買ったとき。傷の割合はそのまま） */
 	void ScaleHP(double Factor);
+
+	/** 音を消せる回数を Factor 倍にする（転生のお店で消音壁の丈夫さを買ったとき） */
+	void ScaleSoundHP(double Factor);
 
 	const FLinearColor& GetBaseColor() const { return BaseColor; }
 

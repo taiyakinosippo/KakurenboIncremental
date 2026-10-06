@@ -307,9 +307,15 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("wall 1 has HP, cost and a color"), Rows[0]->MaxHP > 0.0 && Rows[0]->Cost > 0.0 && Rows[0]->Color.R > 0.f);
 			TestFalse(TEXT("wall 1 has a name"), Rows[0]->DisplayName.IsEmpty());
 		}
-		// 消音壁がある（NoiseDamping 列が読めている）
+		// 消音壁がある（NoiseDamping 列が読めている）。音を消せる回数があり、値段は罠と同じくらい上がる
 		const FWallTypeDef* const* Quiet = Rows.FindByPredicate([](const FWallTypeDef* Row) { return Row->NoiseDamping > 0.f; });
 		TestTrue(TEXT("a soundproof wall exists"), Quiet && (*Quiet)->NoiseDamping <= 1.f);
+		TestTrue(TEXT("the soundproof wall breaks after muting some sounds"), Quiet && (*Quiet)->SoundHP > 0.0);
+		for (const FWallTypeDef* Row : Rows)
+		{
+			TestTrue(FString::Printf(TEXT("%s gets pricier as you buy more"), *Row->DisplayName.ToString()), Row->CostGrowth > 1.0);
+		}
+		TestTrue(TEXT("the soundproof wall price grows faster than normal walls"), Quiet && Rows.Num() > 0 && (*Quiet)->CostGrowth > Rows[0]->CostGrowth);
 		TestTrue(TEXT("shop fits the number keys (2 upgrades + walls + traps <= 9)"), Rows.Num() + 2 + 2 <= 9);
 	}
 	if (UDataTable* OniTypes = Load(FKakurenboOniTypeRow::StaticStruct(), TEXT("OniTypes.csv")))
@@ -325,13 +331,20 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		{
 			TestTrue(TEXT("careful breaks one wall at a time"), Careful->bSingleTargetAttack);
 		}
+		// 相性：スピード鬼はおとりに強く（だまされない）トリモチに弱い。パワー鬼はおとりに弱く（遠くから寄る）トリモチに強い
+		const FKakurenboOniTypeRow* Scout = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Scout"), TEXT("Test"));
+		const FKakurenboOniTypeRow* Breaker = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Breaker"), TEXT("Test"));
+		TestTrue(TEXT("speed oni: sensitive to sound, not fooled by decoys, weak to sticky"),
+			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale == 0.f && Scout->StunScale > 1.f);
+		TestTrue(TEXT("power oni: lured by decoys, strong against sticky and disarms it"),
+			Breaker && Breaker->DecoyHearingScale > 1.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
 	}
 	if (UDataTable* Stages = Load(FKakurenboStageRow::StaticStruct(), TEXT("Stages.csv")))
 	{
 		// "(Balanced,Scout)" の書き方で鬼の種類のリストが読めている
 		TArray<FKakurenboStageRow*> Rows;
 		Stages->GetAllRows<FKakurenboStageRow>(TEXT("Test"), Rows);
-		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 0 && Rows[0]->OniTypes.Num() >= 2);
+		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 1 && Rows[0]->OniTypes.Num() >= 1 && Rows[1]->OniTypes.Num() >= 2);
 	}
 	return true;
 }
@@ -428,8 +441,10 @@ bool FKakurenboEnclosureDampingTest::RunTest(const FString& Parameters)
 		}
 	}
 	int32 Walls = 0;
-	const float Inside = KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping, &Walls);
+	TArray<FIntPoint> WallCells;
+	const float Inside = KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping, &Walls, &WallCells);
 	TestEqual(TEXT("8 walls surround the center"), Walls, 8);
+	TestTrue(TEXT("the enclosing wall cells are returned"), WallCells.Num() == 8 && WallCells.Contains(FIntPoint(4, 4)) && WallCells.Contains(FIntPoint(6, 5)));
 	TestTrue(FString::Printf(TEXT("damping is the average (%.3f, expected 0.6)"), Inside), FMath::IsNearlyEqual(Inside, 0.6f, 0.001f));
 
 	// 囲まれていない場所・壁の上では効かない

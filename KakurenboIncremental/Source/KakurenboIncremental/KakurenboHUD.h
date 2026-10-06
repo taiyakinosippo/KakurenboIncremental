@@ -21,6 +21,7 @@ enum class EKakurenboUIAction : uint8
 	Prestige,  // 転生する
 	NextPhase, // 次のパートへ（Enter と同じ）
 	BuildSlot, // 置く物（Index は SelectedBuildSlot と同じ番号）
+	RefillAll, // 壊れた壁・使った罠をまとめて補充（R と同じ）
 };
 
 /** 画面上のボタン 1 つ（位置は実際のピクセル） */

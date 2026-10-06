@@ -84,23 +84,25 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Def.TriggerRadius = Radius;
 		Def.Color = Color;
 	};
-	AddTrap(TEXT("トリモチ"), ETrapKind::Sticky, 60.0, 1.3, 4.f, 0.f, 0.f, 45.f, FLinearColor(1.f, 0.85f, 0.15f));
-	AddTrap(TEXT("おとり"), ETrapKind::Decoy, 100.0, 1.35, 0.f, 2.5f, 1.2f, 70.f, FLinearColor(0.65f, 0.3f, 1.f));
+	AddTrap(TEXT("トリモチ"), ETrapKind::Sticky, 60.0, 1.5, 4.f, 0.f, 0.f, 45.f, FLinearColor(1.f, 0.85f, 0.15f));
+	AddTrap(TEXT("おとり"), ETrapKind::Decoy, 100.0, 1.6, 0.f, 2.5f, 1.2f, 70.f, FLinearColor(0.65f, 0.3f, 1.f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）
-	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color, float NoiseDamping)
+	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, double CostGrowth, FLinearColor Color, float NoiseDamping, double SoundHP)
 	{
 		FWallTypeDef& Def = WallTypes.AddDefaulted_GetRef();
 		Def.DisplayName = FText::FromString(Name);
 		Def.MaxHP = HP;
 		Def.Cost = Cost;
+		Def.CostGrowth = CostGrowth;
 		Def.Color = Color;
 		Def.NoiseDamping = NoiseDamping;
+		Def.SoundHP = SoundHP;
 	};
-	AddWall(TEXT("木の壁"), 1.0, 10.0, FLinearColor(0.55f, 0.35f, 0.18f), 0.f);
-	AddWall(TEXT("石の壁"), 4.0, 120.0, FLinearColor(0.22f, 0.22f, 0.25f), 0.f);
-	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f), 0.f);
-	AddWall(TEXT("消音壁"), 3.0, 300.0, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f);
+	AddWall(TEXT("木の壁"), 1.0, 10.0, 1.04, FLinearColor(0.55f, 0.35f, 0.18f), 0.f, 0.0);
+	AddWall(TEXT("石の壁"), 4.0, 120.0, 1.06, FLinearColor(0.22f, 0.22f, 0.25f), 0.f, 0.0);
+	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, 1.08, FLinearColor(0.25f, 0.35f, 0.55f), 0.f, 0.0);
+	AddWall(TEXT("消音壁"), 3.0, 300.0, 1.5, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f, 40.0);
 
 	// 転生のお店の既定値（Data/PrestigeUpgrades.csv が読めなかったときに使う。並びは EPrestigeUpgrade の順）
 	auto AddPrestigeUpgrade = [this](const TCHAR* Name, int32 MaxLevel, double Cost, double CostGrowth, double Value, double ValueGrowth)
@@ -118,11 +120,12 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddPrestigeUpgrade(TEXT("ダッシュの速さ"), 4, 2.0, 1.6, 1.25, 1.12); // DashSpeed: Lv1 で解放（×1.4）
 	AddPrestigeUpgrade(TEXT("ダッシュの回復"), 6, 1.0, 1.5, 8.0, 0.85); // DashCooldown: 8 秒 ×0.85^Lv
 	AddPrestigeUpgrade(TEXT("ジャンプ"), 1, 2.0, 1.0, 1.0, 1.0);       // Jump: Lv1 で解放
+	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
 	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
 	auto AddOniType = [this](EOniType Type, const TCHAR* Name, float Speed, double Damage, float Sight, float Angle, float Hearing,
-		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body)
+		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body, float DecoyHearing, float Stun, bool bDisarm)
 	{
 		FKakurenboOniTypeRow& Row = OniTypeRows.Add(Type);
 		Row.DisplayName = FText::FromString(Name);
@@ -137,11 +140,16 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Row.PocketInspectChance = Pocket;
 		Row.Color = Color;
 		Row.BodyScale = Body;
+		Row.DecoyHearingScale = DecoyHearing;
+		Row.StunScale = Stun;
+		Row.bDisarmTraps = bDisarm;
 	};
-	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f);
-	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f);
-	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 800.f, 70.f, 0.f, false, 200.f, 1.0f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f);
-	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f);
+	// スピード鬼: 音に敏感（プレイヤーの音は遠くから聞こえ、おとりにはだまされない）・トリモチに弱い
+	// パワー鬼: 連打は気にしないが、おとりには遠くから寄っていく・トリモチに強い（すぐ抜け出し、直後に踏んだトリモチは壊す）
+	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f, 1.f, 1.f, false);
+	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 0.f, 1.5f, false);
+	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 800.f, 70.f, 0.f, false, 200.f, 1.0f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f, 1.6f, 0.4f, true);
+	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false);
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -542,6 +550,18 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 		case EPrestigeUpgrade::Jump:
 			Item.Description = NSLOCTEXT("Kakurenbo", "PrestigeJumpDesc", "Space でジャンプできるようになる（壁 1 段に飛び乗れる）");
 			break;
+		case EPrestigeUpgrade::QuietHP:
+		{
+			// 一番丈夫な消音壁の「音を消せる回数」で見せる
+			double BaseSoundHP = 0.0;
+			for (const FWallTypeDef& Def : WallTypes)
+			{
+				BaseSoundHP = FMath::Max(BaseSoundHP, Def.SoundHP);
+			}
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeQuietDesc", "消音壁が音を消せる回数 {0} → {1} 回（置いてある壁も）"),
+				FMath::RoundToInt(BaseSoundHP * Now), FMath::RoundToInt(BaseSoundHP * Next));
+			break;
+		}
 		default:
 			break;
 		}
@@ -561,19 +581,22 @@ bool AKakurenboGameMode::TryBuyPrestigeUpgrade(int32 Index)
 	bool bBought = false;
 	if (Cost != INDEX_NONE && State->PrestigePoints >= Cost)
 	{
-		const double OldWallMultiplier = GetWallHPMultiplier();
+		const double OldValue = GetPrestigeValue(Upgrade);
 		State->PrestigePoints -= Cost;
 		State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
 		State->PrestigeLevels[Index]++;
 		bBought = true;
 
-		if (Upgrade == EPrestigeUpgrade::WallHP)
+		// 置いてある壁にもすぐ効かせる
+		UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+		const double Factor = GetPrestigeValue(Upgrade) / FMath::Max(OldValue, 0.0001);
+		if (Grid && Upgrade == EPrestigeUpgrade::WallHP)
 		{
-			// 置いてある壁もすぐに硬くする
-			if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
-			{
-				Grid->ScaleAllBlockHP(GetWallHPMultiplier() / FMath::Max(OldWallMultiplier, 0.0001));
-			}
+			Grid->ScaleAllBlockHP(Factor);
+		}
+		else if (Grid && Upgrade == EPrestigeUpgrade::QuietHP)
+		{
+			Grid->ScaleAllBlockSoundHP(Factor);
 		}
 		ApplyPrestigeToPlayer();
 		UE_LOG(LogKakurenbo, Log, TEXT("Prestige upgrade %s -> Lv%d (%d pt left)"), *UEnum::GetValueAsString(Upgrade), State->PrestigeLevels[Index], State->PrestigePoints);
@@ -600,11 +623,31 @@ TArray<FWallTypeDef> AKakurenboGameMode::GetEffectiveWallTypes() const
 {
 	TArray<FWallTypeDef> Types = WallTypes;
 	const double Multiplier = GetWallHPMultiplier();
+	const double SoundMultiplier = GetPrestigeValue(EPrestigeUpgrade::QuietHP);
 	for (FWallTypeDef& Def : Types)
 	{
 		Def.MaxHP *= Multiplier;
+		Def.SoundHP *= SoundMultiplier; // 消音壁の丈夫さ
 	}
 	return Types;
+}
+
+int32 AKakurenboGameMode::GetOwnedWallCount(int32 WallTypeIndex) const
+{
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const int32 Stock = (State && State->WallStock.IsValidIndex(WallTypeIndex)) ? State->WallStock[WallTypeIndex] : 0;
+	return Stock + (Grid ? Grid->GetLiveBlockCount(WallTypeIndex) : 0);
+}
+
+double AKakurenboGameMode::GetWallCost(int32 WallTypeIndex) const
+{
+	if (!WallTypes.IsValidIndex(WallTypeIndex))
+	{
+		return 0.0;
+	}
+	const FWallTypeDef& Def = WallTypes[WallTypeIndex];
+	return UKakurenboLibrary::ExpCurve(Def.Cost, Def.CostGrowth, GetOwnedWallCount(WallTypeIndex));
 }
 
 int32 AKakurenboGameMode::GetOwnedTrapCount(int32 TrapTypeIndex) const
@@ -746,13 +789,13 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 		const FWallTypeDef& Def = Walls[i];
 		FShopItemView& Item = Items.AddDefaulted_GetRef();
 		Item.DisplayName = Def.DisplayName;
-		Item.Cost = Def.Cost;
+		Item.Cost = GetWallCost(i);
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallDesc", "耐久 {0}（今の鬼の攻撃 {1} 回で壊れる）"),
 			Fmt(Def.MaxHP), Hits(Def.MaxHP));
 		if (Def.NoiseDamping > 0.f)
 		{
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopQuietWallDesc", "{0}　囲まれた中にいると音が最大 {1}% 小さくなる"),
-				Item.Description, FMath::RoundToInt(Def.NoiseDamping * 100.f));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopQuietWallDesc", "{0}　囲まれた中の音を最大 {1}% 小さくする（{2} 回で壊れる）"),
+				Item.Description, FMath::RoundToInt(Def.NoiseDamping * 100.f), FMath::RoundToInt(Def.SoundHP));
 		}
 		const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopStock", "在庫 {0}"), Stock);
@@ -852,7 +895,7 @@ bool AKakurenboGameMode::TryBuyWall(int32 WallTypeIndex)
 	{
 		return false;
 	}
-	const double Cost = WallTypes[WallTypeIndex].Cost;
+	const double Cost = GetWallCost(WallTypeIndex);
 	if (State->Coins < Cost)
 	{
 		return false;
@@ -861,6 +904,86 @@ bool AKakurenboGameMode::TryBuyWall(int32 WallTypeIndex)
 	State->WallStock.SetNum(WallTypes.Num());
 	State->WallStock[WallTypeIndex]++;
 	return true;
+}
+
+void AKakurenboGameMode::GetRefillPlan(int32& OutCount, double& OutCost) const
+{
+	OutCount = 0;
+	OutCost = 0.0;
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid)
+	{
+		return;
+	}
+	// 種類ごとに「足りない数」だけ、1 個ずつ値上がりしながら買ったときの合計
+	auto Add = [&](double BaseCost, double Growth, int32 Owned, int32 Short)
+	{
+		for (int32 k = 0; k < Short; ++k)
+		{
+			OutCost += UKakurenboLibrary::ExpCurve(BaseCost, Growth, Owned + k);
+		}
+		OutCount += FMath::Max(0, Short);
+	};
+	for (int32 i = 0; i < WallTypes.Num(); ++i)
+	{
+		const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
+		Add(WallTypes[i].Cost, WallTypes[i].CostGrowth, GetOwnedWallCount(i), Grid->GetMissingWallCount(i) - Stock);
+	}
+	for (int32 i = 0; i < TrapTypes.Num(); ++i)
+	{
+		const int32 Stock = State->TrapStock.IsValidIndex(i) ? State->TrapStock[i] : 0;
+		Add(TrapTypes[i].Cost, TrapTypes[i].CostGrowth, GetOwnedTrapCount(i), Grid->GetMissingTrapCount(i) - Stock);
+	}
+}
+
+int32 AKakurenboGameMode::BuyAllMissing()
+{
+	AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || State->Phase != EKakurenboPhase::Shop)
+	{
+		return 0;
+	}
+	int32 Bought = 0;
+	for (;;)
+	{
+		// まだ足りないもののうち、今のコインで買える一番高いものを 1 個買う（を繰り返す）
+		double BestCost = -1.0;
+		int32 BestWall = INDEX_NONE;
+		int32 BestTrap = INDEX_NONE;
+		for (int32 i = 0; i < WallTypes.Num(); ++i)
+		{
+			const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
+			const double Cost = GetWallCost(i);
+			if (Grid->GetMissingWallCount(i) > Stock && Cost <= State->Coins && Cost > BestCost)
+			{
+				BestCost = Cost;
+				BestWall = i;
+				BestTrap = INDEX_NONE;
+			}
+		}
+		for (int32 i = 0; i < TrapTypes.Num(); ++i)
+		{
+			const int32 Stock = State->TrapStock.IsValidIndex(i) ? State->TrapStock[i] : 0;
+			const double Cost = GetTrapCost(i);
+			if (Grid->GetMissingTrapCount(i) > Stock && Cost <= State->Coins && Cost > BestCost)
+			{
+				BestCost = Cost;
+				BestTrap = i;
+				BestWall = INDEX_NONE;
+			}
+		}
+		const bool bOk = BestWall != INDEX_NONE ? TryBuyWall(BestWall) : BestTrap != INDEX_NONE ? TryBuyTrap(BestTrap) : false;
+		if (!bOk)
+		{
+			break;
+		}
+		++Bought;
+	}
+	Sfx2D(this, Bought > 0 ? EKakurenboSfx::Buy : EKakurenboSfx::BuyFail);
+	UE_LOG(LogKakurenbo, Log, TEXT("Bought %d items to refill broken walls / used traps"), Bought);
+	return Bought;
 }
 
 // ---------------------------------------------------------------- 設置
@@ -952,8 +1075,8 @@ bool AKakurenboGameMode::PlaceWall(FIntPoint Cell, int32 WallTypeIndex)
 		return false;
 	}
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
-	const FWallTypeDef& Def = WallTypes[WallTypeIndex];
-	APlaceableBlock* Block = Grid->PlaceBlock(Cell, WallTypeIndex, Def.MaxHP * GetWallHPMultiplier(), Def.Color);
+	const FWallTypeDef Def = GetEffectiveWallTypes()[WallTypeIndex];
+	APlaceableBlock* Block = Grid->PlaceBlock(Cell, WallTypeIndex, Def.MaxHP, Def.Color, Def.SoundHP);
 	if (!Block)
 	{
 		return false;
@@ -1098,11 +1221,9 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->AddCoins(GetMashIncome(), true);
 	State->MashCountThisRound++;
 
-	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなる）
-	const float Loudness = GetPlayerNoiseMultiplier();
-	EmitNoise(NoiseLocation, Loudness);
+	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなり、消音壁が少し傷む）
+	const float Loudness = MakePlayerNoise(NoiseLocation, 1.f, MashSoundDamage, NoiseRingColor, 14.f);
 	Sfx2D(this, EKakurenboSfx::Mash, 0.6f * FMath::Max(Loudness, 0.4f), FMath::FRandRange(0.92f, 1.08f));
-	ShowNoiseRing(NoiseLocation, Loudness, NoiseRingColor, 14.f);
 }
 
 void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness)
@@ -1112,10 +1233,37 @@ void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness
 		return;
 	}
 	// ダッシュは大きな音が出る（消音壁で囲まれていれば小さくなる）
-	const float Scaled = Loudness * GetPlayerNoiseMultiplier();
-	EmitNoise(NoiseLocation, Scaled);
+	MakePlayerNoise(NoiseLocation, Loudness, DashSoundDamage, FLinearColor(1.f, 0.45f, 0.2f), 22.f);
 	Sfx2D(this, EKakurenboSfx::Dash, 0.9f);
-	ShowNoiseRing(NoiseLocation, Scaled, FLinearColor(1.f, 0.45f, 0.2f), 22.f);
+}
+
+float AKakurenboGameMode::MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness)
+{
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	TArray<FIntPoint> WallCells;
+	float Damping = 0.f;
+	if (Grid && Player && Grid->IsConfigured())
+	{
+		Damping = Grid->GetEnclosureNoiseDamping(Grid->WorldToCell(Player->GetActorLocation()), WallTypes, nullptr, &WallCells);
+	}
+	const float Scaled = Loudness * FMath::Clamp(1.f - Damping, 0.f, 1.f);
+	EmitNoise(Location, Scaled);
+	ShowNoiseRing(Location, Scaled, RingColor, RingThickness);
+
+	// 音を消した消音壁は傷み、回数が尽きると壊れる（囲みに穴が開く）
+	if (Damping > 0.f && SoundDamage > 0.0)
+	{
+		if (const int32 Broken = Grid->DamageSound(WallCells, SoundDamage))
+		{
+			if (AKakurenboGameState* State = GS())
+			{
+				State->LastRoundWallsDestroyed += Broken;
+			}
+			ShowPopup(TEXT("消音壁が壊れた！"), FLinearColor(0.85f, 0.8f, 0.65f));
+		}
+	}
+	return Scaled;
 }
 
 void AKakurenboGameMode::ShowNoiseRing(const FVector& Location, float Loudness, const FLinearColor& Color, float Thickness) const
@@ -1155,18 +1303,40 @@ int32 AKakurenboGameMode::GetPlayerEnclosureWallCount() const
 	return Walls;
 }
 
+int32 AKakurenboGameMode::GetPlayerQuietWallRemaining() const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !Grid->IsConfigured())
+	{
+		return -1;
+	}
+	TArray<FIntPoint> WallCells;
+	Grid->GetEnclosureNoiseDamping(Grid->WorldToCell(Player->GetActorLocation()), WallTypes, nullptr, &WallCells);
+	double Min = -1.0;
+	for (const FIntPoint& Cell : WallCells)
+	{
+		const APlaceableBlock* Block = Grid->GetBlock(Cell, 0);
+		if (Block && Block->IsSoundBreakable() && (Min < 0.0 || Block->SoundHP < Min))
+		{
+			Min = Block->SoundHP;
+		}
+	}
+	return Min < 0.0 ? -1 : FMath::CeilToInt(Min);
+}
+
 TArray<FIntPoint> AKakurenboGameMode::GetOniGateCells() const
 {
 	return Arena ? Arena->GetOniGateCells() : TArray<FIntPoint>();
 }
 
-void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness)
+void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness, bool bFromDecoy)
 {
 	for (AOniCharacter* Oni : Onis)
 	{
 		if (Oni)
 		{
-			Oni->HearNoise(Location, Loudness);
+			Oni->HearNoise(Location, Loudness, bFromDecoy);
 		}
 	}
 }
@@ -1260,13 +1430,39 @@ void AKakurenboGameMode::HandleDecoyPing(ATrapActor* Trap)
 		return;
 	}
 	const FVector Location = Trap->GetActorLocation();
-	EmitNoise(Location, Trap->Def.NoiseLoudness);
+	EmitNoise(Location, Trap->Def.NoiseLoudness, true);
 	Sfx3D(this, EKakurenboSfx::DecoyPing, Location + FVector(0.f, 0.f, 40.f));
 	if (UKakurenboFxSubsystem* F = Fx(this))
 	{
 		// 音の届く範囲（標準の聞こえる距離 × 大きさ）まで輪を広げる
 		F->Ring(Location, 40.f, GetOniHearingRadius() * Trap->Def.NoiseLoudness, 0.6f, Trap->Def.Color, 10.f);
 	}
+}
+
+void AKakurenboGameMode::HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni)
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || !Trap || State->Phase != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	State->TrapsTriggeredThisRound++;
+	const FVector Location = Trap->GetActorLocation() + FVector(0.f, 0.f, 20.f);
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		FKakurenboBurstParams Params;
+		Params.Color = Trap->Def.Color;
+		Params.Count = 10;
+		Params.Size = 12.f;
+		Params.Speed = 300.f;
+		Params.Lifetime = 0.6f;
+		F->Burst(Location, Params);
+	}
+	Sfx3D(this, EKakurenboSfx::DecoyBreak, Location, 1.f, 0.7f);
+	ShowPopup(FString::Printf(TEXT("%s が %s を壊した！"), Oni ? *Oni->TypeDisplayName.ToString() : TEXT("鬼"), *Trap->Def.DisplayName.ToString()), Trap->Def.Color);
+	UE_LOG(LogKakurenbo, Log, TEXT("Trap %s at (%d,%d) disarmed by %s"), *Trap->Def.DisplayName.ToString(), Trap->Cell.X, Trap->Cell.Y, Oni ? *Oni->GetName() : TEXT("none"));
+	Grid->ConsumeTrap(Trap); // 設計図は残るので、次の設置パートで在庫から置き直される
 }
 
 void AKakurenboGameMode::HandleBlockHit(const FVector& Location, const FLinearColor& Color, bool bDestroyed)
@@ -1431,6 +1627,7 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->InvestigateSpeed = OniInvestigateSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
 		Oni->ChaseSpeed = OniChaseSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
 		Oni->HearingRadius = Settings.OniHearingRadius * TypeRow.HearingScale;
+		Oni->DecoyHearingRadius = Settings.OniHearingRadius * TypeRow.DecoyHearingScale;
 		Oni->AttackDamage = Settings.OniDamage * TypeRow.DamageScale;
 		Oni->bDrawDebug = bDebugOni;
 		if (LoadedOniLook.Mesh)
@@ -1732,9 +1929,12 @@ bool AKakurenboGameMode::Prestige()
 	FlashScreen(FLinearColor(0.7f, 0.5f, 1.f, 0.6f), 1.2f);
 	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生しました！ 転生ポイント +{0}（購入パートの「転生のお店」で使えます）"), Gained), 6.f);
 
-	// ステージ 1 のかくれんぼから（ゲームの最初と同じ）
-	State->Phase = EKakurenboPhase::Result;
-	StartHidePhase();
+	// まずは転生のお店で、もらったポイントを使ってもらう（そのあと設置 → ステージ 1 のかくれんぼ）
+	StartShopPhase();
+	if (AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetWorld()->GetFirstPlayerController()))
+	{
+		PC->bPrestigeShopTab = true;
+	}
 	return true;
 }
 

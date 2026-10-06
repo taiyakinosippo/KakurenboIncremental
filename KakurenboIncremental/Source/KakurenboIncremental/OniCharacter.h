@@ -168,9 +168,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float TouchMargin = 8.f;
 
-	/** 連打の音が聞こえる距離（cm）。0 なら音を気にしない */
+	/** プレイヤーの音（連打・ダッシュ）が聞こえる距離（cm）。0 なら気にしない */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float HearingRadius = 1200.f;
+
+	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（スピード鬼：音に敏感で、にせものとわかる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float DecoyHearingRadius = 1200.f;
+
+	/** トリモチで動けない時間の倍率（スピード鬼は長く、パワー鬼は短い） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float StunScale = 1.f;
+
+	/** true なら、トリモチから抜け出した直後（かからない間）に踏んだトリモチを壊す（パワー鬼） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	bool bDisarmTraps = false;
 
 	/** 音の方向の誤差（マス）。遠くの音ほど大きくずれる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
@@ -252,11 +264,17 @@ public:
 	/** 行動停止（ラウンド終了時） */
 	void Deactivate();
 
-	/** 音を聞かせる。聞こえる距離なら音の方へ向かう（追いかけている間・音を気にしない種類は無視） */
-	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f);
+	/**
+	 * 音を聞かせる。聞こえる距離なら音の方へ向かう（追いかけている間・音を気にしない種類は無視）。
+	 * bFromDecoy: おとりの音（DecoyHearingRadius で聞く）
+	 */
+	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, bool bFromDecoy = false);
 
-	/** 罠などで動けなくする */
+	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
+
+	/** 今、踏んだトリモチを壊すか（パワー鬼が抜け出した直後のかからない間） */
+	bool CanDisarmTraps() const { return bDisarmTraps && bActive && State != EOniState::Stunned && StunImmunityTimer > 0.f; }
 
 	/** テスト用：指定したマスへ向かわせる（音を聞いたときと同じ動き） */
 	void DebugGoTo(const FIntPoint& Cell);
@@ -330,6 +348,10 @@ private:
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
 	bool TryInspectPocket();
+	/** 壁に囲まれた場所（出入り口の前を壁で囲まれたときなど）にいたら、壁を壊して外へ出る */
+	bool TryEscapeEnclosure();
+	/** 慎重鬼：そのマスを含む建物（つながった壁と中の空洞）を仲間に知らせて、仲間が来ないようにする */
+	void ReserveStructure(const FIntPoint& Cell);
 
 	// 移動
 	bool RequestPathTo(const FIntPoint& Goal, EPathMode Mode);

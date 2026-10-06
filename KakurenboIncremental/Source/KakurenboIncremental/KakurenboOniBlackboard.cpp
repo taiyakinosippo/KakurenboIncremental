@@ -8,6 +8,7 @@ void UKakurenboOniBlackboard::Reset(int32 InSizeX, int32 InSizeY)
 	SizeY = InSizeY;
 	CheckedTime.Init(-1.f, SizeX * SizeY);
 	ReservedTargets.Reset();
+	ReservedAreas.Reset();
 }
 
 void UKakurenboOniBlackboard::MarkChecked(const FIntPoint& Cell, float Now)
@@ -36,6 +37,24 @@ void UKakurenboOniBlackboard::SetReservedTarget(const AOniCharacter* Oni, const 
 void UKakurenboOniBlackboard::ClearReservedTarget(const AOniCharacter* Oni)
 {
 	ReservedTargets.Remove(Oni);
+	ReservedAreas.Remove(Oni);
+}
+
+void UKakurenboOniBlackboard::SetReservedArea(const AOniCharacter* Oni, const TArray<FIntPoint>& Cells)
+{
+	ReservedAreas.Add(Oni, TSet<FIntPoint>(Cells));
+}
+
+bool UKakurenboOniBlackboard::IsInOthersArea(const AOniCharacter* Self, const FIntPoint& Cell) const
+{
+	for (const TPair<TWeakObjectPtr<const AOniCharacter>, TSet<FIntPoint>>& Pair : ReservedAreas)
+	{
+		if (Pair.Key.IsValid() && Pair.Key.Get() != Self && Pair.Value.Contains(Cell))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 bool UKakurenboOniBlackboard::IsNearOthersTarget(const AOniCharacter* Self, const FIntPoint& Cell, int32 RadiusCells) const

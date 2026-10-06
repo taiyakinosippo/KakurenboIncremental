@@ -332,6 +332,13 @@ void AKakurenboPlayerController::HandleShopInput()
 	{
 		RequestPrestige();
 	}
+	if (WasInputKeyJustPressed(EKeys::R))
+	{
+		if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+		{
+			GM->BuyAllMissing();
+		}
+	}
 	if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
 	{
 		HandleUIClick();
@@ -391,6 +398,7 @@ bool AKakurenboPlayerController::HandleUIClick()
 	case EKakurenboUIAction::Prestige:  RequestPrestige(); break;
 	case EKakurenboUIAction::NextPhase: GM->AdvancePhase(); break;
 	case EKakurenboUIAction::BuildSlot: SelectedBuildSlot = Button.Index; break;
+	case EKakurenboUIAction::RefillAll: GM->BuyAllMissing(); break;
 	default: break;
 	}
 	return true; // パネルの上のクリックは、後ろの床に壁を置かない

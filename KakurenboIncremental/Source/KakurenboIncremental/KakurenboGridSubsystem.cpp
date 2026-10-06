@@ -63,6 +63,16 @@ APlaceableBlock* UKakurenboGridSubsystem::GetTopBlock(const FIntPoint& Cell) con
 	return Blocks.Num() > 0 ? Blocks.Last().Get() : nullptr;
 }
 
+APlaceableBlock* UKakurenboGridSubsystem::GetBlock(const FIntPoint& Cell, int32 Level) const
+{
+	if (!IsInside(Cell))
+	{
+		return nullptr;
+	}
+	const TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
+	return Blocks.IsValidIndex(Level) ? Blocks[Level].Get() : nullptr;
+}
+
 int32 UKakurenboGridSubsystem::GetBlockCount() const
 {
 	int32 Count = 0;
@@ -98,7 +108,7 @@ bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutRea
 	return true;
 }
 
-APlaceableBlock* UKakurenboGridSubsystem::SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color)
+APlaceableBlock* UKakurenboGridSubsystem::SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP)
 {
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -109,13 +119,26 @@ APlaceableBlock* UKakurenboGridSubsystem::SpawnBlockActor(const FIntPoint& Cell,
 	}
 	// 立方体メッシュは 100cm なので、マスの幅とブロックの高さに合わせて伸ばす
 	Block->SetActorScale3D(FVector(CellSize / 100.f, CellSize / 100.f, BlockHeight / 100.f));
-	Block->InitBlock(WallTypeIndex, MaxHP, Color);
+	Block->InitBlock(WallTypeIndex, MaxHP, Color, SoundHP);
 	Block->Cell = Cell;
 	Block->Level = Level;
 	return Block;
 }
 
-APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color)
+int32 UKakurenboGridSubsystem::GetLiveBlockCount(int32 WallTypeIndex) const
+{
+	int32 Count = 0;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		for (const APlaceableBlock* Block : Column.Blocks)
+		{
+			Count += (Block && Block->WallTypeIndex == WallTypeIndex) ? 1 : 0;
+		}
+	}
+	return Count;
+}
+
+APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP)
 {
 	if (!CanPlaceBlock(Cell))
 	{
@@ -123,7 +146,7 @@ APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int3
 	}
 
 	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
-	APlaceableBlock* Block = SpawnBlockActor(Cell, Column.Blocks.Num(), WallTypeIndex, MaxHP, Color);
+	APlaceableBlock* Block = SpawnBlockActor(Cell, Column.Blocks.Num(), WallTypeIndex, MaxHP, Color, SoundHP);
 	if (!Block)
 	{
 		return nullptr;
@@ -319,6 +342,49 @@ void UKakurenboGridSubsystem::ScaleAllBlockHP(double Factor)
 		}
 	}
 	MarkChanged(); // 壊すのに必要な回数が変わるので、鬼の経路を作り直させる
+}
+
+void UKakurenboGridSubsystem::ScaleAllBlockSoundHP(double Factor)
+{
+	for (FKakurenboBlockColumn& Column : Columns)
+	{
+		for (APlaceableBlock* Block : Column.Blocks)
+		{
+			if (Block)
+			{
+				Block->ScaleSoundHP(Factor);
+			}
+		}
+	}
+}
+
+int32 UKakurenboGridSubsystem::DamageSound(const TArray<FIntPoint>& Cells, double Amount)
+{
+	int32 Destroyed = 0;
+	for (const FIntPoint& Cell : Cells)
+	{
+		if (!IsInside(Cell))
+		{
+			continue;
+		}
+		TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
+		// 音を小さくしているのは一番下の段（GetEnclosureNoiseDamping と同じ）
+		if (Blocks.Num() == 0 || !Blocks[0] || !Blocks[0]->IsSoundBreakable())
+		{
+			continue;
+		}
+		if (Blocks[0]->ApplySoundDamage(Amount))
+		{
+			OnBlockHit.Broadcast(CellToWorld(Cell, 0), Blocks[0]->GetBaseColor(), true);
+			RemoveAtLevel(Cell, 0);
+			++Destroyed;
+		}
+	}
+	if (Destroyed > 0)
+	{
+		MarkChanged();
+	}
+	return Destroyed;
 }
 
 void UKakurenboGridSubsystem::SetReservedCells(const TArray<FIntPoint>& Cells)
@@ -559,7 +625,7 @@ int32 UKakurenboGridSubsystem::GetMissingWallCount(int32 WallTypeIndex) const
 	return Total;
 }
 
-float UKakurenboGridSubsystem::GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls) const
+float UKakurenboGridSubsystem::GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls, TArray<FIntPoint>* OutWallCells) const
 {
 	// 壁のマスには一番下の段の壁の「音を小さくする割合」を入れる
 	TArray<float> CellDamping;
@@ -572,7 +638,7 @@ float UKakurenboGridSubsystem::GetEnclosureNoiseDamping(const FIntPoint& Cell, c
 			CellDamping[Index] = WallTypes[Blocks[0]->WallTypeIndex].NoiseDamping;
 		}
 	}
-	return KakurenboPathfinding::ComputeEnclosureDamping(BuildWalkGrid(), Cell, CellDamping, OutBoundaryWalls);
+	return KakurenboPathfinding::ComputeEnclosureDamping(BuildWalkGrid(), Cell, CellDamping, OutBoundaryWalls, OutWallCells);
 }
 
 int32 UKakurenboGridSubsystem::GetDesignHeight(const FIntPoint& Cell) const
@@ -628,7 +694,7 @@ void UKakurenboGridSubsystem::RepairFromDesign(TArray<int32>& InOutStock, const 
 					if (WallTypes.IsValidIndex(Entry.Type) && NewBlocks.Num() < MaxStackHeight)
 					{
 						const FWallTypeDef& Def = WallTypes[Entry.Type];
-						Block = SpawnBlockActor(Cell, NewBlocks.Num(), Entry.Type, Def.MaxHP, Def.Color);
+						Block = SpawnBlockActor(Cell, NewBlocks.Num(), Entry.Type, Def.MaxHP, Def.Color, Def.SoundHP);
 					}
 					if (Block)
 					{
@@ -714,7 +780,7 @@ void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& 
 				continue; // 壁の種類が CSV から消えていたら作らない
 			}
 			const FWallTypeDef& Def = WallTypes[Type];
-			if (APlaceableBlock* Block = SpawnBlockActor(Saved.Cell, Column.Blocks.Num(), Type, Def.MaxHP, Def.Color))
+			if (APlaceableBlock* Block = SpawnBlockActor(Saved.Cell, Column.Blocks.Num(), Type, Def.MaxHP, Def.Color, Def.SoundHP))
 			{
 				Column.Blocks.Add(Block);
 			}
@@ -772,6 +838,72 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildWalkGrid() const
 TArray<TArray<FIntPoint>> UKakurenboGridSubsystem::FindEnclosedPockets() const
 {
 	return KakurenboPathfinding::FindEnclosedPockets(BuildWalkGrid());
+}
+
+bool UKakurenboGridSubsystem::IsInMainArea(const FIntPoint& Cell) const
+{
+	if (!IsInside(Cell))
+	{
+		return false;
+	}
+	return BuildMainAreaMask()[ToIndex(Cell)];
+}
+
+TArray<FIntPoint> UKakurenboGridSubsystem::GetStructureAround(const FIntPoint& Cell) const
+{
+	TArray<FIntPoint> Result;
+	if (!IsInside(Cell))
+	{
+		return Result;
+	}
+	const TArray<bool> MainArea = BuildMainAreaMask();
+	auto IsWall = [this](const FIntPoint& C) { return IsInside(C) && Columns[ToIndex(C)].Blocks.Num() > 0; };
+	auto IsPocket = [this, &MainArea](const FIntPoint& C) { return IsInside(C) && Columns[ToIndex(C)].Blocks.Num() == 0 && !MainArea[ToIndex(C)]; };
+
+	// 始まりの壁：そのマスが壁ならそのマス、空洞ならその空洞の周りの壁
+	TArray<FIntPoint> Stack;
+	TSet<FIntPoint> Visited;
+	auto Visit = [&](const FIntPoint& C)
+	{
+		if (!Visited.Contains(C))
+		{
+			Visited.Add(C);
+			Stack.Add(C);
+		}
+	};
+	if (IsWall(Cell) || IsPocket(Cell))
+	{
+		Visit(Cell);
+	}
+
+	// 壁（斜めも含む 8 方向）と空洞（縦横 4 方向）を塗りつぶす。舞台の広い空き地には広がらない
+	while (Stack.Num() > 0)
+	{
+		const FIntPoint C = Stack.Pop(EAllowShrinking::No);
+		Result.Add(C);
+		const bool bWall = IsWall(C);
+		for (int32 DY = -1; DY <= 1; ++DY)
+		{
+			for (int32 DX = -1; DX <= 1; ++DX)
+			{
+				if (DX == 0 && DY == 0)
+				{
+					continue;
+				}
+				const FIntPoint N = C + FIntPoint(DX, DY);
+				const bool bDiagonal = DX != 0 && DY != 0;
+				if (IsWall(N) && (bWall || !bDiagonal))
+				{
+					Visit(N); // 壁から壁は斜めもつながる。空洞から壁は縦横だけ
+				}
+				else if (IsPocket(N) && !bDiagonal)
+				{
+					Visit(N);
+				}
+			}
+		}
+	}
+	return Result;
 }
 
 TArray<bool> UKakurenboGridSubsystem::BuildMainAreaMask() const

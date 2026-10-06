@@ -103,11 +103,22 @@ void ATrapActor::TickSticky()
 	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
 	for (AOniCharacter* Oni : GM->GetOnis())
 	{
+		if (!Oni || !IsOniOnTrap(Oni))
+		{
+			continue;
+		}
 		// 動けなくなった直後の鬼には効かない（続けて踏んでも動けないままにならないように）
-		if (Oni && Oni->CanBeStunned() && IsOniOnTrap(Oni))
+		if (Oni->CanBeStunned())
 		{
 			bTriggered = true;
 			GM->HandleTrapTriggered(this, Oni); // ここで罠は消える
+			return;
+		}
+		// パワー鬼は、抜け出した直後に踏んだトリモチを壊してしまう
+		if (Oni->CanDisarmTraps())
+		{
+			bTriggered = true;
+			GM->HandleTrapDisarmed(this, Oni); // ここで罠は消える
 			return;
 		}
 	}

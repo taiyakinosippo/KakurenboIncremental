@@ -66,6 +66,7 @@ enum class EPrestigeUpgrade : uint8
 	DashSpeed    UMETA(DisplayName = "DashSpeed"),    // ダッシュの速さ：Lv1 でダッシュが使えるようになる
 	DashCooldown UMETA(DisplayName = "DashCooldown"), // ダッシュの回復：クールタイム（秒）
 	Jump         UMETA(DisplayName = "Jump"),         // ジャンプ：Lv1 でジャンプできるようになる
+	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
 	Count        UMETA(Hidden)
 };
 
@@ -148,11 +149,23 @@ struct FWallTypeDef : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	double MaxHP = 1.0;
 
+	/** 1 個目の価格 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	double Cost = 10.0;
 
+	/** 持っている数（在庫＋置いてある数）が 1 増えるごとの価格の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	double CostGrowth = 1.0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	FLinearColor Color = FLinearColor(0.5f, 0.35f, 0.2f);
+
+	/**
+	 * 音を消せる回数（消音壁）。囲まれた中で連打・ダッシュの音を小さくするたびに減り、0 になると壊れる。
+	 * 0 なら減らない（普通の壁）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	double SoundHP = 0.0;
 
 	/**
 	 * 音を小さくする割合（0〜1。消音壁）。
@@ -292,9 +305,21 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float SightHalfAngle = 40.f;
 
-	/** 音が聞こえる距離の倍率（0 なら音を気にしない） */
+	/** プレイヤーの音（連打・ダッシュ）が聞こえる距離の倍率（0 なら気にしない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float HearingScale = 1.f;
+
+	/** おとりの音が聞こえる距離の倍率（0 ならおとりにだまされない。大きいほど遠くから寄っていく） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float DecoyHearingScale = 1.f;
+
+	/** トリモチで動けない時間の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float StunScale = 1.f;
+
+	/** true なら、トリモチから抜け出した直後（かからない間）に踏んだトリモチを壊す */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	bool bDisarmTraps = false;
 
 	/** true なら目の前の壁 1 個だけを壊す（範囲攻撃しない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")

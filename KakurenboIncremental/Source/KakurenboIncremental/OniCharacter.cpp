@@ -200,6 +200,8 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	AttackRadius = Row.AttackRadius;
 	AttackWindup = Row.AttackWindup;
 	PocketInspectChance = Row.PocketInspectChance;
+	StunScale = Row.StunScale;
+	bDisarmTraps = Row.bDisarmTraps;
 }
 
 void AOniCharacter::BeginPlay()
@@ -393,7 +395,7 @@ void AOniCharacter::Stun(float Seconds)
 	SetState(EOniState::Stunned);
 	StateBeforeAttack = EOniState::Wander;
 	bHasGoal = false;
-	StunTimer = Seconds;
+	StunTimer = Seconds * FMath::Max(StunScale, 0.f);
 	SetStunStarsVisible(true);
 	if (UKakurenboOniBlackboard* BB = Blackboard())
 	{
@@ -559,6 +561,10 @@ void AOniCharacter::TickWander(float DeltaSeconds)
 			bHasGoal = false;
 			IdleTimer = FMath::FRandRange(0.3f, 1.0f);
 			BeginLookAround();
+			if (UKakurenboOniBlackboard* BB = Blackboard())
+			{
+				BB->ClearReservedTarget(this); // 着いたので、向かっていた場所・建物の予約を外す
+			}
 		}
 		return;
 	}
@@ -568,7 +574,7 @@ void AOniCharacter::TickWander(float DeltaSeconds)
 	IdleTimer -= DeltaSeconds;
 	if (IdleTimer <= 0.f)
 	{
-		if (!TryInspectPocket() && !ChooseWanderTarget())
+		if (!TryEscapeEnclosure() && !TryInspectPocket() && !ChooseWanderTarget())
 		{
 			IdleTimer = 1.f; // 行き先が見つからなければ少し待って再挑戦
 		}
@@ -783,7 +789,8 @@ bool AOniCharacter::ChooseCarefulTarget()
 		for (int32 X = 0; X < G->GetSizeX(); ++X)
 		{
 			const FIntPoint Cell(X, Y);
-			if (G->GetColumnHeight(Cell) > 0 || BB->IsChecked(Cell, Now, CarefulMemorySeconds) || BB->IsNearOthersTarget(this, Cell, 3))
+			if (G->GetColumnHeight(Cell) > 0 || BB->IsChecked(Cell, Now, CarefulMemorySeconds) || BB->IsNearOthersTarget(this, Cell, 3)
+				|| BB->IsInOthersArea(this, Cell)) // 仲間が壊している建物（の中の空洞）には行かない
 			{
 				continue;
 			}
@@ -810,13 +817,24 @@ bool AOniCharacter::TryInspectPocket()
 	{
 		return false;
 	}
-	// 壁に囲まれて歩いては入れない空きマス（空洞）のうち、一番近いマスを調べに行く
+	// 壁に囲まれて歩いては入れない空きマス（空洞）のうち、一番近いマスを調べに行く。
+	// 自分がいる空洞と、慎重鬼の仲間が調べている建物の空洞は除く
 	const TArray<TArray<FIntPoint>> Pockets = Grid()->FindEnclosedPockets();
 	const FVector Here = GetActorLocation();
+	const FIntPoint HereCell = GetCurrentCell();
+	const UKakurenboOniBlackboard* BB = Blackboard();
 	float BestDistSq = TNumericLimits<float>::Max();
 	FIntPoint Best = FIntPoint::ZeroValue;
 	for (const TArray<FIntPoint>& Pocket : Pockets)
 	{
+		if (Pocket.Contains(HereCell))
+		{
+			continue;
+		}
+		if (OniType == EOniType::Careful && BB && BB->IsInOthersArea(this, Pocket[0]))
+		{
+			continue;
+		}
 		for (const FIntPoint& Cell : Pocket)
 		{
 			const float DistSq = FVector::DistSquared2D(Here, Grid()->CellFloorCenter(Cell));
@@ -832,7 +850,32 @@ bool AOniCharacter::TryInspectPocket()
 		return false;
 	}
 	StartInspect(Best);
+	if (State == EOniState::Inspect && OniType == EOniType::Careful)
+	{
+		ReserveStructure(Best);
+	}
 	return State == EOniState::Inspect;
+}
+
+bool AOniCharacter::TryEscapeEnclosure()
+{
+	UKakurenboGridSubsystem* G = Grid();
+	if (G->IsInMainArea(GetCurrentCell()))
+	{
+		return false;
+	}
+	// 一番広い空き地のどこかへ、他に道が無ければ壁を壊して出る（出入り口の前を壁で囲まれたときなど）
+	FRandomStream Stream(FMath::Rand());
+	const TArray<FIntPoint> Cells = G->FindRandomFreeCells(1, {}, 0.f, Stream);
+	return Cells.Num() > 0 && RequestPathTo(Cells[0], EPathMode::BreakIfNeeded);
+}
+
+void AOniCharacter::ReserveStructure(const FIntPoint& Cell)
+{
+	if (UKakurenboOniBlackboard* BB = Blackboard())
+	{
+		BB->SetReservedArea(this, Grid()->GetStructureAround(Cell));
+	}
 }
 
 // ---------------------------------------------------------------- 感覚
@@ -957,10 +1000,12 @@ bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const
 	return BestDistSq < TNumericLimits<float>::Max();
 }
 
-void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
+void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, bool bFromDecoy)
 {
 	UKakurenboGridSubsystem* G = Grid();
-	if (!bActive || !G || HearingRadius <= 0.f || State == EOniState::Stunned)
+	// おとりの音とプレイヤーの音は別の距離で聞く（スピード鬼はおとりにだまされない・パワー鬼はおとりだけに寄っていく）
+	const float Radius = bFromDecoy ? DecoyHearingRadius : HearingRadius;
+	if (!bActive || !G || Radius <= 0.f || State == EOniState::Stunned)
 	{
 		return;
 	}
@@ -970,7 +1015,7 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 		return;
 	}
 	const float Dist = FVector::Dist(NoiseLocation, GetActorLocation());
-	const float Range = HearingRadius * Loudness;
+	const float Range = Radius * Loudness;
 	if (Dist > Range)
 	{
 		return;
@@ -1136,6 +1181,12 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 	bAttackFired = false;
 	PlayingAnim = nullptr; // 攻撃のアニメーションを最初から再生し直す
 	SetState(EOniState::Attack);
+
+	// 慎重鬼：壊している壁とつながった建物には、仲間の慎重鬼は来ない
+	if (OniType == EOniType::Careful)
+	{
+		ReserveStructure(WallCell);
+	}
 }
 
 void AOniCharacter::ResetBodyScale()

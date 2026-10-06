@@ -354,10 +354,28 @@ public:
 	/** プレイヤーを囲んでいる壁の数（囲まれていなければ 0） */
 	int32 GetPlayerEnclosureWallCount() const;
 
+	/** プレイヤーを囲んでいる消音壁のうち、一番早く壊れるものがあと何回音を消せるか（無ければ -1） */
+	int32 GetPlayerQuietWallRemaining() const;
+
+	/** 連打 1 回・ダッシュ 1 回で消音壁の「音を消せる回数」がいくつ減るか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	double MashSoundDamage = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	double DashSoundDamage = 3.0;
+
 	// ===== 鬼の出入り口 =====
 
 	/** 鬼が出てくるマス（出てくる順）。壁・罠は置けない */
 	TArray<FIntPoint> GetOniGateCells() const;
+
+	/** 壁の今の価格（持っている数が増えるほど高くなる） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetWallCost(int32 WallTypeIndex) const;
+
+	/** 持っている壁の数（在庫＋置いてある数。壊れた分は数えない） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	int32 GetOwnedWallCount(int32 WallTypeIndex) const;
 
 	/** 罠の今の価格（持っている数が増えるほど高くなる） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -419,6 +437,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyTrap(int32 TrapTypeIndex);
 
+	/**
+	 * 壊れた壁・使った罠を、直すのに足りない分だけまとめて買う。値段の高いものから、買えるだけ買う
+	 * @return 買った数
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	int32 BuyAllMissing();
+
+	/** まとめて買うと何個・いくらになるか（足りない分を全部買ったとき） */
+	void GetRefillPlan(int32& OutCount, double& OutCost) const;
+
 	/** 商品の番号（0 始まり）。並び: 強化（連打・時間）→ 壁 → 罠 */
 	int32 GetShopIndexOfWall(int32 WallTypeIndex) const;
 	int32 GetShopIndexOfTrap(int32 TrapTypeIndex) const;
@@ -459,8 +487,8 @@ public:
 	/** ダッシュした（大きな音を出す）。プレイヤーのダッシュが始まったときに呼ぶ */
 	void HandleDash(const FVector& NoiseLocation, float Loudness);
 
-	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く） */
-	void EmitNoise(const FVector& Location, float Loudness);
+	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。bFromDecoy: おとりの音） */
+	void EmitNoise(const FVector& Location, float Loudness, bool bFromDecoy = false);
 
 	/** お宝を取得する（お宝がプレイヤーに触れたときに呼ぶ） */
 	void CollectTreasure(ATreasureActor* Treasure);
@@ -470,6 +498,9 @@ public:
 
 	/** おとりが音を出した */
 	void HandleDecoyPing(ATrapActor* Trap);
+
+	/** パワー鬼が、抜け出した直後にトリモチを踏んで壊した。罠はここで消える */
+	void HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni);
 
 	// ===== パート遷移 =====
 
@@ -562,6 +593,12 @@ protected:
 
 	/** プレイヤーが出す音の輪（届く範囲）を床に出す */
 	void ShowNoiseRing(const FVector& Location, float Loudness, const FLinearColor& Color, float Thickness) const;
+
+	/**
+	 * プレイヤーが音を出す（連打・ダッシュ）。消音壁に囲まれていれば小さくなり、その消音壁の「音を消せる回数」が SoundDamage 減る
+	 * @return 鬼に届いた音の大きさ
+	 */
+	float MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness);
 
 	/** 鬼の見た目のメッシュを読み込む（設定が無ければ何もしない） */
 	void LoadOniAppearance();

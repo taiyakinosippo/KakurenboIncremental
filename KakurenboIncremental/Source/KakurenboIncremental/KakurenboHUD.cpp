@@ -330,13 +330,16 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const bool bPrestigeTab = PC && PC->bPrestigeShopTab;
 	const TArray<FShopItemView> Items = bPrestigeTab ? GM->GetPrestigeShopItems() : GM->GetShopItems();
-	const float CanvasW = Canvas->ClipX / UIScale;
 
-	// 商品が増えても画面に収まるよう、1 行の高さを詰める（1 商品 = 名前・説明・壊れた数の 3 行）
-	// 上端は画面上部のお知らせ（y 116〜160）と重ならない高さにする
+	// 配置は固定（お店を切り替えても、転生できるようになっても、ボタンの位置が動かないように）。
+	// 上端は画面上部のお知らせ（y 116〜160）と重ならない高さ。1 商品 = 名前・説明・壊れた数の 3 行
+	constexpr int32 MaxRows = 8;
 	const float X = 520, Y = 168, W = 880;
-	const float RowH = FMath::Min(74.f, 600.f / FMath::Max(1, Items.Num()));
-	Panel(X, Y, W, 84 + Items.Num() * RowH);
+	const float RowH = 70.f * FMath::Min(1.f, static_cast<float>(MaxRows) / FMath::Max(MaxRows, Items.Num()));
+	const float RowsTop = Y + 70;
+	const float ButtonsY = RowsTop + MaxRows * 70.f + 8;
+	const float ButtonH = 50;
+	Panel(X, Y, W, ButtonsY + ButtonH + 12 - Y);
 
 	// お店の切り替え（クリックか Tab）
 	DrawButton(X + 16, Y + 12, 300, 44, TEXT("コインのお店"), EKakurenboUIAction::ShopTab, 0, !bPrestigeTab, 22, !bPrestigeTab ? FLinearColor::Black : FLinearColor::White);
@@ -348,7 +351,7 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	{
 		const FShopItemView& Item = Items[i];
 		const bool bAffordable = Item.bPrestigeItem ? (!Item.bMaxed && State->PrestigePoints >= Item.Cost) : State->Coins >= Item.Cost;
-		const float RowY = Y + 70 + i * RowH;
+		const float RowY = RowsTop + i * RowH;
 
 		// 行全体がボタン（カーソルを乗せると明るくなる）
 		AddButton(X + 8, RowY - 4, W - 16, RowH - 2, EKakurenboUIAction::ShopItem, i);
@@ -357,57 +360,60 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 			Panel(X + 8, RowY - 4, W - 16, RowH - 2, bAffordable ? FLinearColor(0.35f, 0.35f, 0.45f, 0.6f) : FLinearColor(0.3f, 0.15f, 0.15f, 0.5f));
 		}
 
-		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 23, bAffordable ? FLinearColor::White : Gray);
+		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 22, bAffordable ? FLinearColor::White : Gray);
 		const FString CostText = Item.bMaxed ? FString(TEXT("最大"))
 			: Item.bPrestigeItem ? FString::Printf(TEXT("%d pt"), FMath::RoundToInt(Item.Cost))
 			: FString::Printf(TEXT("%s コイン"), *Big(Item.Cost));
-		Text(CostText, X + 680, RowY, 23, bAffordable ? (Item.bPrestigeItem ? Purple : Gold) : Gray);
-		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.43f, 16, Gray);
+		Text(CostText, X + 680, RowY, 22, bAffordable ? (Item.bPrestigeItem ? Purple : Gold) : Gray);
+		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.42f, 15, Gray);
 		if (!Item.RepairText.IsEmpty())
 		{
 			// 壊れた壁・使った罠の数（足りなければ橙、在庫で直せるなら緑）
-			Text(Item.RepairText.ToString(), X + 60, RowY + RowH * 0.7f, 16, Item.bNeedsMoreForRepair ? Warn : Good);
+			Text(Item.RepairText.ToString(), X + 60, RowY + RowH * 0.68f, 15, Item.bNeedsMoreForRepair ? Warn : Good);
 		}
 	}
 
-	float BottomY = Y + 84 + Items.Num() * RowH + 12;
+	// 下のボタン 3 つ（いつも同じ位置）：まとめて補充 / 転生 / 次へ
+	const float ButtonW = (W - 32 - 24) / 3.f;
+	int32 RefillCount = 0;
+	double RefillCost = 0.0;
+	GM->GetRefillPlan(RefillCount, RefillCost);
+	DrawButton(X + 16, ButtonsY, ButtonW, ButtonH, TEXT("まとめて補充 [R]"), EKakurenboUIAction::RefillAll, 0, false, 20,
+		RefillCount > 0 ? FLinearColor::White : Gray);
+	const bool bCanPrestige = GM->CanPrestige();
+	const bool bConfirm = bCanPrestige && PC && PC->IsPrestigeConfirmPending();
+	const FString PrestigeLabel = !bCanPrestige ? FString::Printf(TEXT("転生（ステージ %d から）"), GM->PrestigeSettings.MinStage)
+		: bConfirm ? FString(TEXT("もう一度押すと転生"))
+		: FString::Printf(TEXT("転生する +%d pt [P]"), GM->GetPrestigePointsOnReset());
+	DrawButton(X + 16 + (ButtonW + 12), ButtonsY, ButtonW, ButtonH, PrestigeLabel, EKakurenboUIAction::Prestige, 0, false, 20,
+		!bCanPrestige ? Gray : bConfirm ? Bad : Purple);
+	DrawButton(X + 16 + (ButtonW + 12) * 2, ButtonsY, ButtonW, ButtonH, TEXT("設置パートへ ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 20, Gold);
+
+	// 説明（パネルの下・いつも同じ位置）
+	float InfoY = ButtonsY + ButtonH + 24;
+	if (RefillCount > 0)
+	{
+		Text(FString::Printf(TEXT("壊れた壁・使った罠を直すには、あと %d 個（%s コイン）。まとめて補充は高いものから買えるだけ買います"), RefillCount, *Big(RefillCost)),
+			0, InfoY, 18, Warn, true);
+	}
+	else if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>(); Grid && (Grid->GetTotalMissing() > 0 || Grid->GetMissingTrapCount() > 0))
+	{
+		Text(TEXT("壊れた壁・使った罠は、在庫から設置パートの開始時に自動で直ります"), 0, InfoY, 18, Good, true);
+	}
+	InfoY += 28;
 	if (bPrestigeTab)
 	{
-		Text(TEXT("転生ポイントは転生するともらえます。強化は転生しても残ります"), 0, BottomY, 18, Purple, true);
-		BottomY += 30;
+		Text(TEXT("転生ポイントは転生するともらえます。転生のお店の強化は転生しても残ります"), 0, InfoY, 16, Purple, true);
 	}
-	else if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	else if (bCanPrestige)
 	{
-		const int32 MissingWalls = Grid->GetTotalMissing();
-		const int32 MissingTraps = Grid->GetMissingTrapCount();
-		if (MissingWalls > 0 || MissingTraps > 0)
-		{
-			Text(FString::Printf(TEXT("壊れた壁 %d 個・使った罠 %d 個（在庫があれば設置パートの開始時に自動で直ります）"), MissingWalls, MissingTraps), 0, BottomY, 20, Warn, true);
-			BottomY += 32;
-		}
-	}
-
-	// 転生（クリックか P を 2 回）と、次へ
-	const float ButtonH = 48;
-	if (GM->CanPrestige())
-	{
-		const bool bConfirm = PC && PC->IsPrestigeConfirmPending();
-		const FString Label = bConfirm ? FString(TEXT("もう一度押すと転生します"))
-			: FString::Printf(TEXT("転生する（+%d pt）[P]"), GM->GetPrestigePointsOnReset());
-		DrawButton(CanvasW * 0.5f - 470, BottomY, 460, ButtonH, Label, EKakurenboUIAction::Prestige, 0, false, 22, bConfirm ? Bad : Purple);
-		DrawButton(CanvasW * 0.5f + 10, BottomY, 460, ButtonH, TEXT("設置パートへ ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
-		BottomY += ButtonH + 8;
-		Text(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなります（設計図と転生のお店の強化は残ります）"), 0, BottomY, 16, Gray, true);
-		BottomY += 26;
+		Text(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなります（設計図と転生のお店の強化は残ります）"), 0, InfoY, 16, Gray, true);
 	}
 	else
 	{
-		DrawButton(CanvasW * 0.5f - 230, BottomY, 460, ButtonH, TEXT("設置パートへ ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
-		BottomY += ButtonH + 8;
-		Text(FString::Printf(TEXT("転生はステージ %d から（転生ポイントで永続強化が買える）"), GM->PrestigeSettings.MinStage), 0, BottomY, 16, Gray, true);
-		BottomY += 26;
+		Text(FString::Printf(TEXT("転生はステージ %d から（転生ポイントで永続強化が買える）"), GM->PrestigeSettings.MinStage), 0, InfoY, 16, Gray, true);
 	}
-	Text(TEXT("クリック・数字キー: 購入　Q/E・ホイールを押してドラッグ: カメラ回転　ホイール: ズーム"), 0, BottomY, 16, FLinearColor::White, true);
+	Text(TEXT("クリック・数字キー: 購入　Q/E・ホイールを押してドラッグ: カメラ回転　ホイール: ズーム"), 0, InfoY + 26, 16, FLinearColor::White, true);
 }
 
 // ---------------------------------------------------------------- 設置
@@ -623,7 +629,13 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const float NoiseMultiplier = GM->GetPlayerNoiseMultiplier();
 	if (NoiseMultiplier < 0.999f)
 	{
-		Text(FString::Printf(TEXT("消音壁に囲まれている：音が %d%% 小さい"), FMath::RoundToInt((1.f - NoiseMultiplier) * 100.f)), 0, 120, 20, Purple, true);
+		const int32 Remaining = GM->GetPlayerQuietWallRemaining();
+		FString QuietText = FString::Printf(TEXT("消音壁に囲まれている：音が %d%% 小さい"), FMath::RoundToInt((1.f - NoiseMultiplier) * 100.f));
+		if (Remaining >= 0)
+		{
+			QuietText += FString::Printf(TEXT("（消音壁はあと %d 回で壊れる）"), Remaining);
+		}
+		Text(QuietText, 0, 120, 20, Remaining >= 0 && Remaining <= 10 ? Warn : Purple, true);
 	}
 
 	// 操作説明（下部中央）
