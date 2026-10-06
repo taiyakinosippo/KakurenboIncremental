@@ -243,11 +243,16 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 	{
 		TestNotNull(TEXT("Mash row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Mash"), TEXT("Test")));
 		TestNotNull(TEXT("Time row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Time"), TEXT("Test")));
-		const FKakurenboUpgradeRow* Wall = Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Test"));
-		TestNotNull(TEXT("Wall row"), Wall);
-		if (Wall)
+		// 壁の補強はやめた（壁を硬くするのは転生）
+		TestNull(TEXT("no Wall reinforcement row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Test"), false));
+	}
+	if (UDataTable* Prestige = Load(FKakurenboPrestigeRow::StaticStruct(), TEXT("Prestige.csv")))
+	{
+		const FKakurenboPrestigeRow* Row = Prestige->FindRow<FKakurenboPrestigeRow>(TEXT("Prestige"), TEXT("Test"));
+		TestNotNull(TEXT("Prestige row"), Row);
+		if (Row)
 		{
-			TestTrue(TEXT("wall reinforcement makes walls harder"), Wall->ValueGrowth > 1.0 && Wall->BaseCost > 0.0);
+			TestTrue(TEXT("prestige makes walls harder"), Row->MinStage >= 2 && Row->PointsPerStage >= 1 && Row->WallHPGrowth > 1.0);
 		}
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
@@ -284,6 +289,10 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("wall 1 has HP, cost and a color"), Rows[0]->MaxHP > 0.0 && Rows[0]->Cost > 0.0 && Rows[0]->Color.R > 0.f);
 			TestFalse(TEXT("wall 1 has a name"), Rows[0]->DisplayName.IsEmpty());
 		}
+		// 消音壁がある（NoiseDamping 列が読めている）
+		const FWallTypeDef* const* Quiet = Rows.FindByPredicate([](const FWallTypeDef* Row) { return Row->NoiseDamping > 0.f; });
+		TestTrue(TEXT("a soundproof wall exists"), Quiet && (*Quiet)->NoiseDamping <= 1.f);
+		TestTrue(TEXT("shop fits the number keys (2 upgrades + walls + traps <= 9)"), Rows.Num() + 2 + 2 <= 9);
 	}
 	if (UDataTable* OniTypes = Load(FKakurenboOniTypeRow::StaticStruct(), TEXT("OniTypes.csv")))
 	{
@@ -375,6 +384,57 @@ bool FKakurenboPocketTest::RunTest(const FString& Parameters)
 	}
 	Pockets = KakurenboPathfinding::FindEnclosedPockets(Ring);
 	TestTrue(TEXT("ring center is a pocket"), Pockets.Num() == 1 && Pockets[0].Num() == 1 && Pockets[0][0] == FIntPoint(5, 5));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboEnclosureDampingTest, "Kakurenbo.Path.EnclosureDamping", TestFlags)
+bool FKakurenboEnclosureDampingTest::RunTest(const FString& Parameters)
+{
+	// 3x3 の輪（中央 (5,5)）。8 個のうち 6 個を消音壁（0.8）、2 個を普通の壁（0）にする
+	FKakurenboPathGrid Grid;
+	Grid.Init(10, 10);
+	TArray<float> Damping;
+	Damping.Init(0.f, 100);
+	int32 Placed = 0;
+	for (int32 DY = -1; DY <= 1; ++DY)
+	{
+		for (int32 DX = -1; DX <= 1; ++DX)
+		{
+			if (DX == 0 && DY == 0)
+			{
+				continue;
+			}
+			const FIntPoint P(5 + DX, 5 + DY);
+			Grid.SetExtra(P, -1.f);
+			Damping[Grid.ToIndex(P)] = (Placed++ < 6) ? 0.8f : 0.f;
+		}
+	}
+	int32 Walls = 0;
+	const float Inside = KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping, &Walls);
+	TestEqual(TEXT("8 walls surround the center"), Walls, 8);
+	TestTrue(FString::Printf(TEXT("damping is the average (%.3f, expected 0.6)"), Inside), FMath::IsNearlyEqual(Inside, 0.6f, 0.001f));
+
+	// 囲まれていない場所・壁の上では効かない
+	TestEqual(TEXT("outside the ring: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(0, 0), Damping), 0.f);
+	TestEqual(TEXT("on a wall: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(4, 4), Damping), 0.f);
+
+	// 1 か所開けると囲まれていないので効かない
+	Grid.SetExtra(FIntPoint(6, 5), 0.f);
+	TestEqual(TEXT("opened ring: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping), 0.f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboPrestigePointsTest, "Kakurenbo.Balance.PrestigePoints", TestFlags)
+bool FKakurenboPrestigePointsTest::RunTest(const FString& Parameters)
+{
+	FKakurenboPrestigeRow Settings;
+	Settings.MinStage = 5;
+	Settings.PointsPerStage = 1;
+	TestEqual(TEXT("before the min stage: 0"), KakurenboBalance::GetPrestigePoints(4, Settings), 0);
+	TestEqual(TEXT("at the min stage: 1"), KakurenboBalance::GetPrestigePoints(5, Settings), 1);
+	TestEqual(TEXT("stage 8: 4"), KakurenboBalance::GetPrestigePoints(8, Settings), 4);
+	Settings.PointsPerStage = 2;
+	TestEqual(TEXT("2 points per stage at stage 6: 4"), KakurenboBalance::GetPrestigePoints(6, Settings), 4);
 	return true;
 }
 

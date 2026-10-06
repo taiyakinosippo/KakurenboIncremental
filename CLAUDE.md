@@ -17,11 +17,11 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 
 | ファイル | 役割 |
 |---|---|
-| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁と罠の設置・鬼のスポーン・演出と効果音のきっかけ）。数値は UPROPERTY |
-| `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル）。HUD はここを読む |
-| `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、デバッグ用 Exec コマンド |
+| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁と罠の設置・鬼のスポーン・転生・消音・演出と効果音のきっかけ）。数値は UPROPERTY。`Config=Game` なので鬼の見た目のパスは DefaultGame.ini |
+| `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル・転生ポイント）。HUD はここを読む |
+| `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、ダッシュ、転生の確認、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）、鬼の方向表示 |
-| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・三人称カメラ） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う。ぶつかったらアウト） |
+| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・真上・三人称カメラ、ダッシュ） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う。ぶつかったらアウト。鬼どうしはすり抜ける。スケルタルメッシュに差し替え可） |
 | `KakurenboOniBlackboard` | 慎重鬼どうしで共有する「調べたマス」と「向かっているマス」（WorldSubsystem） |
 | `TreasureActor` | お宝（距離で取得） |
 | `TrapActor` | 罠（トリモチ: 踏んだ鬼を Stun / おとり: 一定間隔で EmitNoise）。当たり判定なし、距離で発動。配置と設計図はグリッドが持つ |
@@ -33,12 +33,13 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboSaveGame` | セーブデータ（GameMode の SaveProgress / LoadProgress / ResetProgress） |
 | `GridPathfinder` | ワールドに依存しない A*。壁マスに「壊すコスト」を持たせる（負なら通れない）。空洞（いちばん広い空間から歩いて行けない場所）の検出 |
 | `KakurenboGridSubsystem` | グリッドとブロック配置（積み上げ・範囲ダメージ・1 個だけダメージ・落下）、歩くだけの経路用グリッドと壁を壊す経路用グリッド |
-| `KakurenboArena` | 床・外周の壁・外側の地面・ライト・ポストプロセス（露出の下限、モーションブラーなし）を C++ で生成（レベルアセット不要） |
+| `KakurenboArena` | 床・外周の壁・鬼の出入り口（東側の赤い門と前の 3×2 マス）・外側の地面・ライト・ポストプロセス（露出の下限、モーションブラーなし）を C++ で生成（レベルアセット不要） |
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
-- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
-- 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ → 壁 → 罠）
+- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
+- 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 2 つ → 壁 → 罠）
+- 壁の耐久の倍率は転生ポイントで決まる（`GetWallHPMultiplier`。壁の補強はもう無い）。壁は `GetEffectiveWallTypes` の耐久で作る
 - 収入・耐久など小数に意味がある値の表示は `FormatStatNumber`（`FormatBigNumber` は 1000 未満を切り捨てるのでコイン専用）
 - 設置パートのグリッド線・プレビュー枠は DrawDebug 系（Shipping では出ない）。演出は `UKakurenboFxSubsystem` を使う
 - レベルアセットは無い。既定マップは `/Engine/Maps/Entry`、既定 GameMode は `KakurenboGameMode`（DefaultEngine.ini）
@@ -56,8 +57,11 @@ powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
   スクリーンショットを Read で確認して見た目も検証すること。最後に `CHECK: n passed, m failed` が出る
 - シナリオ: Camera / Loop / Senses / Touch / Treasure / Build / Save（基本）、
-  Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）、Trap / Shop / Fx（M5）。仕様を変えたら全部流す
-- 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する
+  Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）、Trap / Shop / Fx（M5）、
+  Gate / Crowd / Quiet / Dash / Prestige（M6）。仕様を変えたら全部流す
+- 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
+  プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`
+- 設置パートのカーソルを使うテストは `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）
 - 効果音は既定では `-NoSound` で起動するが、鳴らした回数（`GetPlayCount`）は数えるのできっかけは確かめられる。
   `RunAutoTest.ps1 -Scenario Fx -Sound` で実際に再生まで確かめる（`-ExtraExec "KakuVolume 0.3,"` で小さめに）
 - スクリーンショットを撮るステップでプレイヤーを動かすと、動かした後の画面が写る。撮ってから次のステップで動かす

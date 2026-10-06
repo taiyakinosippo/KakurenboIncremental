@@ -128,6 +128,23 @@ namespace KakurenboSynth
 		case EKakurenboSfx::PickUp:
 			return { Tone(0.f, 0.09f, 500.f, 950.f, EWave::Sine, 0.30f, 1.f) };
 
+		case EKakurenboSfx::Dash:
+			// 「ダッ」と地面を蹴る音 ＋ 風を切る「シュッ」
+			return {
+				Tone(0.00f, 0.12f, 160.f, 60.f, EWave::Sine, 0.60f, 2.f),
+				Noise(0.00f, 0.06f, 0.45f, 0.3f, 2.f),
+				Noise(0.03f, 0.30f, 0.30f, 0.9f, 1.2f),
+			};
+
+		case EKakurenboSfx::Prestige:
+			// 不思議な上がっていく響き
+			return {
+				Vibrato(Tone(0.00f, 0.80f, 330.f, 1320.f, EWave::Triangle, 0.30f, 0.6f), 0.02f, 7.f),
+				Tone(0.20f, 0.60f, E6, 0.f, EWave::Sine, 0.18f, 1.f),
+				Tone(0.35f, 0.60f, G6, 0.f, EWave::Sine, 0.18f, 1.f),
+				Tone(0.50f, 0.70f, C7, 0.f, EWave::Sine, 0.18f, 1.f),
+			};
+
 		default:
 			return {};
 		}

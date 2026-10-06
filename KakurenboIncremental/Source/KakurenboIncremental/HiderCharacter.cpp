@@ -58,26 +58,42 @@ void AHiderCharacter::BeginPlay()
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	BodyBaseScale = BodyMesh->GetRelativeScale3D();
 	OverheadYaw = GetActorRotation().Yaw;
+	WalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+	TopDownFocus = GetActorLocation();
 	SetViewMode(ViewMode);
 }
 
 void AHiderCharacter::SetViewMode(EHiderViewMode NewMode)
 {
 	ViewMode = NewMode;
-	const bool bOverhead = (NewMode == EHiderViewMode::Overhead);
+	const bool bThirdPerson = (NewMode == EHiderViewMode::ThirdPerson);
+	const bool bTopDown = (NewMode == EHiderViewMode::TopDown);
 
-	// 俯瞰はなめらかに回す。三人称はマウスにすぐ追従させる
-	CameraBoom->bEnableCameraRotationLag = bOverhead;
+	// 俯瞰・真上はなめらかに回す。三人称はマウスにすぐ追従させる
+	CameraBoom->bEnableCameraRotationLag = !bThirdPerson;
 	// 三人称は舞台の外周の壁に当たったらカメラを手前に寄せる（外へ出て壁の裏しか見えなくなるのを防ぐ）。
 	// 置いたブロックはカメラを通す設定なので、囲まれていても壁越しに見える。俯瞰は外周の上から見下ろすので当たらない
-	CameraBoom->bDoCollisionTest = !bOverhead;
+	CameraBoom->bDoCollisionTest = bThirdPerson;
 	// 三人称は注視点を少し上げて、壁越しに見渡しやすくする
-	CameraBoom->TargetOffset = bOverhead ? FVector::ZeroVector : FVector(0.f, 0.f, ThirdPersonLookHeight);
+	CameraBoom->TargetOffset = bThirdPerson ? FVector(0.f, 0.f, ThirdPersonLookHeight) : FVector::ZeroVector;
+
+	// 真上からのときは、アームの根元をプレイヤーから切り離して自由に動かす（SetUsingAbsoluteLocation: 親の位置に付いていかない）。
+	// プレイヤーの体は表示しない（当たり判定は残るので、立っている場所には壁を置けない）
+	CameraBoom->SetUsingAbsoluteLocation(bTopDown);
+	if (bTopDown)
+	{
+		CameraBoom->SetWorldLocation(TopDownFocus);
+	}
+	else
+	{
+		CameraBoom->SetRelativeLocation(FVector::ZeroVector);
+	}
+	SetActorHiddenInGame(bTopDown);
 }
 
 float AHiderCharacter::GetViewYaw() const
 {
-	if (ViewMode == EHiderViewMode::Overhead)
+	if (ViewMode != EHiderViewMode::ThirdPerson)
 	{
 		return OverheadYaw;
 	}
@@ -100,6 +116,10 @@ void AHiderCharacter::AddZoom(float DeltaCm)
 	{
 		OverheadDistance = FMath::Clamp(OverheadDistance + DeltaCm, OverheadMinDistance, OverheadMaxDistance);
 	}
+	else if (ViewMode == EHiderViewMode::TopDown)
+	{
+		TopDownDistance = FMath::Clamp(TopDownDistance + DeltaCm * 1.5f, TopDownMinDistance, TopDownMaxDistance);
+	}
 	else
 	{
 		ThirdPersonDistance = FMath::Clamp(ThirdPersonDistance + DeltaCm * 0.5f, ThirdPersonMinDistance, ThirdPersonMaxDistance);
@@ -110,11 +130,30 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// ダッシュの時間とクールタイム
+	if (DashTimeRemaining > 0.f)
+	{
+		DashTimeRemaining -= DeltaSeconds;
+		if (DashTimeRemaining <= 0.f)
+		{
+			DashTimeRemaining = 0.f;
+			GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+		}
+	}
+	DashCooldownRemaining = FMath::Max(0.f, DashCooldownRemaining - DeltaSeconds);
+
 	// アームの向きと長さを今の視点に合わせる
 	if (ViewMode == EHiderViewMode::Overhead)
 	{
 		CameraBoom->SetWorldRotation(FRotator(OverheadPitch, OverheadYaw, 0.f));
 		CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, OverheadDistance, DeltaSeconds, 8.f);
+	}
+	else if (ViewMode == EHiderViewMode::TopDown)
+	{
+		// 真上から（ピッチ -90）。画面の上が OverheadYaw の方向になる
+		CameraBoom->SetWorldLocation(TopDownFocus);
+		CameraBoom->SetWorldRotation(FRotator(-90.f, OverheadYaw, 0.f));
+		CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, TopDownDistance, DeltaSeconds, 8.f);
 	}
 	else
 	{
@@ -137,6 +176,25 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 void AHiderCharacter::PlayMashFeedback()
 {
 	MashPulse = 1.f;
+}
+
+bool AHiderCharacter::TryStartDash()
+{
+	if (DashCooldownRemaining > 0.f)
+	{
+		return false;
+	}
+	DashTimeRemaining = DashDuration;
+	DashCooldownRemaining = DashCooldown;
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed * DashSpeedMultiplier;
+	return true;
+}
+
+void AHiderCharacter::ResetDash()
+{
+	DashTimeRemaining = 0.f;
+	DashCooldownRemaining = 0.f;
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 }
 
 void AHiderCharacter::GetSightTargetPoints(TArray<FVector>& OutPoints) const

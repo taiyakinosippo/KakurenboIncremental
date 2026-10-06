@@ -200,6 +200,61 @@ TArray<TArray<FIntPoint>> KakurenboPathfinding::FindEnclosedPockets(const FKakur
 	return Pockets;
 }
 
+float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping, int32* OutBoundaryWalls)
+{
+	if (OutBoundaryWalls)
+	{
+		*OutBoundaryWalls = 0;
+	}
+	if (!Grid.IsFree(Cell))
+	{
+		return 0.f; // 壁の上や外にいる
+	}
+	TArray<int32> Labels, Sizes;
+	LabelFreeRegions(Grid, Labels, Sizes);
+	const int32 Region = Labels[Grid.ToIndex(Cell)];
+	if (Region == FindLargestRegion(Sizes))
+	{
+		return 0.f; // 囲まれていない（一番広い空間にいる）
+	}
+
+	// 空洞のマスの周り 8 マスにある壁を数える（同じ壁は 1 回だけ）
+	TSet<int32> Walls;
+	for (int32 Index = 0; Index < Labels.Num(); ++Index)
+	{
+		if (Labels[Index] != Region)
+		{
+			continue;
+		}
+		const FIntPoint P = Grid.FromIndex(Index);
+		for (int32 DY = -1; DY <= 1; ++DY)
+		{
+			for (int32 DX = -1; DX <= 1; ++DX)
+			{
+				const FIntPoint N = P + FIntPoint(DX, DY);
+				if (Grid.IsInside(N) && Grid.GetExtra(N) != 0.f)
+				{
+					Walls.Add(Grid.ToIndex(N));
+				}
+			}
+		}
+	}
+	if (Walls.Num() == 0)
+	{
+		return 0.f; // 舞台の外周だけで囲まれている（普通は起きない）
+	}
+	float Sum = 0.f;
+	for (const int32 Index : Walls)
+	{
+		Sum += CellDamping.IsValidIndex(Index) ? FMath::Clamp(CellDamping[Index], 0.f, 1.f) : 0.f;
+	}
+	if (OutBoundaryWalls)
+	{
+		*OutBoundaryWalls = Walls.Num();
+	}
+	return Sum / Walls.Num();
+}
+
 bool KakurenboPathfinding::PathContainsWalls(const FKakurenboPathGrid& Grid, const TArray<FIntPoint>& Path)
 {
 	for (const FIntPoint& P : Path)

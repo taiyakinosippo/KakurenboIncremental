@@ -23,6 +23,15 @@ FKakurenboStageRow KakurenboBalance::ResolveStage(const TArray<FKakurenboStageRo
 	return Row;
 }
 
+int32 KakurenboBalance::GetPrestigePoints(int32 Stage, const FKakurenboPrestigeRow& Settings)
+{
+	if (Stage < Settings.MinStage)
+	{
+		return 0;
+	}
+	return (Stage - Settings.MinStage + 1) * FMath::Max(1, Settings.PointsPerStage);
+}
+
 FString KakurenboBalance::GetDataFilePath(const FString& FileName)
 {
 	return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data") / FileName);

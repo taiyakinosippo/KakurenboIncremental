@@ -65,4 +65,12 @@ namespace KakurenboPathfinding
 	 * 例: 角に斜めに壁を並べると、角の三角の部分が空洞になる
 	 */
 	KAKURENBOINCREMENTAL_API TArray<TArray<FIntPoint>> FindEnclosedPockets(const FKakurenboPathGrid& Grid);
+
+	/**
+	 * 消音壁：Cell が空洞（一番大きいまとまり以外）の中なら、その空洞を囲んでいる壁（空洞のマスの周り 8 マスにある壁）の
+	 * CellDamping の平均を返す。囲まれていなければ 0。
+	 * @param CellDamping マスごとの「音を小さくする割合」（0〜1。壁の無いマスは使わない）
+	 * @param OutBoundaryWalls 囲んでいる壁の数
+	 */
+	KAKURENBOINCREMENTAL_API float ComputeEnclosureDamping(const FKakurenboPathGrid& Grid, const FIntPoint& Cell, const TArray<float>& CellDamping, int32* OutBoundaryWalls = nullptr);
 }

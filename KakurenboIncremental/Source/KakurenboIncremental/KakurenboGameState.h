@@ -53,9 +53,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 TimeIncomeLevel = 0;
 
-	/** 壁の補強のレベル（すべての壁の耐久が上がる） */
+	// ---- 転生（リセットしても残る） ----
+	/** 転生ポイントの合計（すべての壁の耐久が上がる） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
-	int32 WallReinforceLevel = 0;
+	int32 PrestigePoints = 0;
+
+	/** 転生した回数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 PrestigeCount = 0;
 
 	/** 壁の在庫（インデックスは GameMode の WallTypes と対応） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")

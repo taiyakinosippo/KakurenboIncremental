@@ -4,10 +4,10 @@
 //
 // 操作:
 //   共通                 Enter: 次のパートへ
-//   購入・リザルト（俯瞰） マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入
-//   設置（俯瞰）          WASD: 移動 / Space: ジャンプ / カーソル+左クリック: 壁・罠を置く / 右クリック: 回収
+//   購入・リザルト（俯瞰） マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入 / P を 2 回: 転生（購入パート）
+//   設置（真上から）       WASD: カメラを動かす / カーソル+左クリック: 壁・罠を置く / 右クリック: 回収 / T: スタート位置をカーソルのマスへ
 //                         数字キー: 置く物（壁の種類 → 罠の種類の順） / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
-//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / 左クリック・F: 連打 / ホイール: カメラの距離
+//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / Shift: ダッシュ / 左クリック・F: 連打 / ホイール: カメラの距離
 
 #pragma once
 
@@ -47,6 +47,17 @@ public:
 	/** ホイール 1 目盛りのズーム量（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	float ZoomStep = 250.f;
+
+	/** 設置パートで WASD がカメラを動かす速さ（cm/秒。高さ 2600 のとき。ズームすると遅くなる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float TopDownPanSpeed = 1400.f;
+
+	/** 転生の確認：1 回目の P からこの秒数以内にもう一度 P を押すと転生する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	float PrestigeConfirmSeconds = 3.f;
+
+	/** 転生の確認待ち（もう一度 P を押すと転生する）か */
+	bool IsPrestigeConfirmPending() const;
 
 	/** 三人称カメラの上下の角度の範囲（度） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -146,12 +157,25 @@ public:
 	UFUNCTION(Exec)
 	void KakuResetSave();
 
+	/** 転生する（購入パートで P を 2 回押すのと同じ。確認なし） */
+	UFUNCTION(Exec)
+	void KakuPrestige();
+
+	/** ダッシュする（かくれんぼ中に Shift を押すのと同じ） */
+	UFUNCTION(Exec)
+	void KakuDash();
+
+	/** 設置パートでスタート位置を動かす（T キーと同じ）。例: KakuSetStart 5 5 */
+	UFUNCTION(Exec)
+	void KakuSetStart(int32 X, int32 Y);
+
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
 	 * Scenario: Loop（基本ループ） / Senses（鬼の追跡・見失い） / Touch（ぶつかったら発見）
 	 *           Treasure（お宝） / Build（壁の設置・破壊・自動修復） / Camera（視点と操作）
 	 *           Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）
-	 *           Trap（罠） / Shop（商品の並び・壁の補強・罠の値段） / Fx（演出と効果音）
+	 *           Trap（罠） / Shop（商品の並び・壊れた数・罠の値段） / Fx（演出と効果音）
+	 *           Gate（鬼の出入り口） / Crowd（鬼どうしのすれ違い） / Quiet（消音壁） / Dash（ダッシュ） / Prestige（転生）
 	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Senses"
 	 * 実装は KakurenboAutoTest.cpp
 	 */
@@ -173,7 +197,12 @@ protected:
 
 	void HandleMouseLook();
 	void HandleOverheadCamera(float DeltaTime, bool bMouseOrbits);
+	/** 設置パート：WASD で真上からのカメラを画面の向きに動かす */
+	void HandleTopDownPan(float DeltaTime);
 	void HandleCharacterMovement();
+	void DoDash();
+	/** 設置パート：スタート位置をそのマスへ（できなければ理由をお知らせに出す） */
+	bool SetStartCell(const FIntPoint& Cell);
 	void HandleZoom();
 	void HandleShopInput();
 	void HandleBuildInput();
@@ -196,10 +225,17 @@ private:
 	void ApplyAutoTestInputIsolation();
 	bool bIgnoreRealInputForAutoTest = false;
 
+	/** 自動テスト用：設置パートのカーソル位置を本物のマウスの代わりに使う（本物のカーソルは動かさない） */
+	bool bUseTestCursor = false;
+	FVector2D TestCursorPosition = FVector2D::ZeroVector;
+
 	bool bViewInitialized = false;
 	EKakurenboPhase ViewPhase = EKakurenboPhase::Hide;
 
 	/** ホイールを押しながらのドラッグ回転用 */
 	bool bDraggingCamera = false;
 	FVector2D LastDragMousePosition = FVector2D::ZeroVector;
+
+	/** 転生の確認：このワールド時刻まで、もう一度 P を押すと転生する */
+	float PrestigeConfirmUntil = -1.f;
 };

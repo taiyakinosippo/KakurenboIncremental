@@ -20,8 +20,9 @@ enum class EKakurenboPhase : uint8
 UENUM(BlueprintType)
 enum class EHiderViewMode : uint8
 {
-	Overhead    UMETA(DisplayName = "Overhead"),    // 俯瞰（購入・設置・リザルト）
+	Overhead    UMETA(DisplayName = "Overhead"),    // 俯瞰（購入・リザルト）：斜め上から自分を見下ろす
 	ThirdPerson UMETA(DisplayName = "ThirdPerson"), // 三人称（かくれんぼ）：自分の背後の少し上から見る。マウスで回せる
+	TopDown     UMETA(DisplayName = "TopDown"),     // 真上から（設置）：プレイヤーは表示せず、カメラだけを WASD で動かす
 };
 
 /** 鬼の状態（HUD 表示にも使う） */
@@ -75,6 +76,8 @@ enum class EKakurenboSfx : uint8
 	BuyFail       UMETA(DisplayName = "BuyFail"),       // コインが足りない
 	Place         UMETA(DisplayName = "Place"),         // 壁・罠を置いた
 	PickUp        UMETA(DisplayName = "PickUp"),        // 壁・罠を回収した
+	Dash          UMETA(DisplayName = "Dash"),          // ダッシュした（大きな音）
+	Prestige      UMETA(DisplayName = "Prestige"),      // 転生した
 	Count         UMETA(Hidden)
 };
 
@@ -97,6 +100,14 @@ struct FShopItemView
 	/** 強化ならレベル、壁なら在庫数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	FText OwnedText;
+
+	/** 壁・罠：壊れた（使った）数と、全部直すのにあと何個要るか（無ければ空） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	FText RepairText;
+
+	/** 壁・罠：在庫が足りず、直せないものがある */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bNeedsMoreForRepair = false;
 };
 
 /**
@@ -120,6 +131,32 @@ struct FWallTypeDef : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	FLinearColor Color = FLinearColor(0.5f, 0.35f, 0.2f);
+
+	/**
+	 * 音を小さくする割合（0〜1。消音壁）。
+	 * プレイヤーが壁に囲まれた場所（空洞）にいるときだけ、囲んでいる壁の平均の割合だけ連打・ダッシュの音が小さくなる
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	float NoiseDamping = 0.f;
+};
+
+/** 転生の数値。Data/Prestige.csv の 1 行（行名 Prestige） */
+USTRUCT(BlueprintType)
+struct FKakurenboPrestigeRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** このステージまで来たら転生できる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	int32 MinStage = 5;
+
+	/** 転生ポイント = (今のステージ - MinStage + 1) × PointsPerStage */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	int32 PointsPerStage = 1;
+
+	/** すべての壁の耐久の倍率 = WallHPGrowth ^ 転生ポイントの合計 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double WallHPGrowth = 1.5;
 };
 
 /** 強化 1 種類の数値。Data/Upgrades.csv（または GameMode の UpgradeTable）の 1 行 */

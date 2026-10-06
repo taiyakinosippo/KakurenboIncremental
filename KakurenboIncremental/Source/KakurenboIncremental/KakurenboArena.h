@@ -65,8 +65,32 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arena|Look")
 	TObjectPtr<UPostProcessComponent> PostProcess;
 
+	// ===== 鬼の出入り口 =====
+	// 東側（+X）の外周の真ん中に赤い門を立てる。鬼は必ずその前のマスから出てくる（そこには壁・罠を置けない）
+
+	/** 門の幅（マス） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Gate")
+	int32 OniGateWidthCells = 3;
+
+	/** 門の前の、鬼が出てくるマスの奥行き（マス） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Gate")
+	int32 OniGateDepthCells = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Gate")
+	FLinearColor OniGateColor = FLinearColor(0.75f, 0.08f, 0.05f);
+
+	/** 門の前の床の色 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Gate")
+	FLinearColor OniGateFloorColor = FLinearColor(0.42f, 0.07f, 0.05f);
+
 	/** グリッド (0,0) マスの角（最小 XY、床の上面の高さ） */
 	FVector GetGridOrigin() const;
+
+	/** 鬼が出てくるマス（門に近い順・真ん中から順。この順番で鬼を出す） */
+	TArray<FIntPoint> GetOniGateCells() const;
+
+	/** 門の位置（外周の壁の内側の面・床の高さ） */
+	FVector GetOniGateLocation() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -74,6 +98,7 @@ protected:
 private:
 	UStaticMeshComponent* AddCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color);
 	void SpawnLighting();
+	void BuildOniGate(float BorderThickness);
 
 	UPROPERTY()
 	TObjectPtr<UStaticMesh> CubeMesh;

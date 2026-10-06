@@ -2,8 +2,11 @@
 // パートの切り替え・コインの計算・購入処理・鬼とお宝の出現・罠・セーブとロードはすべてここに集める。
 // 演出（破片・輪・画面の点滅）と効果音を鳴らすきっかけもここから出す。
 //
-// 数値（ステージ・強化・壁・鬼・罠）は <プロジェクト>/Data/*.csv から読み込む（Data/README.md 参照）。
+// 数値（ステージ・強化・壁・鬼・罠・転生）は <プロジェクト>/Data/*.csv から読み込む（Data/README.md 参照）。
 // CSV が読めないときは、このクラスに書いてある既定値を使う。
+//
+// Config=Game: UPROPERTY(Config) の値を Config/DefaultGame.ini の
+// [/Script/KakurenboIncremental.KakurenboGameMode] から読む（鬼の見た目のアセットのパスなど）
 
 #pragma once
 
@@ -18,10 +21,12 @@ class AOniCharacter;
 class APlaceableBlock;
 class ATrapActor;
 class ATreasureActor;
+class UAnimInstance;
 class UDataTable;
+class USkeletalMesh;
 class USoundBase;
 
-UCLASS()
+UCLASS(Config = Game)
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
 {
 	GENERATED_BODY()
@@ -53,6 +58,10 @@ public:
 	/** 罠の種類。Data/Traps.csv の代わりに使う DataTable（行の型: KakurenboTrapRow） */
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> TrapTable;
+
+	/** 転生の数値。Data/Prestige.csv の代わりに使う DataTable（行の型: KakurenboPrestigeRow。行名 Prestige） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> PrestigeTable;
 
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
@@ -116,22 +125,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	FText TimeUpgradeName;
 
-	/** 壁の補強（すべての壁の耐久を上げる）。Upgrades.csv の Wall 行で上書きされる */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	FText WallUpgradeName;
+	// ===== 転生（Prestige.csv で上書きされる） =====
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallUpgradeBaseCost = 200.0;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallUpgradeCostGrowth = 3.0;
-
-	/** 壁の耐久の倍率 = WallHPBase × WallHPGrowth^レベル */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallHPBase = 1.0;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallHPGrowth = 1.5;
+	/** 転生の条件と、転生ポイントで壁がどれだけ硬くなるか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	FKakurenboPrestigeRow PrestigeSettings;
 
 	// ===== お宝 =====
 
@@ -148,7 +146,7 @@ public:
 
 	// ===== 壁（Walls.csv で上書きされる） =====
 
-	/** 購入できる壁の種類（ショップの並び順）。耐久は補強前の値（補強後は GetEffectiveWallTypes） */
+	/** 購入できる壁の種類（ショップの並び順）。耐久は転生の倍率をかける前の値（かけた後は GetEffectiveWallTypes） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	TArray<FWallTypeDef> WallTypes;
 
@@ -169,6 +167,27 @@ public:
 	/** スポーンする鬼のクラス（BP の派生クラスで見た目を変えてよい） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	TSubclassOf<AOniCharacter> OniClass;
+
+	/**
+	 * 鬼の見た目のスケルタルメッシュ（例: Fab の Cute Creature）。設定するとプログラムで作った円柱の代わりに表示する。
+	 * DefaultGame.ini の [/Script/KakurenboIncremental.KakurenboGameMode] に OniSkeletalMesh=/Game/.../SK_xxx.SK_xxx と書く
+	 */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<USkeletalMesh> OniSkeletalMesh;
+
+	/** 鬼のアニメーション BP（無ければ動かないまま）。ini では OniAnimClass=/Game/.../ABP_xxx.ABP_xxx_C */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftClassPtr<UAnimInstance> OniAnimClass;
+
+	/** メッシュの大きさ・高さの調整（cm）・向き（度。多くのキャラクターは -90 で正面を向く） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float OniMeshScale = 1.f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float OniMeshZOffset = 0.f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float OniMeshYaw = -90.f;
 
 	/** うろうろするときの速さ（プレイヤーは 420）。鬼の種類ごとの倍率（SpeedScale）を掛ける */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -237,15 +256,49 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetTimeUpgradeCost() const;
 
-	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
-	double GetWallUpgradeCost() const;
-
-	/** 今の壁の耐久の倍率（壁の補強のレベルで決まる） */
+	/** 今の壁の耐久の倍率（転生ポイントで決まる） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetWallHPMultiplier() const;
 
-	/** 補強を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
+	/** 転生ポイントの合計が Points のときの壁の耐久の倍率 */
+	double GetWallHPMultiplierFor(int32 Points) const;
+
+	/** 転生を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
 	TArray<FWallTypeDef> GetEffectiveWallTypes() const;
+
+	// ===== 転生 =====
+
+	/** 今のステージで転生できるか */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	bool CanPrestige() const;
+
+	/** 今転生したらもらえる転生ポイント（できなければ 0） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	int32 GetPrestigePointsOnReset() const;
+
+	/**
+	 * 転生する（購入パートでだけ）。転生ポイントをもらい、壁が硬くなる代わりに
+	 * コイン・ステージ・強化・壁と罠の在庫・置いた壁と罠がなくなる（設計図は残るので、在庫を買えば設置パートで自動で直る）。
+	 * ステージ 1 のかくれんぼから始め直す
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool Prestige();
+
+	// ===== 消音壁 =====
+
+	/**
+	 * プレイヤーが出す音（連打・ダッシュ）の大きさの倍率（1 = そのまま）。
+	 * 壁に囲まれた空洞にいるときだけ、囲んでいる壁の NoiseDamping の平均だけ小さくなる
+	 */
+	float GetPlayerNoiseMultiplier() const;
+
+	/** プレイヤーを囲んでいる壁の数（囲まれていなければ 0） */
+	int32 GetPlayerEnclosureWallCount() const;
+
+	// ===== 鬼の出入り口 =====
+
+	/** 鬼が出てくるマス（出てくる順）。壁・罠は置けない */
+	TArray<FIntPoint> GetOniGateCells() const;
 
 	/** 罠の今の価格（持っている数が増えるほど高くなる） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -304,14 +357,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyWall(int32 WallTypeIndex);
 
-	/** 壁の補強を買う（置いてある壁の耐久もすぐに上がる） */
-	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
-	bool TryBuyWallUpgrade();
-
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyTrap(int32 TrapTypeIndex);
 
-	/** 商品の番号（0 始まり）。並び: 強化（連打・時間・壁の補強）→ 壁 → 罠 */
+	/** 商品の番号（0 始まり）。並び: 強化（連打・時間）→ 壁 → 罠 */
 	int32 GetShopIndexOfWall(int32 WallTypeIndex) const;
 	int32 GetShopIndexOfTrap(int32 TrapTypeIndex) const;
 
@@ -339,11 +388,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool PickUpTrap(FIntPoint Cell);
 
+	/** 設置パート：かくれんぼを始める場所（プレイヤーの位置）を、壁の無いマスへ移す */
+	bool MovePlayerStart(const FIntPoint& Cell, FText* OutReason = nullptr);
+
 	// ===== かくれんぼ =====
 
 	/** 連打 1 回分の処理（コイン獲得＋音を出す） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void HandleMash(const FVector& NoiseLocation);
+
+	/** ダッシュした（大きな音を出す）。プレイヤーのダッシュが始まったときに呼ぶ */
+	void HandleDash(const FVector& NoiseLocation, float Loudness);
 
 	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く） */
 	void EmitNoise(const FVector& Location, float Loudness);
@@ -445,6 +500,18 @@ protected:
 
 	/** プレイヤーの体がそのマスの範囲（縦方向は問わない）に入っているか */
 	bool IsPlayerInCellColumn(const FIntPoint& Cell) const;
+
+	/** プレイヤーが出す音の輪（届く範囲）を床に出す */
+	void ShowNoiseRing(const FVector& Location, float Loudness, const FLinearColor& Color, float Thickness) const;
+
+	/** 鬼の見た目のメッシュを読み込む（設定が無ければ何もしない） */
+	void LoadOniAppearance();
+
+	UPROPERTY()
+	TObjectPtr<USkeletalMesh> LoadedOniMesh;
+
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> LoadedOniAnimClass;
 
 	UPROPERTY()
 	TObjectPtr<AKakurenboArena> Arena;

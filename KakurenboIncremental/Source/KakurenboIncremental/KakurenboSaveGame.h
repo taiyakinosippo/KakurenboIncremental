@@ -39,9 +39,9 @@ class KAKURENBOINCREMENTAL_API UKakurenboSaveGame : public USaveGame
 	GENERATED_BODY()
 
 public:
-	/** 保存形式の版（項目を増やしたときに古いデータを見分けるため）。2: 罠・壁の補強を追加 */
+	/** 保存形式の版（項目を増やしたときに古いデータを見分けるため）。2: 罠・壁の補強を追加 / 3: 壁の補強をやめて転生を追加 */
 	UPROPERTY()
-	int32 SaveVersion = 2;
+	int32 SaveVersion = 3;
 
 	UPROPERTY()
 	double Coins = 0.0;
@@ -55,9 +55,12 @@ public:
 	UPROPERTY()
 	int32 TimeIncomeLevel = 0;
 
-	/** 壁の補強のレベル（版 1 のセーブには無いので 0 になる） */
+	/** 転生ポイントの合計と転生した回数（版 2 までのセーブには無いので 0 になる。版 2 の「壁の補強」は引き継がない） */
 	UPROPERTY()
-	int32 WallReinforceLevel = 0;
+	int32 PrestigePoints = 0;
+
+	UPROPERTY()
+	int32 PrestigeCount = 0;
 
 	UPROPERTY()
 	TArray<int32> WallStock;

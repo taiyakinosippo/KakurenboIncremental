@@ -106,8 +106,15 @@ public:
 	/** すべてのブロック・罠と設計図を消す */
 	void ClearAllBlocks();
 
-	/** 置いてある壁の耐久をすべて Factor 倍にする（壁の補強を買ったとき） */
-	void ScaleAllBlockHP(double Factor);
+	/** 今あるブロック・罠だけを消し、設計図は残す（転生したとき。在庫を買い直せば設置パートで自動で直る） */
+	void ClearLiveKeepDesign();
+
+	// ===== 鬼の出入り口 =====
+
+	/** 壁も罠も置けないマス（鬼の出入り口の前）を決める */
+	void SetReservedCells(const TArray<FIntPoint>& Cells);
+	const TArray<FIntPoint>& GetReservedCells() const { return ReservedCells; }
+	bool IsReservedCell(const FIntPoint& Cell) const { return ReservedCells.Contains(Cell); }
 
 	/** 壁が攻撃されたとき（演出と音に使う） */
 	FOnKakurenboBlockHit OnBlockHit;
@@ -142,8 +149,9 @@ public:
 	/** 今ある罠の数（種類ごと） */
 	int32 GetLiveTrapCount(int32 TrapTypeIndex) const;
 
-	/** 設計図にあるのに発動して消えている罠の数 */
+	/** 設計図にあるのに発動して消えている罠の数（全部 / 種類ごと） */
 	int32 GetMissingTrapCount() const;
+	int32 GetMissingTrapCount(int32 TrapTypeIndex) const;
 
 	/** 今ある罠すべて */
 	TArray<ATrapActor*> GetAllTraps() const;
@@ -156,6 +164,17 @@ public:
 	/** 設計図にあるのに壊れて無くなっているブロックの数（マスごと / 全体） */
 	int32 GetMissingCount(const FIntPoint& Cell) const;
 	int32 GetTotalMissing() const;
+
+	/** 設計図にあるのに壊れて無くなっている、その種類の壁の数 */
+	int32 GetMissingWallCount(int32 WallTypeIndex) const;
+
+	// ===== 消音壁 =====
+
+	/**
+	 * Cell が壁に囲まれた空洞の中なら、囲んでいる壁（一番下の段の種類）の NoiseDamping の平均を返す。囲まれていなければ 0。
+	 * @param OutBoundaryWalls 囲んでいる壁の数
+	 */
+	float GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls = nullptr) const;
 
 	/** 設計図の段数 */
 	int32 GetDesignHeight(const FIntPoint& Cell) const;
@@ -204,7 +223,7 @@ public:
 
 	/**
 	 * ランダムな空きマスを Count 個選ぶ。AvoidPoints から MinDistanceCells マス以上、選んだマスどうしも離す（お宝用）。
-	 * 壁に囲まれた空洞の中と、罠のあるマスは選ばない（一番大きな空き地の中だけ）
+	 * 壁に囲まれた空洞の中・罠のあるマス・鬼の出入り口の前は選ばない（一番大きな空き地の中だけ）
 	 */
 	TArray<FIntPoint> FindRandomFreeCells(int32 Count, const TArray<FVector>& AvoidPoints, float MinDistanceCells, FRandomStream& Stream) const;
 
@@ -229,6 +248,9 @@ private:
 	float BlockHeight = 160.f;
 	int32 MaxStackHeight = 3;
 	int32 GridVersion = 0;
+
+	/** 壁も罠も置けないマス（鬼の出入り口の前） */
+	TArray<FIntPoint> ReservedCells;
 
 	UPROPERTY()
 	TArray<FKakurenboBlockColumn> Columns;

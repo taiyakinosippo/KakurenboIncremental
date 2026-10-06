@@ -28,6 +28,9 @@ namespace KakurenboBalance
 	 */
 	KAKURENBOINCREMENTAL_API FKakurenboStageRow ResolveStage(const TArray<FKakurenboStageRow>& Rows, int32 Stage, const FStageGrowth& Growth);
 
+	/** ステージ Stage で転生したときにもらえる転生ポイント（MinStage より前なら 0） */
+	KAKURENBOINCREMENTAL_API int32 GetPrestigePoints(int32 Stage, const FKakurenboPrestigeRow& Settings);
+
 	/** <プロジェクト>/Data/<FileName> のフルパス */
 	KAKURENBOINCREMENTAL_API FString GetDataFilePath(const FString& FileName);
 

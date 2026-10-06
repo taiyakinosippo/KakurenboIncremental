@@ -1,6 +1,8 @@
 ﻿#include "OniCharacter.h"
 
+#include "Animation/AnimInstance.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -79,6 +81,45 @@ AOniCharacter::AOniCharacter()
 		Star->SetHiddenInGame(true);
 		StunStars.Add(Star);
 	}
+
+	TypeMarker = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TypeMarker"));
+	TypeMarker->SetupAttachment(RootComponent);
+	TypeMarker->SetStaticMesh(SphereFinder.Object);
+	TypeMarker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	TypeMarker->SetCastShadow(false);
+	TypeMarker->SetRelativeLocation(FVector(0.f, 0.f, 130.f));
+	TypeMarker->SetRelativeScale3D(FVector(0.28f));
+	TypeMarker->SetHiddenInGame(true);
+
+	// キャラクターのモデル（スケルタルメッシュ）は見た目だけ。視線や設置のカーソルの邪魔をしない
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+void AOniCharacter::SetSkeletalAppearance(USkeletalMesh* InMesh, TSubclassOf<UAnimInstance> InAnimClass, float Scale, float ZOffset, float Yaw)
+{
+	SkeletalMeshAsset = InMesh;
+	SkeletalAnimClass = InAnimClass;
+	SkeletalScale = Scale;
+	SkeletalZOffset = ZOffset;
+	SkeletalYaw = Yaw;
+}
+
+void AOniCharacter::SetBodySquash(const FVector& Ratio)
+{
+	BodyMesh->SetRelativeScale3D(BaseBodyScale * Ratio);
+	if (SkeletalMeshAsset)
+	{
+		GetMesh()->SetRelativeScale3D(BaseMeshScale * Ratio);
+	}
+}
+
+void AOniCharacter::DebugGoTo(const FIntPoint& Cell)
+{
+	if (bActive)
+	{
+		NoiseCell = Cell;
+		StartInvestigate(Cell);
+	}
 }
 
 void AOniCharacter::SetStunStarsVisible(bool bVisible)
@@ -120,13 +161,31 @@ void AOniCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	BaseBodyScale = FVector(0.76f * BodyScaleMultiplier, 0.76f * BodyScaleMultiplier, 1.9f);
-	ResetBodyScale();
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	UKakurenboLibrary::ApplyColor(FaceMesh, FLinearColor(0.02f, 0.02f, 0.02f));
+	UKakurenboLibrary::ApplyColor(TypeMarker, BodyColor);
 	for (UStaticMeshComponent* Star : StunStars)
 	{
 		UKakurenboLibrary::ApplyColor(Star, FLinearColor(1.f, 0.9f, 0.2f));
 	}
+
+	if (SkeletalMeshAsset)
+	{
+		// キャラクターのモデルを足元に合わせて置き、円柱の体と顔は隠す。種類の色は頭の上の玉で示す
+		USkeletalMeshComponent* MeshComp = GetMesh();
+		MeshComp->SetSkeletalMesh(SkeletalMeshAsset);
+		if (SkeletalAnimClass)
+		{
+			MeshComp->SetAnimInstanceClass(SkeletalAnimClass);
+		}
+		MeshComp->SetRelativeLocation(FVector(0.f, 0.f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + SkeletalZOffset));
+		MeshComp->SetRelativeRotation(FRotator(0.f, SkeletalYaw, 0.f));
+		BaseMeshScale = FVector(SkeletalScale * BodyScaleMultiplier);
+		BodyMesh->SetHiddenInGame(true);
+		FaceMesh->SetHiddenInGame(true);
+		TypeMarker->SetHiddenInGame(false);
+	}
+	ResetBodyScale();
 }
 
 void AOniCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -538,7 +597,7 @@ void AOniCharacter::TickStunned(float DeltaSeconds)
 	StunTimer -= DeltaSeconds;
 	const float Now = GetWorld()->GetTimeSeconds();
 	const float Wobble = 1.f + 0.06f * FMath::Sin(Now * 30.f);
-	BodyMesh->SetRelativeScale3D(FVector(BaseBodyScale.X * Wobble, BaseBodyScale.Y * Wobble, BaseBodyScale.Z / Wobble));
+	SetBodySquash(FVector(Wobble, Wobble, 1.f / Wobble));
 	for (int32 i = 0; i < StunStars.Num(); ++i)
 	{
 		const float Angle = Now * 5.f + i * 2.f * UE_PI / StunStars.Num();
@@ -1006,7 +1065,7 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 
 void AOniCharacter::ResetBodyScale()
 {
-	BodyMesh->SetRelativeScale3D(BaseBodyScale);
+	SetBodySquash(FVector::OneVector);
 }
 
 void AOniCharacter::TickAttack(float DeltaSeconds)
@@ -1019,7 +1078,7 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 	// 溜め中は体を縮める（見た目の予兆）
 	const float Windup = FMath::Clamp(AttackTimer / AttackWindup, 0.f, 1.f);
 	const float Squash = bAttackFired ? 1.f : 1.f - 0.25f * Windup;
-	BodyMesh->SetRelativeScale3D(FVector(BaseBodyScale.X / FMath::Sqrt(Squash), BaseBodyScale.Y / FMath::Sqrt(Squash), BaseBodyScale.Z * Squash));
+	SetBodySquash(FVector(1.f / FMath::Sqrt(Squash), 1.f / FMath::Sqrt(Squash), Squash));
 
 	if (!bAttackFired && AttackTimer >= AttackWindup)
 	{

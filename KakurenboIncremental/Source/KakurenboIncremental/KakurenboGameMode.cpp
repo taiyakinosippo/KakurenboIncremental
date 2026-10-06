@@ -1,6 +1,9 @@
 ﻿#include "KakurenboGameMode.h"
 
+#include "Animation/AnimInstance.h"
+#include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -63,7 +66,6 @@ AKakurenboGameMode::AKakurenboGameMode()
 
 	MashUpgradeName = NSLOCTEXT("Kakurenbo", "ShopMash", "連打コイン強化");
 	TimeUpgradeName = NSLOCTEXT("Kakurenbo", "ShopTime", "時間コイン強化");
-	WallUpgradeName = NSLOCTEXT("Kakurenbo", "ShopWallUpgrade", "壁の補強");
 
 	// 罠の既定値（Data/Traps.csv が読めなかったときに使う）
 	auto AddTrap = [this](const TCHAR* Name, ETrapKind Kind, double Cost, double Growth, float Stun, float Interval, float Loudness, float Radius, FLinearColor Color)
@@ -83,17 +85,19 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddTrap(TEXT("おとり"), ETrapKind::Decoy, 100.0, 1.35, 0.f, 2.5f, 1.2f, 70.f, FLinearColor(0.65f, 0.3f, 1.f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）
-	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color)
+	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color, float NoiseDamping)
 	{
 		FWallTypeDef& Def = WallTypes.AddDefaulted_GetRef();
 		Def.DisplayName = FText::FromString(Name);
 		Def.MaxHP = HP;
 		Def.Cost = Cost;
 		Def.Color = Color;
+		Def.NoiseDamping = NoiseDamping;
 	};
-	AddWall(TEXT("木の壁"), 1.0, 10.0, FLinearColor(0.55f, 0.35f, 0.18f));
-	AddWall(TEXT("石の壁"), 4.0, 120.0, FLinearColor(0.22f, 0.22f, 0.25f));
-	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f));
+	AddWall(TEXT("木の壁"), 1.0, 10.0, FLinearColor(0.55f, 0.35f, 0.18f), 0.f);
+	AddWall(TEXT("石の壁"), 4.0, 120.0, FLinearColor(0.22f, 0.22f, 0.25f), 0.f);
+	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f), 0.f);
+	AddWall(TEXT("消音壁"), 3.0, 300.0, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f);
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
 	auto AddOniType = [this](EOniType Type, const TCHAR* Name, float Speed, double Damage, float Sight, float Angle, float Hearing,
@@ -136,6 +140,7 @@ void AKakurenboGameMode::BeginPlay()
 
 	TreasureRandom.GenerateNewSeed();
 	LoadBalanceData();
+	LoadOniAppearance();
 
 	// 自動テストなどでセーブを読み書きしたくないときは、起動オプション -KakuNoSave を付ける。
 	// -KakuSaveSlot=名前 を付けると、そのスロットを使う（再起動をまたぐテスト用。-KakuNoSave より優先）
@@ -176,6 +181,7 @@ void AKakurenboGameMode::BeginPlay()
 	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
 		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, BlockHeight, MaxStackHeight);
+		Grid->SetReservedCells(Arena->GetOniGateCells()); // 鬼の出入り口の前には何も置けない
 		Grid->OnBlockHit.AddUObject(this, &AKakurenboGameMode::HandleBlockHit);
 	}
 
@@ -328,13 +334,13 @@ void AKakurenboGameMode::LoadBalanceData()
 			TimeIncomeBase = Time->BaseValue;
 			TimeIncomeGrowth = Time->ValueGrowth;
 		}
-		if (const FKakurenboUpgradeRow* Wall = Table->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Upgrades")))
+	}
+
+	if (UDataTable* Table = GetTable(PrestigeTable, FKakurenboPrestigeRow::StaticStruct(), TEXT("Prestige.csv")))
+	{
+		if (const FKakurenboPrestigeRow* Row = Table->FindRow<FKakurenboPrestigeRow>(TEXT("Prestige"), TEXT("Prestige")))
 		{
-			WallUpgradeName = Wall->DisplayName;
-			WallUpgradeBaseCost = Wall->BaseCost;
-			WallUpgradeCostGrowth = Wall->CostGrowth;
-			WallHPBase = Wall->BaseValue;
-			WallHPGrowth = Wall->ValueGrowth;
+			PrestigeSettings = *Row;
 		}
 	}
 
@@ -429,16 +435,15 @@ double AKakurenboGameMode::GetTimeUpgradeCost() const
 	return UKakurenboLibrary::ExpCurve(TimeUpgradeBaseCost, TimeUpgradeCostGrowth, State ? State->TimeIncomeLevel : 0);
 }
 
-double AKakurenboGameMode::GetWallUpgradeCost() const
+double AKakurenboGameMode::GetWallHPMultiplierFor(int32 Points) const
 {
-	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(WallUpgradeBaseCost, WallUpgradeCostGrowth, State ? State->WallReinforceLevel : 0);
+	return UKakurenboLibrary::ExpCurve(1.0, PrestigeSettings.WallHPGrowth, FMath::Max(0, Points));
 }
 
 double AKakurenboGameMode::GetWallHPMultiplier() const
 {
 	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(WallHPBase, WallHPGrowth, State ? State->WallReinforceLevel : 0);
+	return GetWallHPMultiplierFor(State ? State->PrestigePoints : 0);
 }
 
 TArray<FWallTypeDef> AKakurenboGameMode::GetEffectiveWallTypes() const
@@ -522,13 +527,12 @@ EKakurenboPhase AKakurenboGameMode::GetPhase() const
 
 // ---------------------------------------------------------------- 購入
 
-// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2] 壁の補強, [3〜] 壁, その後に罠
+// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2〜] 壁, その後に罠
 namespace KakurenboShop
 {
 	constexpr int32 MashUpgrade = 0;
 	constexpr int32 TimeUpgrade = 1;
-	constexpr int32 WallUpgrade = 2;
-	constexpr int32 NumUpgrades = 3;
+	constexpr int32 NumUpgrades = 2;
 }
 
 int32 AKakurenboGameMode::GetShopIndexOfWall(int32 WallTypeIndex) const
@@ -571,14 +575,21 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 			Fmt(GetTimeIncomePerSecond()), Fmt(UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State->TimeIncomeLevel + 1)));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->TimeIncomeLevel);
 	}
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	// 壊れた（使った）数と、在庫を足しても直しきれない数を書く
+	auto SetRepairText = [](FShopItemView& Item, int32 Missing, int32 Stock, const FText& Verb)
 	{
-		FShopItemView& Item = Items.AddDefaulted_GetRef();
-		Item.DisplayName = WallUpgradeName;
-		Item.Cost = GetWallUpgradeCost();
-		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallUpgradeDesc", "すべての壁の耐久 ×{0} → ×{1}（置いてある壁も）"),
-			Fmt(GetWallHPMultiplier()), Fmt(UKakurenboLibrary::ExpCurve(WallHPBase, WallHPGrowth, State->WallReinforceLevel + 1)));
-		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->WallReinforceLevel);
-	}
+		if (Missing <= 0)
+		{
+			return;
+		}
+		const int32 Short = FMath::Max(0, Missing - Stock);
+		Item.bNeedsMoreForRepair = Short > 0;
+		Item.RepairText = Short > 0
+			? FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairShort", "{0} {1} 個（直すにはあと {2} 個）"), Verb, Missing, Short)
+			: FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairOk", "{0} {1} 個（在庫で直せる）"), Verb, Missing);
+	};
+
 	const TArray<FWallTypeDef> Walls = GetEffectiveWallTypes();
 	for (int32 i = 0; i < Walls.Num(); ++i)
 	{
@@ -588,7 +599,14 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 		Item.Cost = Def.Cost;
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallDesc", "耐久 {0}（今の鬼の攻撃 {1} 回で壊れる）"),
 			Fmt(Def.MaxHP), Hits(Def.MaxHP));
-		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopStock", "在庫 {0}"), State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0);
+		if (Def.NoiseDamping > 0.f)
+		{
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopQuietWallDesc", "{0}　囲まれた中にいると音が最大 {1}% 小さくなる"),
+				Item.Description, FMath::RoundToInt(Def.NoiseDamping * 100.f));
+		}
+		const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
+		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopStock", "在庫 {0}"), Stock);
+		SetRepairText(Item, Grid ? Grid->GetMissingWallCount(i) : 0, Stock, NSLOCTEXT("Kakurenbo", "ShopBroken", "壊れた"));
 	}
 	for (int32 i = 0; i < TrapTypes.Num(); ++i)
 	{
@@ -601,6 +619,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 			: FText::Format(NSLOCTEXT("Kakurenbo", "ShopDecoyDesc", "{0} 秒ごとに音を出して鬼を呼ぶ。鬼が触れると壊れる"), FText::AsNumber(Def.NoiseInterval));
 		const int32 Stock = State->TrapStock.IsValidIndex(i) ? State->TrapStock[i] : 0;
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopTrapStock", "在庫 {0}（置いてある {1}）"), Stock, GetOwnedTrapCount(i) - Stock);
+		SetRepairText(Item, Grid ? Grid->GetMissingTrapCount(i) : 0, Stock, NSLOCTEXT("Kakurenbo", "ShopUsed", "使った"));
 	}
 	return Items;
 }
@@ -616,10 +635,6 @@ bool AKakurenboGameMode::TryBuyShopItem(int32 Index)
 	{
 		bBought = TryBuyTimeUpgrade();
 	}
-	else if (Index == KakurenboShop::WallUpgrade)
-	{
-		bBought = TryBuyWallUpgrade();
-	}
 	else if (Index - KakurenboShop::NumUpgrades < WallTypes.Num())
 	{
 		bBought = TryBuyWall(Index - KakurenboShop::NumUpgrades);
@@ -634,26 +649,6 @@ bool AKakurenboGameMode::TryBuyShopItem(int32 Index)
 		Sfx2D(this, bBought ? EKakurenboSfx::Buy : EKakurenboSfx::BuyFail);
 	}
 	return bBought;
-}
-
-bool AKakurenboGameMode::TryBuyWallUpgrade()
-{
-	AKakurenboGameState* State = GS();
-	const double Cost = GetWallUpgradeCost();
-	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
-	{
-		return false;
-	}
-	const double OldMultiplier = GetWallHPMultiplier();
-	State->Coins -= Cost;
-	State->WallReinforceLevel++;
-
-	// 置いてある壁もすぐに硬くする
-	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
-	{
-		Grid->ScaleAllBlockHP(GetWallHPMultiplier() / FMath::Max(OldMultiplier, 0.0001));
-	}
-	return true;
 }
 
 bool AKakurenboGameMode::TryBuyTrap(int32 TrapTypeIndex)
@@ -763,10 +758,40 @@ bool AKakurenboGameMode::CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex
 		const bool bOverlapZ = FMath::Abs(Player->GetActorLocation().Z - BoxCenter.Z) < Player->GetSimpleCollisionHalfHeight() + Grid->GetBlockHeight() * 0.5f;
 		if (IsPlayerInCellColumn(Cell) && bOverlapZ)
 		{
-			if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlacePlayer", "自分と重なる場所には置けません");
+			if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlacePlayer", "スタート位置（自分）には置けません（T でスタート位置を動かせます）");
 			return false;
 		}
 	}
+	return true;
+}
+
+bool AKakurenboGameMode::MovePlayerStart(const FIntPoint& Cell, FText* OutReason)
+{
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	ACharacter* Player = GetPlayerCharacter();
+	if (!State || !Grid || !Player || State->Phase != EKakurenboPhase::Build)
+	{
+		return false;
+	}
+	if (!Grid->IsInside(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOutside", "範囲外です");
+		return false;
+	}
+	if (Grid->GetColumnHeight(Cell) > 0 || Grid->GetDesignHeight(Cell) > 0)
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "StartOnWall", "壁（壊れた壁の設計図）のあるマスからは始められません");
+		return false;
+	}
+	if (Grid->IsReservedCell(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "StartOnGate", "鬼の出入り口の前からは始められません");
+		return false;
+	}
+	const FVector Floor = Grid->CellFloorCenter(Cell);
+	Player->SetActorLocation(FVector(Floor.X, Floor.Y, Floor.Z + Player->GetSimpleCollisionHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+	Sfx2D(this, EKakurenboSfx::Place, 0.6f, 1.6f);
 	return true;
 }
 
@@ -923,18 +948,66 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->AddCoins(GetMashIncome(), true);
 	State->MashCountThisRound++;
 
-	// 連打の音が鬼に届く
-	EmitNoise(NoiseLocation, 1.f);
-	Sfx2D(this, EKakurenboSfx::Mash, 0.6f, FMath::FRandRange(0.92f, 1.08f));
-	if (bShowNoiseRing)
+	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなる）
+	const float Loudness = GetPlayerNoiseMultiplier();
+	EmitNoise(NoiseLocation, Loudness);
+	Sfx2D(this, EKakurenboSfx::Mash, 0.6f * FMath::Max(Loudness, 0.4f), FMath::FRandRange(0.92f, 1.08f));
+	ShowNoiseRing(NoiseLocation, Loudness, NoiseRingColor, 14.f);
+}
+
+void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness)
+{
+	if (GetPhase() != EKakurenboPhase::Hide)
 	{
-		// 音の届く範囲を床に輪で表示する
-		if (UKakurenboFxSubsystem* F = Fx(this))
-		{
-			const float Radius = GetOniHearingRadius();
-			F->Ring(NoiseLocation, Radius * 0.85f, Radius, 0.3f, NoiseRingColor, 14.f);
-		}
+		return;
 	}
+	// ダッシュは大きな音が出る（消音壁で囲まれていれば小さくなる）
+	const float Scaled = Loudness * GetPlayerNoiseMultiplier();
+	EmitNoise(NoiseLocation, Scaled);
+	Sfx2D(this, EKakurenboSfx::Dash, 0.9f);
+	ShowNoiseRing(NoiseLocation, Scaled, FLinearColor(1.f, 0.45f, 0.2f), 22.f);
+}
+
+void AKakurenboGameMode::ShowNoiseRing(const FVector& Location, float Loudness, const FLinearColor& Color, float Thickness) const
+{
+	// 音の届く範囲を床に輪で表示する
+	UKakurenboFxSubsystem* F = Fx(this);
+	if (!bShowNoiseRing || !F)
+	{
+		return;
+	}
+	const float Radius = FMath::Max(GetOniHearingRadius() * Loudness, 30.f);
+	F->Ring(Location, Radius * 0.85f, Radius, 0.3f, Color, Thickness);
+}
+
+float AKakurenboGameMode::GetPlayerNoiseMultiplier() const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !Grid->IsConfigured())
+	{
+		return 1.f;
+	}
+	const float Damping = Grid->GetEnclosureNoiseDamping(Grid->WorldToCell(Player->GetActorLocation()), WallTypes);
+	return FMath::Clamp(1.f - Damping, 0.f, 1.f);
+}
+
+int32 AKakurenboGameMode::GetPlayerEnclosureWallCount() const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !Grid->IsConfigured())
+	{
+		return 0;
+	}
+	int32 Walls = 0;
+	Grid->GetEnclosureNoiseDamping(Grid->WorldToCell(Player->GetActorLocation()), WallTypes, &Walls);
+	return Walls;
+}
+
+TArray<FIntPoint> AKakurenboGameMode::GetOniGateCells() const
+{
+	return Arena ? Arena->GetOniGateCells() : TArray<FIntPoint>();
 }
 
 void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness)
@@ -1160,16 +1233,43 @@ void AKakurenboGameMode::SpawnOnis()
 		Blackboard->Reset(Grid->GetSizeX(), Grid->GetSizeY());
 	}
 
-	// プレイヤーからも、鬼どうしでも、なるべく遠い空きマスに出現させる。種類はステージの表で決まる
+	// 鬼は必ず出入り口（赤い門）の前のマスから出てくる。種類はステージの表で決まる。
+	// 門の前は壁を置けないが、古いセーブなどで塞がっていたら、門に一番近い空きマスから出す
 	const FKakurenboStageRow Settings = GetStageSettings();
-	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, Settings.OniTypes.Num());
+	const TArray<FIntPoint> GateCells = GetOniGateCells();
+	const FVector GateLocation = Arena ? Arena->GetOniGateLocation() : Hider->GetActorLocation();
+	TArray<FIntPoint> Cells;
+	for (int32 i = 0; i < Settings.OniTypes.Num(); ++i)
+	{
+		FIntPoint Cell = GateCells.Num() > 0 ? GateCells[i % GateCells.Num()] : FIntPoint::ZeroValue;
+		if (GateCells.Num() == 0 || Grid->GetColumnHeight(Cell) > 0)
+		{
+			float BestDistSq = TNumericLimits<float>::Max();
+			for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
+			{
+				for (int32 X = 0; X < Grid->GetSizeX(); ++X)
+				{
+					const FIntPoint C(X, Y);
+					const float DistSq = FVector::DistSquared2D(Grid->CellFloorCenter(C), GateLocation);
+					if (Grid->GetColumnHeight(C) == 0 && !Cells.Contains(C) && DistSq < BestDistSq)
+					{
+						BestDistSq = DistSq;
+						Cell = C;
+					}
+				}
+			}
+		}
+		Cells.Add(Cell);
+	}
+
 	for (int32 i = 0; i < Cells.Num(); ++i)
 	{
 		const FIntPoint Cell = Cells[i];
 		const EOniType Type = Settings.OniTypes[i];
 		const FKakurenboOniTypeRow TypeRow = GetOniTypeRow(Type);
 		const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
-		const FRotator Facing(0.f, (Hider->GetActorLocation() - Location).Rotation().Yaw, 0.f);
+		// 門を背にして、舞台の内側を向いて出てくる
+		const FRotator Facing(0.f, (FVector(GateLocation.X, GateLocation.Y, Location.Z) - Location).Rotation().Yaw + 180.f, 0.f);
 
 		AOniCharacter* Oni = GetWorld()->SpawnActorDeferred<AOniCharacter>(OniClass, FTransform(Facing, Location), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
 		if (!Oni)
@@ -1183,6 +1283,10 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->HearingRadius = Settings.OniHearingRadius * TypeRow.HearingScale;
 		Oni->AttackDamage = Settings.OniDamage * TypeRow.DamageScale;
 		Oni->bDrawDebug = bDebugOni;
+		if (LoadedOniMesh)
+		{
+			Oni->SetSkeletalAppearance(LoadedOniMesh, LoadedOniAnimClass, OniMeshScale, OniMeshZOffset, OniMeshYaw);
+		}
 		Oni->FinishSpawning(FTransform(Facing, Location));
 
 		// 鬼からの通知を受け取る（C# の event += に相当）
@@ -1193,6 +1297,37 @@ void AKakurenboGameMode::SpawnOnis()
 
 		UE_LOG(LogKakurenbo, Log, TEXT("Oni %s spawned at cell (%d,%d), damage %.2f, chase speed %.0f"),
 			*UEnum::GetValueAsString(Type), Cell.X, Cell.Y, Oni->AttackDamage, Oni->ChaseSpeed);
+	}
+
+	// 鬼どうしは体がすり抜ける（違う方向へ行こうとしてすれ違うときに、押し合って動けなくならないように）
+	for (AOniCharacter* A : Onis)
+	{
+		for (AOniCharacter* B : Onis)
+		{
+			if (A && B && A != B)
+			{
+				A->GetCapsuleComponent()->IgnoreActorWhenMoving(B, true);
+			}
+		}
+	}
+}
+
+void AKakurenboGameMode::LoadOniAppearance()
+{
+	// ini（DefaultGame.ini）に鬼のメッシュが書いてあれば読み込む。見つからなければ円柱のまま
+	if (OniSkeletalMesh.IsNull())
+	{
+		return;
+	}
+	LoadedOniMesh = OniSkeletalMesh.LoadSynchronous();
+	LoadedOniAnimClass = OniAnimClass.IsNull() ? nullptr : OniAnimClass.LoadSynchronous();
+	if (!LoadedOniMesh)
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Oni mesh '%s' was not found. Using the placeholder shape."), *OniSkeletalMesh.ToString());
+	}
+	else if (!OniAnimClass.IsNull() && !LoadedOniAnimClass)
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Oni anim class '%s' was not found."), *OniAnimClass.ToString());
 	}
 }
 
@@ -1280,6 +1415,10 @@ void AKakurenboGameMode::StartHidePhase()
 	bOnisSpawnedThisRound = false;
 	LastCountdownSecond = 0;
 	LastTimeTickSecond = 0;
+	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
+	{
+		Hider->ResetDash(); // ラウンドの始めはすぐダッシュできる
+	}
 
 	// お宝は最初から置いておく（鬼が来る前に取りに行ける）
 	SpawnTreasures();
@@ -1364,6 +1503,60 @@ void AKakurenboGameMode::AdvancePhase()
 	}
 }
 
+// ---------------------------------------------------------------- 転生
+
+bool AKakurenboGameMode::CanPrestige() const
+{
+	return GetPrestigePointsOnReset() > 0;
+}
+
+int32 AKakurenboGameMode::GetPrestigePointsOnReset() const
+{
+	const AKakurenboGameState* State = GS();
+	return State ? KakurenboBalance::GetPrestigePoints(State->Stage, PrestigeSettings) : 0;
+}
+
+bool AKakurenboGameMode::Prestige()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const int32 Gained = GetPrestigePointsOnReset();
+	if (!State || !Grid || State->Phase != EKakurenboPhase::Shop || Gained <= 0)
+	{
+		return false;
+	}
+	const double OldMultiplier = GetWallHPMultiplier();
+	State->PrestigePoints += Gained;
+	State->PrestigeCount++;
+
+	// 壁が硬くなる代わりに、ほかは最初から（置いた壁と罠は消えるが、設計図は残る）
+	DespawnOnis();
+	ClearTreasures();
+	Grid->ClearLiveKeepDesign();
+	State->Coins = 0.0;
+	State->Stage = 1;
+	State->MashIncomeLevel = 0;
+	State->TimeIncomeLevel = 0;
+	State->WallStock.Init(0, WallTypes.Num());
+	State->TrapStock.Init(0, TrapTypes.Num());
+	State->LastRepairedWalls = 0;
+	State->LastUnrepairedWalls = 0;
+	State->LastRefilledTraps = 0;
+	State->LastUnrefilledTraps = 0;
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Prestige #%d: +%d points (total %d), wall HP x%.2f -> x%.2f"),
+		State->PrestigeCount, Gained, State->PrestigePoints, OldMultiplier, GetWallHPMultiplier());
+	Sfx2D(this, EKakurenboSfx::Prestige);
+	FlashScreen(FLinearColor(0.7f, 0.5f, 1.f, 0.6f), 1.2f);
+	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生しました！ 転生ポイント +{0}（壁の耐久 ×{1}）"),
+		Gained, FText::FromString(UKakurenboLibrary::FormatStatNumber(GetWallHPMultiplier()))), 6.f);
+
+	// ステージ 1 のかくれんぼから（ゲームの最初と同じ）
+	State->Phase = EKakurenboPhase::Result;
+	StartHidePhase();
+	return true;
+}
+
 // ---------------------------------------------------------------- セーブ・ロード
 
 bool AKakurenboGameMode::SaveProgress()
@@ -1380,7 +1573,8 @@ bool AKakurenboGameMode::SaveProgress()
 	Save->Stage = State->Stage;
 	Save->MashIncomeLevel = State->MashIncomeLevel;
 	Save->TimeIncomeLevel = State->TimeIncomeLevel;
-	Save->WallReinforceLevel = State->WallReinforceLevel;
+	Save->PrestigePoints = State->PrestigePoints;
+	Save->PrestigeCount = State->PrestigeCount;
 	Save->WallStock = State->WallStock;
 	Save->TrapStock = State->TrapStock;
 	Grid->ExportLayout(Save->Columns);
@@ -1417,7 +1611,8 @@ bool AKakurenboGameMode::LoadProgress()
 	State->Stage = FMath::Max(1, Save->Stage);
 	State->MashIncomeLevel = Save->MashIncomeLevel;
 	State->TimeIncomeLevel = Save->TimeIncomeLevel;
-	State->WallReinforceLevel = Save->WallReinforceLevel; // 補強のレベルは壁を作り直す前に戻す（耐久の倍率に使う）
+	State->PrestigePoints = Save->PrestigePoints; // 転生ポイントは壁を作り直す前に戻す（耐久の倍率に使う）
+	State->PrestigeCount = Save->PrestigeCount;
 	State->WallStock = Save->WallStock;
 	State->WallStock.SetNum(WallTypes.Num()); // CSV で壁の種類が増減していても合わせる
 	State->TrapStock = Save->TrapStock;
@@ -1457,7 +1652,8 @@ void AKakurenboGameMode::ResetProgress()
 	State->Stage = 1;
 	State->MashIncomeLevel = 0;
 	State->TimeIncomeLevel = 0;
-	State->WallReinforceLevel = 0;
+	State->PrestigePoints = 0;
+	State->PrestigeCount = 0;
 	State->WallStock.Init(0, WallTypes.Num());
 	State->TrapStock.Init(0, TrapTypes.Num());
 	State->LastRepairedWalls = 0;

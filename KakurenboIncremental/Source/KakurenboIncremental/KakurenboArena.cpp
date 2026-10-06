@@ -78,6 +78,8 @@ void AKakurenboArena::BeginPlay()
 	AddFence(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
 	AddFence(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
 
+	BuildOniGate(BorderThickness);
+
 	if (bSpawnLightingIfMissing)
 	{
 		// TActorIterator: ワールド内の指定クラスのアクターを列挙する
@@ -91,6 +93,70 @@ void AKakurenboArena::BeginPlay()
 		{
 			SpawnLighting();
 		}
+	}
+}
+
+TArray<FIntPoint> AKakurenboArena::GetOniGateCells() const
+{
+	// 門（+X 側）に近い列から。各列では真ん中 → 左右の順
+	TArray<FIntPoint> Cells;
+	const int32 Width = FMath::Clamp(OniGateWidthCells, 1, GridSizeY);
+	const int32 Depth = FMath::Clamp(OniGateDepthCells, 1, GridSizeX);
+	const int32 MinY = GridSizeY / 2 - Width / 2;
+	for (int32 Row = 0; Row < Depth; ++Row)
+	{
+		const int32 X = GridSizeX - 1 - Row;
+		const int32 Mid = MinY + Width / 2;
+		Cells.Add(FIntPoint(X, Mid));
+		for (int32 Offset = 1; Offset <= Width; ++Offset)
+		{
+			if (Mid - Offset >= MinY)
+			{
+				Cells.Add(FIntPoint(X, Mid - Offset));
+			}
+			if (Mid + Offset < MinY + Width)
+			{
+				Cells.Add(FIntPoint(X, Mid + Offset));
+			}
+		}
+	}
+	return Cells;
+}
+
+FVector AKakurenboArena::GetOniGateLocation() const
+{
+	const FVector Origin = GetGridOrigin();
+	const int32 Width = FMath::Clamp(OniGateWidthCells, 1, GridSizeY);
+	const float CenterY = Origin.Y + (GridSizeY / 2 - Width / 2 + Width * 0.5f) * CellSize;
+	return FVector(Origin.X + GridSizeX * CellSize, CenterY, Origin.Z);
+}
+
+void AKakurenboArena::BuildOniGate(float BorderThickness)
+{
+	const FVector Gate = GetOniGateLocation();
+	const float Width = FMath::Clamp(OniGateWidthCells, 1, GridSizeY) * CellSize;
+	const float WallX = Gate.X + BorderThickness * 0.5f; // 外周の壁の厚みの真ん中
+
+	// 鳥居のような赤い門：柱 2 本と上の横木 2 本（外周の壁と同じ厚みに収めて、マスにははみ出さない）
+	const float PostHeight = BorderHeight + 80.f;
+	for (const float Side : { -1.f, 1.f })
+	{
+		AddCube(FVector(WallX, Gate.Y + Side * (Width * 0.5f + 20.f), PostHeight * 0.5f), FVector(BorderThickness, 40.f, PostHeight), OniGateColor);
+	}
+	AddCube(FVector(WallX, Gate.Y, PostHeight + 15.f), FVector(BorderThickness + 20.f, Width + 180.f, 30.f), OniGateColor);
+	AddCube(FVector(WallX, Gate.Y, BorderHeight + 20.f), FVector(BorderThickness, Width + 40.f, 20.f), OniGateColor);
+
+	// 門の中は真っ暗な戸（当たり判定なし）
+	UStaticMeshComponent* Door = AddCube(FVector(Gate.X - 1.5f, Gate.Y, (BorderHeight - 20.f) * 0.5f), FVector(2.f, Width, BorderHeight - 20.f), FLinearColor(0.02f, 0.005f, 0.005f));
+	Door->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// 鬼が出てくるマスの床を赤くする（当たり判定なし。設置のカーソルは下の床に当たる）
+	const FVector Origin = GetGridOrigin();
+	for (const FIntPoint& Cell : GetOniGateCells())
+	{
+		const FVector Center(Origin.X + (Cell.X + 0.5f) * CellSize, Origin.Y + (Cell.Y + 0.5f) * CellSize, Origin.Z + 1.f);
+		UStaticMeshComponent* Tile = AddCube(Center, FVector(CellSize * 0.94f, CellSize * 0.94f, 2.f), OniGateFloorColor);
+		Tile->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 }
 

@@ -70,6 +70,7 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 			break;
 		case EKakurenboPhase::Build:
 			HandleOverheadCamera(DeltaTime, false);
+			HandleTopDownPan(DeltaTime);
 			HandleBuildInput();
 			break;
 		case EKakurenboPhase::Hide:
@@ -106,8 +107,8 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 
 	if (Phase == EKakurenboPhase::Hide)
 	{
-		// 俯瞰 → 三人称：俯瞰カメラが向いていた方向を、少し見下ろす角度で向いて始める
-		if (bFirstTime || Hider->GetViewMode() == EHiderViewMode::Overhead)
+		// 俯瞰・真上 → 三人称：俯瞰カメラが向いていた方向を、少し見下ろす角度で向いて始める
+		if (bFirstTime || Hider->GetViewMode() != EHiderViewMode::ThirdPerson)
 		{
 			SetControlRotation(FRotator(-20.f, bFirstTime ? GetControlRotation().Yaw : Hider->GetOverheadYaw(), 0.f));
 		}
@@ -125,10 +126,16 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	{
 		Hider->SetOverheadYaw(GetControlRotation().Yaw);
 	}
-	Hider->SetViewMode(EHiderViewMode::Overhead);
 
 	if (Phase == EKakurenboPhase::Build)
 	{
+		// 設置パートは真上から舞台全体を見る（プレイヤーは表示しない）
+		if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>(); Grid && Grid->IsConfigured())
+		{
+			const FVector Center = (Grid->CellFloorCenter(FIntPoint(0, 0)) + Grid->CellFloorCenter(FIntPoint(Grid->GetSizeX() - 1, Grid->GetSizeY() - 1))) * 0.5f;
+			Hider->SetTopDownFocus(Center);
+		}
+		Hider->SetViewMode(EHiderViewMode::TopDown);
 		// 設置パートはカーソルでマスを指す
 		bShowMouseCursor = true;
 		FInputModeGameAndUI Mode;
@@ -138,7 +145,8 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	}
 	else
 	{
-		// 購入・リザルトはマウスの左右でカメラを回す
+		// 購入・リザルトは斜め上から。マウスの左右でカメラを回す
+		Hider->SetViewMode(EHiderViewMode::Overhead);
 		bShowMouseCursor = false;
 		SetInputMode(FInputModeGameOnly());
 	}
@@ -207,6 +215,39 @@ void AKakurenboPlayerController::HandleOverheadCamera(float DeltaTime, bool bMou
 	HandleZoom();
 }
 
+void AKakurenboPlayerController::HandleTopDownPan(float DeltaTime)
+{
+	AHiderCharacter* Hider = GetHider();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!Hider || !Grid || !Grid->IsConfigured())
+	{
+		return;
+	}
+	// 画面の上 = カメラの向き（OverheadYaw）
+	const FRotator YawRot(0.f, Hider->GetOverheadYaw(), 0.f);
+	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+	float F = 0.f, R = 0.f;
+	if (IsInputKeyDown(EKeys::W)) F += 1.f;
+	if (IsInputKeyDown(EKeys::S)) F -= 1.f;
+	if (IsInputKeyDown(EKeys::D)) R += 1.f;
+	if (IsInputKeyDown(EKeys::A)) R -= 1.f;
+	if (F == 0.f && R == 0.f)
+	{
+		return;
+	}
+	// 高いところから見ているほど速く動かす
+	const float Speed = TopDownPanSpeed * FMath::Max(0.3f, Hider->TopDownDistance / 2600.f);
+	FVector Focus = Hider->GetTopDownFocus() + (Forward * F + Right * R).GetClampedToMaxSize(1.f) * Speed * DeltaTime;
+
+	// 舞台の外へ行きすぎないように
+	const FVector Min = Grid->CellFloorCenter(FIntPoint(0, 0));
+	const FVector Max = Grid->CellFloorCenter(FIntPoint(Grid->GetSizeX() - 1, Grid->GetSizeY() - 1));
+	Focus.X = FMath::Clamp(Focus.X, Min.X, Max.X);
+	Focus.Y = FMath::Clamp(Focus.Y, Min.Y, Max.Y);
+	Hider->SetTopDownFocus(Focus);
+}
+
 void AKakurenboPlayerController::HandleZoom()
 {
 	AHiderCharacter* Hider = GetHider();
@@ -270,6 +311,27 @@ void AKakurenboPlayerController::HandleShopInput()
 	{
 		BuyItem(Number);
 	}
+
+	// 転生は取り返しがつかないので、P を 2 回押して決める
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	if (GM && WasInputKeyJustPressed(EKeys::P) && GM->CanPrestige())
+	{
+		if (IsPrestigeConfirmPending())
+		{
+			PrestigeConfirmUntil = -1.f;
+			GM->Prestige();
+		}
+		else
+		{
+			PrestigeConfirmUntil = GetWorld()->GetTimeSeconds() + PrestigeConfirmSeconds;
+			UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::CountdownBeep, 0.6f);
+		}
+	}
+}
+
+bool AKakurenboPlayerController::IsPrestigeConfirmPending() const
+{
+	return GetWorld() && GetWorld()->GetTimeSeconds() < PrestigeConfirmUntil;
 }
 
 bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
@@ -301,8 +363,6 @@ void AKakurenboPlayerController::HandleBuildInput()
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
 
-	HandleCharacterMovement();
-
 	// 置く物を選ぶ（壁の種類 → 罠の種類の順に番号が付く）
 	const int32 NumSlots = GM->WallTypes.Num() + GM->TrapTypes.Num();
 	const int32 Number = GetPressedNumberKey();
@@ -313,7 +373,11 @@ void AKakurenboPlayerController::HandleBuildInput()
 
 	// カーソルの先の置き場所
 	float MouseX = 0.f, MouseY = 0.f;
-	if (GetMousePosition(MouseX, MouseY))
+	if (bUseTestCursor)
+	{
+		UpdateBuildTargetAt(TestCursorPosition);
+	}
+	else if (GetMousePosition(MouseX, MouseY))
 	{
 		UpdateBuildTargetAt(FVector2D(MouseX, MouseY));
 	}
@@ -346,6 +410,27 @@ void AKakurenboPlayerController::HandleBuildInput()
 			bHasTrapPickUpTarget = false;
 		}
 	}
+
+	// T: かくれんぼを始める場所をカーソルのマスへ
+	if (WasInputKeyJustPressed(EKeys::T) && bHasBuildTarget)
+	{
+		SetStartCell(BuildTargetCell);
+	}
+}
+
+bool AKakurenboPlayerController::SetStartCell(const FIntPoint& Cell)
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	FText Reason;
+	if (GM && GM->MovePlayerStart(Cell, &Reason))
+	{
+		return true;
+	}
+	if (GM && !Reason.IsEmpty())
+	{
+		GM->ShowNotice(Reason, 2.5f);
+	}
+	return false;
 }
 
 void AKakurenboPlayerController::ClearBuildTarget()
@@ -465,6 +550,15 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 			DrawDebugBox(GetWorld(), Center, BlockExtent, Color, false, 0.f, 0, 3.f);
 		}
 	}
+	// スタート位置（プレイヤーは表示していないので、床に青い印を描く）
+	if (const APawn* P = GetPawn())
+	{
+		const FVector Floor(P->GetActorLocation().X, P->GetActorLocation().Y, Grid->CellFloorCenter(FIntPoint(0, 0)).Z + 3.f);
+		const FColor Blue(60, 150, 255);
+		DrawDebugCircle(GetWorld(), Floor, Cell * 0.4f, 32, Blue, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+		DrawDebugCircle(GetWorld(), Floor, Cell * 0.2f, 24, Blue, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+	}
+
 	// 回収できる壁・罠を黄色で囲む
 	if (PickUpTarget)
 	{
@@ -486,6 +580,25 @@ void AKakurenboPlayerController::HandleHideInput()
 	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) || WasInputKeyJustPressed(EKeys::F))
 	{
 		DoMash();
+	}
+	if (WasInputKeyJustPressed(EKeys::LeftShift) || WasInputKeyJustPressed(EKeys::RightShift))
+	{
+		DoDash();
+	}
+}
+
+void AKakurenboPlayerController::DoDash()
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	AHiderCharacter* Hider = GetHider();
+	if (!GM || !Hider || GM->GetPhase() != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	// 速くなる代わりに大きな音が出る（クールタイム中は何も起きない）
+	if (Hider->TryStartDash())
+	{
+		GM->HandleDash(Hider->GetActorLocation(), Hider->DashNoiseLoudness);
 	}
 }
 
@@ -583,5 +696,29 @@ void AKakurenboPlayerController::KakuResetSave()
 	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
 	{
 		GM->ResetProgress();
+	}
+}
+
+void AKakurenboPlayerController::KakuPrestige()
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		if (!GM->Prestige())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("KakuPrestige failed (phase %s, points on reset %d)"), *UEnum::GetValueAsString(GM->GetPhase()), GM->GetPrestigePointsOnReset());
+		}
+	}
+}
+
+void AKakurenboPlayerController::KakuDash()
+{
+	DoDash();
+}
+
+void AKakurenboPlayerController::KakuSetStart(int32 X, int32 Y)
+{
+	if (!SetStartCell(FIntPoint(X, Y)))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("KakuSetStart (%d,%d) failed"), X, Y);
 	}
 }

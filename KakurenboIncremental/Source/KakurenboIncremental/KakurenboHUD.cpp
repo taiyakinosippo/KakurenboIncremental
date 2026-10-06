@@ -4,6 +4,8 @@
 #include "Engine/Canvas.h"
 #include "Engine/Font.h"
 #include "GlobalRenderResources.h"
+#include "HiderCharacter.h"
+#include "KakurenboArena.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
@@ -23,6 +25,11 @@ namespace
 	const FLinearColor Good(0.4f, 1.f, 0.5f);
 	const FLinearColor Bad(1.f, 0.35f, 0.3f);
 	const FLinearColor Warn(1.f, 0.6f, 0.2f);
+	const FLinearColor Purple(0.8f, 0.6f, 1.f);
+	const FLinearColor Blue(0.4f, 0.7f, 1.f);
+
+	/** 左上の状態表示の下に出すパネルの上端（1080p 基準） */
+	constexpr float BelowStatusY = 192.f;
 
 	/** 鬼の様子の文字と色（壁を壊している最中はそれを優先して出す） */
 	void DescribeOni(const AOniCharacter* Oni, FString& OutText, FLinearColor& OutColor)
@@ -230,16 +237,31 @@ void AKakurenboHUD::DrawWorldIndicator(const FVector& WorldLocation, const FStri
 	TextPx(Label, LabelPos.X, LabelPos.Y - 12.f * S, 18, Color, true);
 }
 
+void AKakurenboHUD::DrawWorldLabel(const FVector& WorldLocation, const FString& Label, const FLinearColor& Color, float OffsetY)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	FVector2D Screen;
+	if (PC && PC->ProjectWorldLocationToScreen(WorldLocation, Screen, true))
+	{
+		TextPx(Label, Screen.X, Screen.Y + (OffsetY - 12.f) * UIScale, 18, Color, true);
+	}
+}
+
 // ---------------------------------------------------------------- 共通
 
 void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM)
 {
 	static const TCHAR* PhaseNames[] = { TEXT("購入パート"), TEXT("設置パート"), TEXT("かくれんぼ"), TEXT("リザルト") };
 
-	Panel(20, 20, 380, 130);
+	const bool bPrestiged = State->PrestigeCount > 0;
+	Panel(20, 20, 380, bPrestiged ? 158 : 130);
 	Text(FString::Printf(TEXT("ステージ %d   [%s]"), State->Stage, PhaseNames[static_cast<int32>(State->Phase)]), 36, 30, 22);
 	Text(FString::Printf(TEXT("コイン  %s"), *Big(State->Coins)), 36, 64, 30, Gold);
 	Text(FString::Printf(TEXT("連打 +%s / 時間 +%s/秒"), *Stat(GM->GetMashIncome()), *Stat(GM->GetTimeIncomePerSecond())), 36, 108, 18, Gray);
+	if (bPrestiged)
+	{
+		Text(FString::Printf(TEXT("転生 %d 回（%d pt）・壁の耐久 ×%s"), State->PrestigeCount, State->PrestigePoints, *Stat(GM->GetWallHPMultiplier())), 36, 134, 18, Purple);
+	}
 }
 
 // ---------------------------------------------------------------- 購入
@@ -248,33 +270,62 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 {
 	const TArray<FShopItemView> Items = GM->GetShopItems();
 
-	// 商品が増えても画面に収まるよう、1 行の高さを詰める
-	const float X = 520, Y = 150, W = 880;
-	const float RowH = FMath::Min(80.f, 680.f / FMath::Max(1, Items.Num()));
-	Panel(X, Y, W, 100 + Items.Num() * RowH);
-	Text(TEXT("購入パート"), 0, Y + 12, 34, FLinearColor::White, true);
+	// 商品が増えても画面に収まるよう、1 行の高さを詰める（1 商品 = 名前・説明・壊れた数の 3 行）
+	const float X = 520, Y = 130, W = 880;
+	const float RowH = FMath::Min(74.f, 660.f / FMath::Max(1, Items.Num()));
+	Panel(X, Y, W, 90 + Items.Num() * RowH);
+	Text(TEXT("購入パート"), 0, Y + 10, 34, FLinearColor::White, true);
 
 	for (int32 i = 0; i < Items.Num(); ++i)
 	{
 		const FShopItemView& Item = Items[i];
 		const bool bAffordable = State->Coins >= Item.Cost;
-		const float RowY = Y + 72 + i * RowH;
+		const float RowY = Y + 66 + i * RowH;
 		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 23, bAffordable ? FLinearColor::White : Gray);
 		Text(FString::Printf(TEXT("%s コイン"), *Big(Item.Cost)), X + 640, RowY, 23, bAffordable ? Gold : Gray);
-		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.45f, 16, Gray);
-	}
-
-	float BottomY = Y + 100 + Items.Num() * RowH + 16;
-	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
-	{
-		if (const int32 Missing = Grid->GetTotalMissing())
+		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.43f, 16, Gray);
+		if (!Item.RepairText.IsEmpty())
 		{
-			Text(FString::Printf(TEXT("壊れたままの壁: %d 個（在庫があれば設置パートの開始時に自動で直ります）"), Missing), 0, BottomY, 20, Warn, true);
-			BottomY += 34;
+			// 壊れた壁・使った罠の数（足りなければ橙、在庫で直せるなら緑）
+			Text(Item.RepairText.ToString(), X + 60, RowY + RowH * 0.7f, 16, Item.bNeedsMoreForRepair ? Warn : Good);
 		}
 	}
-	Text(TEXT("数字キー: 購入　　Enter: 設置パートへ"), 0, BottomY, 22, FLinearColor::White, true);
-	Text(TEXT("マウス・Q/E: カメラ回転　ホイール: ズーム"), 0, BottomY + 34, 16, Gray, true);
+
+	float BottomY = Y + 90 + Items.Num() * RowH + 12;
+	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	{
+		const int32 MissingWalls = Grid->GetTotalMissing();
+		const int32 MissingTraps = Grid->GetMissingTrapCount();
+		if (MissingWalls > 0 || MissingTraps > 0)
+		{
+			Text(FString::Printf(TEXT("壊れた壁 %d 個・使った罠 %d 個（在庫があれば設置パートの開始時に自動で直ります）"), MissingWalls, MissingTraps), 0, BottomY, 20, Warn, true);
+			BottomY += 32;
+		}
+	}
+
+	// 転生
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	if (GM->CanPrestige())
+	{
+		const int32 Gain = GM->GetPrestigePointsOnReset();
+		if (PC && PC->IsPrestigeConfirmPending())
+		{
+			Text(TEXT("もう一度 P を押すと転生します"), 0, BottomY, 24, Bad, true);
+		}
+		else
+		{
+			Text(FString::Printf(TEXT("P: 転生する（転生ポイント +%d → 壁の耐久 ×%s → ×%s）"), Gain,
+				*Stat(GM->GetWallHPMultiplier()), *Stat(GM->GetWallHPMultiplierFor(State->PrestigePoints + Gain))), 0, BottomY, 22, Purple, true);
+		}
+		Text(TEXT("コイン・ステージ・強化・在庫・置いた壁と罠はなくなります（設計図は残ります）"), 0, BottomY + 30, 16, Gray, true);
+		BottomY += 56;
+	}
+	else
+	{
+		Text(FString::Printf(TEXT("転生はステージ %d から（壁がずっと硬くなる）"), GM->PrestigeSettings.MinStage), 0, BottomY, 16, Gray, true);
+		BottomY += 26;
+	}
+	Text(TEXT("数字キー: 購入　　Enter: 設置パートへ　　マウス・Q/E: カメラ回転　ホイール: ズーム"), 0, BottomY, 18, FLinearColor::White, true);
 }
 
 // ---------------------------------------------------------------- 設置
@@ -286,13 +337,25 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	const float CanvasH = Canvas->ClipY / UIScale;
 
 	// 操作説明
-	Panel(20, 170, 480, 196);
-	Text(TEXT("WASD: 移動　Space: ジャンプ"), 36, 182, 18);
-	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, 210, 18);
-	Text(TEXT("数字キー: 置く物（壁・罠）"), 36, 238, 18);
-	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, 266, 18);
-	Text(TEXT("ホイール: ズーム"), 36, 294, 18);
-	Text(TEXT("Enter: かくれんぼ開始"), 36, 326, 22, Gold);
+	const float HelpY = BelowStatusY;
+	Panel(20, HelpY, 480, 224);
+	Text(TEXT("WASD: カメラを動かす"), 36, HelpY + 12, 18);
+	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, HelpY + 40, 18);
+	Text(TEXT("数字キー: 置く物（壁・罠）"), 36, HelpY + 68, 18);
+	Text(TEXT("T: スタート位置（青い印）をカーソルのマスへ"), 36, HelpY + 96, 18, Blue);
+	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, HelpY + 124, 18);
+	Text(TEXT("ホイール: ズーム"), 36, HelpY + 152, 18);
+	Text(TEXT("Enter: かくれんぼ開始"), 36, HelpY + 184, 22, Gold);
+
+	// スタート位置と鬼の出入り口に名前を付ける
+	if (const APawn* Pawn = GetOwningPawn())
+	{
+		DrawWorldLabel(Pawn->GetActorLocation() - FVector(0.f, 0.f, Pawn->GetSimpleCollisionHalfHeight()), TEXT("スタート"), Blue, 34.f);
+	}
+	if (const AKakurenboArena* Arena = GM->GetArena())
+	{
+		DrawWorldLabel(Arena->GetOniGateLocation() + FVector(0.f, 0.f, Arena->BorderHeight + 120.f), TEXT("鬼の出入り口"), Bad);
+	}
 
 	// 壊れた壁の自動修復・使った罠の置き直しの結果
 	float NoticeY = 24;
@@ -425,14 +488,19 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	if (State->HideStartCountdown > 0.f)
 	{
 		Text(FString::Printf(TEXT("%d"), FMath::CeilToInt(State->HideStartCountdown)), 0, 380, 120, FLinearColor::White, true);
-		Text(TEXT("もうすぐ鬼が来る…　ぶつかったらアウト"), 0, 580, 28, FLinearColor::White, true);
+		Text(TEXT("もうすぐ鬼が来る…（赤い門から出てくる）　ぶつかったらアウト"), 0, 580, 28, FLinearColor::White, true);
+		// 鬼が出てくる門の方向
+		if (const AKakurenboArena* Arena = GM->GetArena())
+		{
+			DrawWorldIndicator(Arena->GetOniGateLocation() + FVector(0.f, 0.f, Arena->BorderHeight + 60.f), TEXT("鬼の出入り口"), Bad, 0.33f, 1.f);
+		}
 	}
 
 	// 鬼の様子
 	const TArray<TObjectPtr<AOniCharacter>>& Onis = GM->GetOnis();
 	if (Onis.Num() > 0 && Pawn)
 	{
-		Panel(20, 170, 520, 20 + Onis.Num() * 34);
+		Panel(20, BelowStatusY, 520, 20 + Onis.Num() * 34);
 		for (int32 i = 0; i < Onis.Num(); ++i)
 		{
 			if (const AOniCharacter* Oni = Onis[i])
@@ -441,15 +509,36 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 				FLinearColor Color;
 				DescribeOni(Oni, StateText, Color);
 				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f;
-				const float RowY = 180 + i * 34;
+				const float RowY = BelowStatusY + 10 + i * 34;
 				Panel(32, RowY + 4, 16, 20, Oni->BodyColor); // 体の色（どの鬼か見分ける）
 				Text(FString::Printf(TEXT("%s: %s（%.1f m）"), *OniName(Oni), *StateText, DistM), 58, RowY, 20, Color);
 			}
 		}
 	}
 
+	// ダッシュ（下部中央の少し上）
+	if (const AHiderCharacter* Hider = Cast<AHiderCharacter>(Pawn))
+	{
+		const float GaugeW = 260, GaugeX = (CanvasW - GaugeW) * 0.5f, GaugeY = CanvasH - 150;
+		const float Cooldown = Hider->GetDashCooldownRemaining();
+		const float Ready = Hider->DashCooldown > 0.f ? 1.f - Cooldown / Hider->DashCooldown : 1.f;
+		Panel(GaugeX, GaugeY, GaugeW, 10, FLinearColor(0.f, 0.f, 0.f, 0.6f));
+		Panel(GaugeX, GaugeY, GaugeW * Ready, 10, Cooldown <= 0.f ? FLinearColor(0.4f, 1.f, 0.5f, 0.9f) : FLinearColor(0.6f, 0.6f, 0.6f, 0.8f));
+		const FString DashText = Hider->IsDashing() ? FString(TEXT("ダッシュ中！（大きな音が出た）"))
+			: Cooldown > 0.f ? FString::Printf(TEXT("ダッシュ あと %.1f 秒"), Cooldown)
+			: FString(TEXT("Shift: ダッシュできる（速いが大きな音が出る）"));
+		Text(DashText, 0, GaugeY - 30, 18, Hider->IsDashing() ? Warn : (Cooldown > 0.f ? Gray : Good), true);
+	}
+
+	// 消音壁で囲まれていれば、音がどれだけ小さくなっているか
+	const float NoiseMultiplier = GM->GetPlayerNoiseMultiplier();
+	if (NoiseMultiplier < 0.999f)
+	{
+		Text(FString::Printf(TEXT("消音壁に囲まれている：音が %d%% 小さい"), FMath::RoundToInt((1.f - NoiseMultiplier) * 100.f)), 0, 120, 20, Purple, true);
+	}
+
 	// 操作説明（下部中央）
-	Text(FString::Printf(TEXT("WASD: 移動　Space: ジャンプ　左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome())), 0, CanvasH - 90, 22, FLinearColor::White, true);
+	Text(FString::Printf(TEXT("WASD: 移動　Space: ジャンプ　Shift: ダッシュ　左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome())), 0, CanvasH - 90, 22, FLinearColor::White, true);
 	FString Stats = FString::Printf(TEXT("今回の獲得: %s コイン　連打 %d 回"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound);
 	if (State->TrapsTriggeredThisRound > 0)
 	{

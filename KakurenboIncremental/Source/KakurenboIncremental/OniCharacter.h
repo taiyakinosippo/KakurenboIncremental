@@ -22,8 +22,10 @@
 #include "OniCharacter.generated.h"
 
 class AHiderCharacter;
+class UAnimInstance;
 class UKakurenboGridSubsystem;
 class UKakurenboOniBlackboard;
+class USkeletalMesh;
 class USpotLightComponent;
 class UStaticMeshComponent;
 
@@ -54,6 +56,19 @@ public:
 	/** 罠で動けない間、頭の上を回る星 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TArray<TObjectPtr<UStaticMeshComponent>> StunStars;
+
+	/** スケルタルメッシュの見た目にしたとき、種類がわかるよう頭の上に浮かべる色付きの玉 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<UStaticMeshComponent> TypeMarker;
+
+	/**
+	 * 見た目をスケルタルメッシュ（キャラクターのモデル）にする。スポーン直後、FinishSpawning より前に呼ぶ。
+	 * 円柱の体と顔は隠し、種類の色は頭の上の玉で示す
+	 * @param Yaw メッシュの向きの調整（度）
+	 */
+	void SetSkeletalAppearance(USkeletalMesh* InMesh, TSubclassOf<UAnimInstance> InAnimClass, float Scale, float ZOffset, float Yaw);
+
+	bool UsesSkeletalMesh() const { return SkeletalMeshAsset != nullptr; }
 
 	// ===== 種類 =====
 
@@ -189,6 +204,9 @@ public:
 	/** 罠などで動けなくする */
 	void Stun(float Seconds);
 
+	/** テスト用：指定したマスへ向かわせる（音を聞いたときと同じ動き） */
+	void DebugGoTo(const FIntPoint& Cell);
+
 	/** 今、罠にかかるか（動いていて、動けない最中でも抜け出した直後でもない） */
 	bool CanBeStunned() const { return bActive && State != EOniState::Stunned && StunImmunityTimer <= 0.f; }
 
@@ -270,6 +288,8 @@ private:
 	void BeginAttack(const FIntPoint& WallCell);
 	void TickAttack(float DeltaSeconds);
 	void ResetBodyScale();
+	/** 体の伸び縮み（攻撃の溜め・罠でぷるぷる）。円柱でもスケルタルメッシュでも同じ割合で変える */
+	void SetBodySquash(const FVector& Ratio);
 
 	void DrawDebug() const;
 
@@ -338,4 +358,16 @@ private:
 
 	float SenseTimer = 0.f;
 	FVector BaseBodyScale = FVector(0.76f, 0.76f, 1.9f);
+
+	/** スケルタルメッシュの見た目（SetSkeletalAppearance で設定） */
+	UPROPERTY()
+	TObjectPtr<USkeletalMesh> SkeletalMeshAsset;
+
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> SkeletalAnimClass;
+
+	float SkeletalScale = 1.f;
+	float SkeletalZOffset = 0.f;
+	float SkeletalYaw = -90.f;
+	FVector BaseMeshScale = FVector::OneVector;
 };

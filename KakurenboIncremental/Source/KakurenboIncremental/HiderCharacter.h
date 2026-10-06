@@ -2,7 +2,8 @@
 // 入力の処理は KakurenboPlayerController が行い、ここは見た目・カメラ・移動能力を持つ。
 //
 // カメラは 1 本のアーム（SpringArm）の先に付いていて、パートによって向きと長さを変える：
-//   俯瞰（Overhead）    : 購入・設置・リザルト。斜め上から見下ろす。Q/E で回転、ホイールでズーム
+//   俯瞰（Overhead）    : 購入・リザルト。斜め上から見下ろす。Q/E で回転、ホイールでズーム
+//   真上（TopDown）     : 設置。真上から見下ろす。プレイヤーは表示せず、アームの根元（注視点）を WASD で動かす
 //   三人称（ThirdPerson）: かくれんぼ。自分の背後の少し上から見る。マウスで回す、ホイールで距離を変える
 // 置いたブロックはカメラがすり抜けるので、壁で囲まれても周りが見える。
 // 三人称では舞台の外周の壁には当たって手前に寄る（舞台の外へ出ない）。
@@ -56,6 +57,47 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float OverheadMaxDistance = 3500.f;
 
+	// ===== 真上からのカメラ（設置パート） =====
+
+	/** 高さ（cm）。ホイールで変わる。2600 で 24×24 マスの舞台がほぼ全部入る */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TopDownDistance = 2600.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TopDownMinDistance = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TopDownMaxDistance = 4000.f;
+
+	// ===== ダッシュ（かくれんぼ中に Shift） =====
+
+	/** ダッシュ中の速さの倍率（歩く速さ 420 × これ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
+	float DashSpeedMultiplier = 1.8f;
+
+	/** ダッシュが続く時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
+	float DashDuration = 1.5f;
+
+	/** ダッシュしてから次にダッシュできるまでの時間（秒。ダッシュ中の時間も含む） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
+	float DashCooldown = 6.f;
+
+	/** ダッシュの音の大きさ（1 = 連打と同じ距離まで届く） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
+	float DashNoiseLoudness = 1.5f;
+
+	/** ダッシュを始める。クールタイム中なら false */
+	bool TryStartDash();
+
+	/** ダッシュをやめてクールタイムも消す（ラウンドの始まり） */
+	void ResetDash();
+
+	bool IsDashing() const { return DashTimeRemaining > 0.f; }
+
+	/** 次にダッシュできるまでの残り秒数（0 ならすぐできる） */
+	float GetDashCooldownRemaining() const { return DashCooldownRemaining; }
+
 	// ===== 三人称カメラ =====
 
 	/** 距離（cm）。ホイールで変わる */
@@ -87,6 +129,10 @@ public:
 	/** ホイールでのズーム（今の視点の距離を変える） */
 	void AddZoom(float DeltaCm);
 
+	/** 真上からのカメラが見ている場所（床の高さ） */
+	FVector GetTopDownFocus() const { return TopDownFocus; }
+	void SetTopDownFocus(const FVector& Focus) { TopDownFocus = Focus; }
+
 	/** 連打したときの見た目の反応（体が縮む。カメラは動かさない） */
 	void PlayMashFeedback();
 
@@ -102,4 +148,9 @@ private:
 	float OverheadYaw = 0.f;
 	float MashPulse = 0.f;
 	FVector BodyBaseScale = FVector::OneVector;
+	FVector TopDownFocus = FVector::ZeroVector;
+
+	float WalkSpeed = 420.f;
+	float DashTimeRemaining = 0.f;
+	float DashCooldownRemaining = 0.f;
 };
