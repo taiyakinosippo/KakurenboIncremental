@@ -60,7 +60,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Build")
 	TObjectPtr<APlaceableBlock> PickUpTarget;
 
-	// ===== デバッグ用コンソールコマンド（@ キーでコンソールを開いて入力） =====
+	// ===== デバッグ用コンソールコマンド（プレイ中にコンソールを開いて入力） =====
 
 	/** 例: KakuAddCoins 1000 */
 	UFUNCTION(Exec)
