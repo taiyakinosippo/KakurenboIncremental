@@ -8,8 +8,9 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - リポジトリルート: `C:\KakurenboIncremental`
 - UE プロジェクト: `KakurenboIncremental/KakurenboIncremental.uproject`
 - C++ モジュール: `KakurenboIncremental/Source/KakurenboIncremental/`
-- エンジン: `C:\Program Files\Epic Games\UE_5.8`
-- エディタ: VSCode（ユーザー）。ビルドは MSVC
+- エンジン: `C:\Program Files\Epic Games\UE_5.8`（`Tools/EnginePath.ps1` が場所を自動で探す。別の場所なら環境変数 `UE_ROOT`）
+- エディタ: VSCode（ユーザー）。ビルドは MSVC（Visual Studio 2022・MSVC 14.44）
+- 複数のパソコンで開発している。作業の前に `git pull`、終わったら push。別のパソコンの環境構築は [docs/Setup.md](docs/Setup.md)
 
 ### コードの構成
 

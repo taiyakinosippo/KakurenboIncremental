@@ -4,7 +4,7 @@
 #   -Sound を付けると音を出して起動する（既定は -NoSound。効果音の再生まで確かめたいときに使う）
 param([string]$Scenario = "Loop", [int]$TimeoutSec = 600, [string]$ExtraExec = "", [string]$SaveSlot = "", [switch]$Sound)
 
-$Engine = "C:\Program Files\Epic Games\UE_5.8"
+. (Join-Path $PSScriptRoot "EnginePath.ps1") # $Engine に UE 5.8 のインストール先が入る
 $Project = Join-Path $PSScriptRoot "..\KakurenboIncremental\KakurenboIncremental.uproject" | Resolve-Path
 $Saved = Join-Path (Split-Path $Project) "Saved"
 
