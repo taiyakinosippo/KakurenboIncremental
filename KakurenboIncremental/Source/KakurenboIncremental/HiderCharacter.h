@@ -69,7 +69,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float TopDownMaxDistance = 4000.f;
 
-	// ===== ダッシュ（かくれんぼ中に Shift） =====
+	// ===== ダッシュ（かくれんぼ中に Shift。転生のお店で解放し、速さ・クールタイムも強化される） =====
+
+	/** ダッシュが使えるか（最初は使えない。GameMode が転生のお店のレベルから設定する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
+	bool bDashUnlocked = false;
 
 	/** ダッシュ中の速さの倍率（歩く速さ 420 × これ） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
@@ -87,7 +91,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
 	float DashNoiseLoudness = 1.5f;
 
-	/** ダッシュを始める。クールタイム中なら false */
+	/** ダッシュを始める。解放していない・クールタイム中なら false */
 	bool TryStartDash();
 
 	/** ダッシュをやめてクールタイムも消す（ラウンドの始まり） */

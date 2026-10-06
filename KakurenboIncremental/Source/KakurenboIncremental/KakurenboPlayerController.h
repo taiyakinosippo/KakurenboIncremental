@@ -4,9 +4,11 @@
 //
 // 操作:
 //   共通                 Enter: 次のパートへ
-//   購入・リザルト（俯瞰） マウス / Q・E: カメラ回転 / ホイール: ズーム / 数字キー: 購入 / P を 2 回: 転生（購入パート）
+//   購入（俯瞰）          クリック・数字キー: 購入 / Tab・タブをクリック: コインのお店 ↔ 転生のお店 / P を 2 回・ボタン: 転生
+//                         Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
+//   リザルト（俯瞰）      マウス / Q・E: カメラ回転 / ホイール: ズーム
 //   設置（真上から）       WASD: カメラを動かす / カーソル+左クリック: 壁・罠を置く / 右クリック: 回収 / T: スタート位置をカーソルのマスへ
-//                         数字キー: 置く物（壁の種類 → 罠の種類の順） / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
+//                         数字キー・下の欄をクリック: 置く物（壁の種類 → 罠の種類の順） / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
 //   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / Shift: ダッシュ / 左クリック・F: 連打 / ホイール: カメラの距離
 
 #pragma once
@@ -58,6 +60,13 @@ public:
 
 	/** 転生の確認待ち（もう一度 P を押すと転生する）か */
 	bool IsPrestigeConfirmPending() const;
+
+	/** 購入パートで「転生のお店」を開いているか（false なら「コインのお店」） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bPrestigeShopTab = false;
+
+	/** UI を指すカーソルの位置（ピクセル。自動テスト中はテスト用の位置） */
+	bool GetUICursorPosition(FVector2D& OutPosition) const;
 
 	/** 三人称カメラの上下の角度の範囲（度） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -133,9 +142,13 @@ public:
 	UFUNCTION(Exec)
 	void KakuMash(int32 Count = 1);
 
-	/** 購入パートで商品を買う（数字キーと同じ。1 始まり） */
+	/** 購入パートで商品を買う（数字キーと同じ。1 始まり。開いているお店の商品） */
 	UFUNCTION(Exec)
 	void KakuBuy(int32 ItemNumber);
+
+	/** 転生のお店で買う（1 始まり。開いているお店に関係なく） */
+	UFUNCTION(Exec)
+	void KakuBuyPrestige(int32 ItemNumber);
 
 	/** 設置パートで壁を置く（テスト用）。例: KakuPlaceWall 10 12 0 */
 	UFUNCTION(Exec)
@@ -212,8 +225,17 @@ protected:
 	void DrawBuildPreview() const;
 	void ClearBuildTarget();
 
-	/** 購入パートの商品を番号で買う（1 始まり） */
+	/** 購入パートの商品を番号で買う（1 始まり。開いているお店の商品） */
 	bool BuyItem(int32 ItemNumber);
+
+	/** 転生ボタン・P キー：1 回目は確認、確認中にもう一度で転生する */
+	void RequestPrestige();
+
+	/**
+	 * 左クリックが HUD のボタンの上なら、そのボタンの働きをする（購入パート・設置パート）。
+	 * @return ボタンを押した（クリックを使った）なら true
+	 */
+	bool HandleUIClick();
 
 	AKakurenboGameMode* GetKakurenboGameMode() const;
 

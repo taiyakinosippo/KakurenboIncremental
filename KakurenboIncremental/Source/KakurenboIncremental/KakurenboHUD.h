@@ -12,6 +12,25 @@ class AKakurenboGameState;
 class UFont;
 struct FSlateFontInfo;
 
+/** マウスでクリックできる UI の種類（購入パート・設置パート） */
+enum class EKakurenboUIAction : uint8
+{
+	None,
+	ShopTab,   // お店の切り替え（Index 0: コインのお店 / 1: 転生のお店）
+	ShopItem,  // 商品（Index は 0 始まりの番号）
+	Prestige,  // 転生する
+	NextPhase, // 次のパートへ（Enter と同じ）
+	BuildSlot, // 置く物（Index は SelectedBuildSlot と同じ番号）
+};
+
+/** 画面上のボタン 1 つ（位置は実際のピクセル） */
+struct FKakurenboUIButton
+{
+	FBox2D Rect = FBox2D(ForceInit);
+	EKakurenboUIAction Action = EKakurenboUIAction::None;
+	int32 Index = 0;
+};
+
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboHUD : public AHUD
 {
@@ -39,6 +58,12 @@ public:
 
 	/** 表示中の大きな文字の数（テスト用） */
 	int32 GetPopupCount() const { return Popups.Num(); }
+
+	/** 画面上の位置（ピクセル）にあるボタン。前のフレームで描いたボタンから探す */
+	bool FindButtonAt(const FVector2D& ScreenPx, FKakurenboUIButton& OutButton) const;
+
+	/** ボタンの真ん中の位置（テスト用。描いていなければ false） */
+	bool GetButtonCenter(EKakurenboUIAction Action, int32 Index, FVector2D& OutScreenPx) const;
 
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
@@ -70,6 +95,19 @@ protected:
 	void Panel(float X, float Y, float W, float H, const FLinearColor& Color = FLinearColor(0.f, 0.f, 0.f, 0.55f));
 	void TrianglePx(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color);
 	FSlateFontInfo MakeFont(int32 Size);
+
+	/** クリックできる範囲を登録する（1080p 基準の座標） */
+	void AddButton(float X, float Y, float W, float H, EKakurenboUIAction Action, int32 Index);
+
+	/** カーソルがその範囲の上にあるか（1080p 基準の座標） */
+	bool IsCursorOver(float X, float Y, float W, float H) const;
+
+	/** ボタンを描いてクリックできるようにする（bSelected: 選ばれている見た目） */
+	void DrawButton(float X, float Y, float W, float H, const FString& Label, EKakurenboUIAction Action, int32 Index,
+		bool bSelected = false, int32 Size = 22, const FLinearColor& TextColor = FLinearColor::White);
+
+	/** このフレームに描いたボタン（次のフレームの入力で使う） */
+	TArray<FKakurenboUIButton> Buttons;
 
 	/** 画面の大きさに合わせた UI 倍率（1080p 基準） */
 	float UIScale = 1.f;

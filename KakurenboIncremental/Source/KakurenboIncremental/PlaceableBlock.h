@@ -44,6 +44,9 @@ public:
 
 	bool IsDamaged() const { return HP < MaxHP; }
 
+	/** 耐久を Factor 倍にする（転生のお店で壁の硬さを買ったとき。傷の割合はそのまま） */
+	void ScaleHP(double Factor);
+
 	const FLinearColor& GetBaseColor() const { return BaseColor; }
 
 private:

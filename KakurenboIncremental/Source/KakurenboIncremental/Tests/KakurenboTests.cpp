@@ -252,8 +252,26 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		TestNotNull(TEXT("Prestige row"), Row);
 		if (Row)
 		{
-			TestTrue(TEXT("prestige makes walls harder"), Row->MinStage >= 2 && Row->PointsPerStage >= 1 && Row->WallHPGrowth > 1.0);
+			TestTrue(TEXT("prestige gives points from some stage"), Row->MinStage >= 2 && Row->PointsPerStage >= 1);
 		}
+	}
+	if (UDataTable* Upgrades = Load(FKakurenboPrestigeUpgradeRow::StaticStruct(), TEXT("PrestigeUpgrades.csv")))
+	{
+		// すべての永続強化の行があり、行名が EPrestigeUpgrade の名前と一致している
+		for (int32 i = 0; i < static_cast<int32>(EPrestigeUpgrade::Count); ++i)
+		{
+			const FString Name = StaticEnum<EPrestigeUpgrade>()->GetNameStringByValue(i);
+			const FKakurenboPrestigeUpgradeRow* Row = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(*Name, TEXT("Test"));
+			TestNotNull(FString::Printf(TEXT("prestige upgrade row %s"), *Name), Row);
+			if (Row)
+			{
+				TestTrue(FString::Printf(TEXT("%s has a name and a price"), *Name), !Row->DisplayName.IsEmpty() && Row->BaseCost >= 1.0);
+			}
+		}
+		const FKakurenboPrestigeUpgradeRow* Jump = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Jump"), TEXT("Test"));
+		TestTrue(TEXT("jump is a one-time unlock"), Jump && Jump->MaxLevel == 1);
+		const FKakurenboPrestigeUpgradeRow* Cooldown = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("DashCooldown"), TEXT("Test"));
+		TestTrue(TEXT("dash cooldown gets shorter"), Cooldown && Cooldown->ValueGrowth < 1.0 && Cooldown->BaseValue > 0.0);
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{
@@ -435,6 +453,19 @@ bool FKakurenboPrestigePointsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("stage 8: 4"), KakurenboBalance::GetPrestigePoints(8, Settings), 4);
 	Settings.PointsPerStage = 2;
 	TestEqual(TEXT("2 points per stage at stage 6: 4"), KakurenboBalance::GetPrestigePoints(6, Settings), 4);
+
+	// 転生のお店：価格は切り上げ、最大レベルなら買えない、効果は BaseValue × ValueGrowth^Lv
+	FKakurenboPrestigeUpgradeRow Row;
+	Row.BaseCost = 1.0;
+	Row.CostGrowth = 1.5;
+	Row.BaseValue = 1.0;
+	Row.ValueGrowth = 1.5;
+	TestEqual(TEXT("Lv0 -> 1 costs 1"), KakurenboBalance::GetPrestigeUpgradeCost(Row, 0), 1);
+	TestEqual(TEXT("Lv1 -> 2 costs ceil(1.5) = 2"), KakurenboBalance::GetPrestigeUpgradeCost(Row, 1), 2);
+	TestEqual(TEXT("Lv2 -> 3 costs ceil(2.25) = 3"), KakurenboBalance::GetPrestigeUpgradeCost(Row, 2), 3);
+	TestTrue(TEXT("value at Lv2 = 2.25"), FMath::IsNearlyEqual(KakurenboBalance::GetPrestigeUpgradeValue(Row, 2), 2.25));
+	Row.MaxLevel = 1;
+	TestEqual(TEXT("max level: cannot buy more"), KakurenboBalance::GetPrestigeUpgradeCost(Row, 1), static_cast<int32>(INDEX_NONE));
 	return true;
 }
 

@@ -37,9 +37,14 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
-- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
-- 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 2 つ → 壁 → 罠）
-- 壁の耐久の倍率は転生ポイントで決まる（`GetWallHPMultiplier`。壁の補強はもう無い）。壁は `GetEffectiveWallTypes` の耐久で作る
+- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
+- 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 2 つ → 壁 → 罠）。
+  `KakuBuy` は開いているお店（`bPrestigeShopTab`）の商品。転生のお店は `KakuBuyPrestige`（並びは `EPrestigeUpgrade`）
+- 壁の耐久の倍率は転生のお店の「壁の硬さ」で決まる（`GetWallHPMultiplier`）。壁は `GetEffectiveWallTypes` の耐久で作る。
+  ダッシュ・ジャンプは最初は使えない（`ApplyPrestigeToPlayer` が転生のお店のレベルから設定する）。テストで使うときは `PrestigeLevels` を上げて `ApplyPrestigeToPlayer`
+- 購入パート・設置パートの UI は HUD が毎フレーム `Buttons` に登録し、PlayerController の `HandleUIClick` が次のフレームのクリックで使う
+- **鬼の見た目の Fab アセット（`Content/CuteCreature`）は Git に入れない**（公開リポジトリのため。`.gitignore` 済み）。パスは DefaultGame.ini。
+  アセットが無いパソコンでは円柱で動く。テストは両方で通るように書く
 - 収入・耐久など小数に意味がある値の表示は `FormatStatNumber`（`FormatBigNumber` は 1000 未満を切り捨てるのでコイン専用）
 - 設置パートのグリッド線・プレビュー枠は DrawDebug 系（Shipping では出ない）。演出は `UKakurenboFxSubsystem` を使う
 - レベルアセットは無い。既定マップは `/Engine/Maps/Entry`、既定 GameMode は `KakurenboGameMode`（DefaultEngine.ini）
@@ -58,10 +63,11 @@ powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           
   スクリーンショットを Read で確認して見た目も検証すること。最後に `CHECK: n passed, m failed` が出る
 - シナリオ: Camera / Loop / Senses / Touch / Treasure / Build / Save（基本）、
   Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）、Trap / Shop / Fx（M5）、
-  Gate / Crowd / Quiet / Dash / Prestige（M6）。仕様を変えたら全部流す
+  Gate / Crowd / Quiet / Dash / Prestige（M6）、Look（鬼の見た目を近くで撮る）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`
-- 設置パートのカーソルを使うテストは `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）
+- カーソルを使うテスト（設置パートのマス・HUD のボタン）は `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）。
+  ボタンは `ClickUI(EKakurenboUIAction, Index)`、画面上の点は `ClickAt`
 - 効果音は既定では `-NoSound` で起動するが、鳴らした回数（`GetPlayCount`）は数えるのできっかけは確かめられる。
   `RunAutoTest.ps1 -Scenario Fx -Sound` で実際に再生まで確かめる（`-ExtraExec "KakuVolume 0.3,"` で小さめに）
 - スクリーンショットを撮るステップでプレイヤーを動かすと、動かした後の画面が写る。撮ってから次のステップで動かす

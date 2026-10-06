@@ -32,6 +32,22 @@ int32 KakurenboBalance::GetPrestigePoints(int32 Stage, const FKakurenboPrestigeR
 	return (Stage - Settings.MinStage + 1) * FMath::Max(1, Settings.PointsPerStage);
 }
 
+int32 KakurenboBalance::GetPrestigeUpgradeCost(const FKakurenboPrestigeUpgradeRow& Row, int32 Level)
+{
+	if (Row.MaxLevel > 0 && Level >= Row.MaxLevel)
+	{
+		return INDEX_NONE;
+	}
+	// 小数の誤差で 1 多くならないよう、少しだけ引いてから切り上げる
+	const double Cost = Row.BaseCost * FMath::Pow(Row.CostGrowth, static_cast<double>(FMath::Max(0, Level)));
+	return FMath::Max(1, FMath::CeilToInt(Cost - 1e-6));
+}
+
+double KakurenboBalance::GetPrestigeUpgradeValue(const FKakurenboPrestigeUpgradeRow& Row, int32 Level)
+{
+	return Row.BaseValue * FMath::Pow(Row.ValueGrowth, static_cast<double>(FMath::Max(0, Level)));
+}
+
 FString KakurenboBalance::GetDataFilePath(const FString& FileName)
 {
 	return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Data") / FileName);

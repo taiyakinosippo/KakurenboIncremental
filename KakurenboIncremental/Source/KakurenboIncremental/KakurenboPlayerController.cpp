@@ -10,6 +10,7 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
+#include "KakurenboHUD.h"
 #include "KakurenboSoundSubsystem.h"
 #include "PlaceableBlock.h"
 #include "TrapActor.h"
@@ -65,7 +66,7 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 		switch (Phase)
 		{
 		case EKakurenboPhase::Shop:
-			HandleOverheadCamera(DeltaTime, true);
+			HandleOverheadCamera(DeltaTime, false); // カーソルで商品を選ぶので、マウスの左右では回さない
 			HandleShopInput();
 			break;
 		case EKakurenboPhase::Build:
@@ -136,7 +137,20 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 			Hider->SetTopDownFocus(Center);
 		}
 		Hider->SetViewMode(EHiderViewMode::TopDown);
-		// 設置パートはカーソルでマスを指す
+	}
+	else
+	{
+		// 購入・リザルトは斜め上から
+		Hider->SetViewMode(EHiderViewMode::Overhead);
+	}
+
+	if (Phase == EKakurenboPhase::Build || Phase == EKakurenboPhase::Shop)
+	{
+		if (Phase == EKakurenboPhase::Shop)
+		{
+			bPrestigeShopTab = false; // 購入パートはコインのお店から
+		}
+		// 購入・設置パートはカーソルでボタンやマスを指す
 		bShowMouseCursor = true;
 		FInputModeGameAndUI Mode;
 		Mode.SetHideCursorDuringCapture(false);                         // クリック中もカーソルを消さない
@@ -145,8 +159,7 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	}
 	else
 	{
-		// 購入・リザルトは斜め上から。マウスの左右でカメラを回す
-		Hider->SetViewMode(EHiderViewMode::Overhead);
+		// リザルトはマウスの左右でカメラを回す
 		bShowMouseCursor = false;
 		SetInputMode(FInputModeGameOnly());
 	}
@@ -307,26 +320,80 @@ int32 AKakurenboPlayerController::GetPressedNumberKey() const
 
 void AKakurenboPlayerController::HandleShopInput()
 {
+	if (WasInputKeyJustPressed(EKeys::Tab))
+	{
+		bPrestigeShopTab = !bPrestigeShopTab;
+	}
 	if (const int32 Number = GetPressedNumberKey())
 	{
 		BuyItem(Number);
 	}
-
-	// 転生は取り返しがつかないので、P を 2 回押して決める
-	AKakurenboGameMode* GM = GetKakurenboGameMode();
-	if (GM && WasInputKeyJustPressed(EKeys::P) && GM->CanPrestige())
+	if (WasInputKeyJustPressed(EKeys::P))
 	{
-		if (IsPrestigeConfirmPending())
-		{
-			PrestigeConfirmUntil = -1.f;
-			GM->Prestige();
-		}
-		else
-		{
-			PrestigeConfirmUntil = GetWorld()->GetTimeSeconds() + PrestigeConfirmSeconds;
-			UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::CountdownBeep, 0.6f);
-		}
+		RequestPrestige();
 	}
+	if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
+	{
+		HandleUIClick();
+	}
+}
+
+void AKakurenboPlayerController::RequestPrestige()
+{
+	// 転生は取り返しがつかないので、2 回押して決める
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	if (!GM || !GM->CanPrestige())
+	{
+		return;
+	}
+	if (IsPrestigeConfirmPending())
+	{
+		PrestigeConfirmUntil = -1.f;
+		GM->Prestige();
+	}
+	else
+	{
+		PrestigeConfirmUntil = GetWorld()->GetTimeSeconds() + PrestigeConfirmSeconds;
+		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::CountdownBeep, 0.6f);
+	}
+}
+
+bool AKakurenboPlayerController::GetUICursorPosition(FVector2D& OutPosition) const
+{
+	if (bUseTestCursor)
+	{
+		OutPosition = TestCursorPosition;
+		return true;
+	}
+	float X = 0.f, Y = 0.f;
+	if (!bShowMouseCursor || !GetMousePosition(X, Y))
+	{
+		return false;
+	}
+	OutPosition = FVector2D(X, Y);
+	return true;
+}
+
+bool AKakurenboPlayerController::HandleUIClick()
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+	FVector2D Cursor;
+	FKakurenboUIButton Button;
+	if (!GM || !HUD || !GetUICursorPosition(Cursor) || !HUD->FindButtonAt(Cursor, Button))
+	{
+		return false;
+	}
+	switch (Button.Action)
+	{
+	case EKakurenboUIAction::ShopTab:   bPrestigeShopTab = (Button.Index == 1); break;
+	case EKakurenboUIAction::ShopItem:  BuyItem(Button.Index + 1); break;
+	case EKakurenboUIAction::Prestige:  RequestPrestige(); break;
+	case EKakurenboUIAction::NextPhase: GM->AdvancePhase(); break;
+	case EKakurenboUIAction::BuildSlot: SelectedBuildSlot = Button.Index; break;
+	default: break;
+	}
+	return true; // パネルの上のクリックは、後ろの床に壁を置かない
 }
 
 bool AKakurenboPlayerController::IsPrestigeConfirmPending() const
@@ -337,7 +404,11 @@ bool AKakurenboPlayerController::IsPrestigeConfirmPending() const
 bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
-	return GM && GM->TryBuyShopItem(ItemNumber - 1);
+	if (!GM)
+	{
+		return false;
+	}
+	return bPrestigeShopTab ? GM->TryBuyPrestigeUpgrade(ItemNumber - 1) : GM->TryBuyShopItem(ItemNumber - 1);
 }
 
 // ---------------------------------------------------------------- 設置パート
@@ -386,7 +457,8 @@ void AKakurenboPlayerController::HandleBuildInput()
 		ClearBuildTarget();
 	}
 
-	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) && bCanPlaceAtTarget)
+	// 左クリック：画面下の欄やボタンの上ならそれを押す。そうでなければ置く
+	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{
@@ -651,6 +723,14 @@ void AKakurenboPlayerController::KakuMash(int32 Count)
 void AKakurenboPlayerController::KakuBuy(int32 ItemNumber)
 {
 	BuyItem(ItemNumber);
+}
+
+void AKakurenboPlayerController::KakuBuyPrestige(int32 ItemNumber)
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->TryBuyPrestigeUpgrade(ItemNumber - 1);
+	}
 }
 
 void AKakurenboPlayerController::KakuPlaceWall(int32 X, int32 Y, int32 WallType)

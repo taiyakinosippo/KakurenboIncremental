@@ -306,6 +306,21 @@ void UKakurenboGridSubsystem::ClearLiveKeepDesign()
 	MarkChanged();
 }
 
+void UKakurenboGridSubsystem::ScaleAllBlockHP(double Factor)
+{
+	for (FKakurenboBlockColumn& Column : Columns)
+	{
+		for (APlaceableBlock* Block : Column.Blocks)
+		{
+			if (Block)
+			{
+				Block->ScaleHP(Factor);
+			}
+		}
+	}
+	MarkChanged(); // 壊すのに必要な回数が変わるので、鬼の経路を作り直させる
+}
+
 void UKakurenboGridSubsystem::SetReservedCells(const TArray<FIntPoint>& Cells)
 {
 	ReservedCells.Reset();

@@ -3,7 +3,10 @@
 #include "Animation/AnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Animation/AnimSequence.h"
 #include "Engine/SkeletalMesh.h"
+#include "Materials/MaterialInterface.h"
+#include "Misc/PackageName.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -99,6 +102,24 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f), 0.f);
 	AddWall(TEXT("消音壁"), 3.0, 300.0, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f);
 
+	// 転生のお店の既定値（Data/PrestigeUpgrades.csv が読めなかったときに使う。並びは EPrestigeUpgrade の順）
+	auto AddPrestigeUpgrade = [this](const TCHAR* Name, int32 MaxLevel, double Cost, double CostGrowth, double Value, double ValueGrowth)
+	{
+		FKakurenboPrestigeUpgradeRow& Row = PrestigeUpgrades.AddDefaulted_GetRef();
+		Row.DisplayName = FText::FromString(Name);
+		Row.MaxLevel = MaxLevel;
+		Row.BaseCost = Cost;
+		Row.CostGrowth = CostGrowth;
+		Row.BaseValue = Value;
+		Row.ValueGrowth = ValueGrowth;
+	};
+	AddPrestigeUpgrade(TEXT("壁の硬さ"), 0, 1.0, 1.5, 1.0, 1.5);      // WallHP: 耐久 ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("お宝の強化"), 0, 1.0, 1.5, 1.0, 1.5);    // Treasure: お宝の価値 ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("ダッシュの速さ"), 4, 2.0, 1.6, 1.25, 1.12); // DashSpeed: Lv1 で解放（×1.4）
+	AddPrestigeUpgrade(TEXT("ダッシュの回復"), 6, 1.0, 1.5, 8.0, 0.85); // DashCooldown: 8 秒 ×0.85^Lv
+	AddPrestigeUpgrade(TEXT("ジャンプ"), 1, 2.0, 1.0, 1.0, 1.0);       // Jump: Lv1 で解放
+	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
+
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
 	auto AddOniType = [this](EOniType Type, const TCHAR* Name, float Speed, double Damage, float Sight, float Angle, float Hearing,
 		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body)
@@ -175,6 +196,7 @@ void AKakurenboGameMode::BeginPlay()
 	{
 		State->WallStock.SetNum(WallTypes.Num());
 		State->TrapStock.SetNum(TrapTypes.Num());
+		State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
 	}
 
 	// グリッド（ブロック配置・鬼の経路探索）を舞台に合わせて初期化
@@ -344,6 +366,22 @@ void AKakurenboGameMode::LoadBalanceData()
 		}
 	}
 
+	if (UDataTable* Table = GetTable(PrestigeUpgradeTable, FKakurenboPrestigeUpgradeRow::StaticStruct(), TEXT("PrestigeUpgrades.csv")))
+	{
+		// 行名（WallHP など）を強化の種類に対応させる
+		const UEnum* UpgradeEnum = StaticEnum<EPrestigeUpgrade>();
+		for (const TPair<FName, uint8*>& Pair : Table->GetRowMap())
+		{
+			const int64 Value = UpgradeEnum->GetValueByNameString(Pair.Key.ToString());
+			if (Value == INDEX_NONE || Value >= static_cast<int64>(EPrestigeUpgrade::Count))
+			{
+				UE_LOG(LogKakurenbo, Warning, TEXT("PrestigeUpgrades.csv: unknown upgrade '%s'"), *Pair.Key.ToString());
+				continue;
+			}
+			PrestigeUpgrades[Value] = *reinterpret_cast<const FKakurenboPrestigeUpgradeRow*>(Pair.Value);
+		}
+	}
+
 	if (UDataTable* Table = GetTable(WallTable, FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
 	{
 		TArray<FWallTypeDef*> Rows;
@@ -435,15 +473,127 @@ double AKakurenboGameMode::GetTimeUpgradeCost() const
 	return UKakurenboLibrary::ExpCurve(TimeUpgradeBaseCost, TimeUpgradeCostGrowth, State ? State->TimeIncomeLevel : 0);
 }
 
-double AKakurenboGameMode::GetWallHPMultiplierFor(int32 Points) const
-{
-	return UKakurenboLibrary::ExpCurve(1.0, PrestigeSettings.WallHPGrowth, FMath::Max(0, Points));
-}
-
 double AKakurenboGameMode::GetWallHPMultiplier() const
 {
+	return GetPrestigeValue(EPrestigeUpgrade::WallHP);
+}
+
+int32 AKakurenboGameMode::GetPrestigeLevel(EPrestigeUpgrade Upgrade) const
+{
 	const AKakurenboGameState* State = GS();
-	return GetWallHPMultiplierFor(State ? State->PrestigePoints : 0);
+	const int32 Index = static_cast<int32>(Upgrade);
+	return (State && State->PrestigeLevels.IsValidIndex(Index)) ? State->PrestigeLevels[Index] : 0;
+}
+
+double AKakurenboGameMode::GetPrestigeValue(EPrestigeUpgrade Upgrade, int32 Level) const
+{
+	const int32 Index = static_cast<int32>(Upgrade);
+	return PrestigeUpgrades.IsValidIndex(Index) ? KakurenboBalance::GetPrestigeUpgradeValue(PrestigeUpgrades[Index], Level) : 1.0;
+}
+
+int32 AKakurenboGameMode::GetPrestigeUpgradeCost(EPrestigeUpgrade Upgrade) const
+{
+	const int32 Index = static_cast<int32>(Upgrade);
+	return PrestigeUpgrades.IsValidIndex(Index) ? KakurenboBalance::GetPrestigeUpgradeCost(PrestigeUpgrades[Index], GetPrestigeLevel(Upgrade)) : INDEX_NONE;
+}
+
+TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
+{
+	TArray<FShopItemView> Items;
+	auto Fmt = [](double V) { return FText::FromString(UKakurenboLibrary::FormatStatNumber(V)); };
+	for (int32 i = 0; i < static_cast<int32>(EPrestigeUpgrade::Count) && PrestigeUpgrades.IsValidIndex(i); ++i)
+	{
+		const EPrestigeUpgrade Upgrade = static_cast<EPrestigeUpgrade>(i);
+		const FKakurenboPrestigeUpgradeRow& Row = PrestigeUpgrades[i];
+		const int32 Level = GetPrestigeLevel(Upgrade);
+		const int32 Cost = GetPrestigeUpgradeCost(Upgrade);
+		const double Now = GetPrestigeValue(Upgrade, Level);
+		const double Next = GetPrestigeValue(Upgrade, Level + 1);
+
+		FShopItemView& Item = Items.AddDefaulted_GetRef();
+		Item.bPrestigeItem = true;
+		Item.bMaxed = Cost == INDEX_NONE;
+		Item.DisplayName = Row.DisplayName;
+		Item.Cost = Item.bMaxed ? 0.0 : Cost;
+		Item.OwnedText = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeLevelMax", "Lv.{0}（最大）"), Level)
+			: FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), Level);
+
+		switch (Upgrade)
+		{
+		case EPrestigeUpgrade::WallHP:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallDesc", "すべての壁の耐久 ×{0} → ×{1}（置いてある壁も）"), Fmt(Now), Fmt(Next));
+			break;
+		case EPrestigeUpgrade::Treasure:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝の価値 ×{0} → ×{1}"), Fmt(Now), Fmt(Next));
+			break;
+		case EPrestigeUpgrade::DashSpeed:
+			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashMax", "ダッシュの速さ ×{0}"), Fmt(Now))
+				: Level == 0 ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashUnlock", "Shift でダッシュできるようになる（速さ ×{0}・大きな音が出る）"), Fmt(Next))
+				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashDesc", "ダッシュの速さ ×{0} → ×{1}"), Fmt(Now), Fmt(Next));
+			break;
+		case EPrestigeUpgrade::DashCooldown:
+			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeCooldownMax", "ダッシュのクールタイム {0} 秒"), Fmt(Now))
+				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeCooldownDesc", "ダッシュのクールタイム {0} 秒 → {1} 秒"), Fmt(Now), Fmt(Next));
+			if (!IsDashUnlocked())
+			{
+				Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeNeedDash", "{0}（ダッシュの速さを買うと使える）"), Item.Description);
+			}
+			break;
+		case EPrestigeUpgrade::Jump:
+			Item.Description = NSLOCTEXT("Kakurenbo", "PrestigeJumpDesc", "Space でジャンプできるようになる（壁 1 段に飛び乗れる）");
+			break;
+		default:
+			break;
+		}
+	}
+	return Items;
+}
+
+bool AKakurenboGameMode::TryBuyPrestigeUpgrade(int32 Index)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Shop || Index < 0 || Index >= static_cast<int32>(EPrestigeUpgrade::Count))
+	{
+		return false;
+	}
+	const EPrestigeUpgrade Upgrade = static_cast<EPrestigeUpgrade>(Index);
+	const int32 Cost = GetPrestigeUpgradeCost(Upgrade);
+	bool bBought = false;
+	if (Cost != INDEX_NONE && State->PrestigePoints >= Cost)
+	{
+		const double OldWallMultiplier = GetWallHPMultiplier();
+		State->PrestigePoints -= Cost;
+		State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
+		State->PrestigeLevels[Index]++;
+		bBought = true;
+
+		if (Upgrade == EPrestigeUpgrade::WallHP)
+		{
+			// 置いてある壁もすぐに硬くする
+			if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+			{
+				Grid->ScaleAllBlockHP(GetWallHPMultiplier() / FMath::Max(OldWallMultiplier, 0.0001));
+			}
+		}
+		ApplyPrestigeToPlayer();
+		UE_LOG(LogKakurenbo, Log, TEXT("Prestige upgrade %s -> Lv%d (%d pt left)"), *UEnum::GetValueAsString(Upgrade), State->PrestigeLevels[Index], State->PrestigePoints);
+	}
+	Sfx2D(this, bBought ? EKakurenboSfx::Buy : EKakurenboSfx::BuyFail, 1.f, bBought ? 0.8f : 1.f);
+	return bBought;
+}
+
+void AKakurenboGameMode::ApplyPrestigeToPlayer()
+{
+	AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter());
+	if (!Hider)
+	{
+		return;
+	}
+	// ダッシュ・ジャンプは最初は使えない。転生のお店で解放する
+	Hider->bDashUnlocked = IsDashUnlocked();
+	Hider->DashSpeedMultiplier = static_cast<float>(GetPrestigeValue(EPrestigeUpgrade::DashSpeed));
+	Hider->DashCooldown = static_cast<float>(GetPrestigeValue(EPrestigeUpgrade::DashCooldown));
+	Hider->JumpMaxCount = IsJumpUnlocked() ? 1 : 0; // JumpMaxCount: 空中も含めて続けて跳べる回数（0 なら跳べない）
 }
 
 TArray<FWallTypeDef> AKakurenboGameMode::GetEffectiveWallTypes() const
@@ -482,7 +632,7 @@ double AKakurenboGameMode::GetClearReward() const
 
 double AKakurenboGameMode::GetTreasureValue() const
 {
-	return GetClearReward() * TreasureRewardRatio;
+	return GetClearReward() * TreasureRewardRatio * GetPrestigeValue(EPrestigeUpgrade::Treasure);
 }
 
 float AKakurenboGameMode::GetHideDuration() const
@@ -1283,9 +1433,11 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->HearingRadius = Settings.OniHearingRadius * TypeRow.HearingScale;
 		Oni->AttackDamage = Settings.OniDamage * TypeRow.DamageScale;
 		Oni->bDrawDebug = bDebugOni;
-		if (LoadedOniMesh)
+		if (LoadedOniLook.Mesh)
 		{
-			Oni->SetSkeletalAppearance(LoadedOniMesh, LoadedOniAnimClass, OniMeshScale, OniMeshZOffset, OniMeshYaw);
+			FKakurenboOniLook Look = LoadedOniLook;
+			Look.Material = LoadedOniMaterials.FindRef(Type);
+			Oni->SetSkeletalAppearance(Look);
 		}
 		Oni->FinishSpawning(FTransform(Facing, Location));
 
@@ -1314,21 +1466,50 @@ void AKakurenboGameMode::SpawnOnis()
 
 void AKakurenboGameMode::LoadOniAppearance()
 {
-	// ini（DefaultGame.ini）に鬼のメッシュが書いてあれば読み込む。見つからなければ円柱のまま
+	// ini（DefaultGame.ini）に鬼のメッシュが書いてあれば読み込む。
+	// アセットが無い（そのパソコンでは Fab から追加していない）ときは円柱のまま
+	LoadedOniLook = FKakurenboOniLook();
+	LoadedOniMaterials.Reset();
 	if (OniSkeletalMesh.IsNull())
 	{
 		return;
 	}
-	LoadedOniMesh = OniSkeletalMesh.LoadSynchronous();
-	LoadedOniAnimClass = OniAnimClass.IsNull() ? nullptr : OniAnimClass.LoadSynchronous();
-	if (!LoadedOniMesh)
+	if (!FPackageName::DoesPackageExist(OniSkeletalMesh.ToSoftObjectPath().GetLongPackageName()))
 	{
-		UE_LOG(LogKakurenbo, Warning, TEXT("Oni mesh '%s' was not found. Using the placeholder shape."), *OniSkeletalMesh.ToString());
+		UE_LOG(LogKakurenbo, Log, TEXT("Oni mesh '%s' is not in this project. Using the placeholder shape."), *OniSkeletalMesh.ToString());
+		return;
 	}
-	else if (!OniAnimClass.IsNull() && !LoadedOniAnimClass)
+	// 書いてあって見つかったものだけ読む
+	auto Load = [](const auto& Soft) { return Soft.IsNull() ? nullptr : Soft.LoadSynchronous(); };
+	LoadedOniLook.Mesh = Load(OniSkeletalMesh);
+	if (!LoadedOniLook.Mesh)
 	{
-		UE_LOG(LogKakurenbo, Warning, TEXT("Oni anim class '%s' was not found."), *OniAnimClass.ToString());
+		UE_LOG(LogKakurenbo, Warning, TEXT("Oni mesh '%s' could not be loaded. Using the placeholder shape."), *OniSkeletalMesh.ToString());
+		return;
 	}
+	LoadedOniLook.AnimClass = Load(OniAnimClass);
+	LoadedOniLook.Idle = Load(OniAnimIdle);
+	LoadedOniLook.Run = Load(OniAnimRun);
+	LoadedOniLook.Attack = Load(OniAnimAttack);
+	LoadedOniLook.Win = Load(OniAnimWin);
+	LoadedOniLook.Stunned = Load(OniAnimStunned);
+	LoadedOniLook.Accessory = Load(OniAccessoryMesh);
+	LoadedOniLook.Scale = OniMeshScale;
+	LoadedOniLook.ZOffset = OniMeshZOffset;
+	LoadedOniLook.Yaw = OniMeshYaw;
+	LoadedOniLook.RunAnimSpeed = OniRunAnimSpeed;
+
+	// 種類ごとの色違い（OniTypes.csv の MeshMaterial）
+	for (const TPair<EOniType, FKakurenboOniTypeRow>& Pair : OniTypeRows)
+	{
+		if (UMaterialInterface* Material = Load(Pair.Value.MeshMaterial))
+		{
+			LoadedOniMaterials.Add(Pair.Key, Material);
+		}
+	}
+	UE_LOG(LogKakurenbo, Log, TEXT("Oni look: mesh %s, anims idle=%d run=%d attack=%d win=%d stunned=%d, %d type materials"),
+		*LoadedOniLook.Mesh->GetName(), LoadedOniLook.Idle != nullptr, LoadedOniLook.Run != nullptr, LoadedOniLook.Attack != nullptr,
+		LoadedOniLook.Win != nullptr, LoadedOniLook.Stunned != nullptr, LoadedOniMaterials.Num());
 }
 
 void AKakurenboGameMode::DespawnOnis()
@@ -1415,6 +1596,7 @@ void AKakurenboGameMode::StartHidePhase()
 	bOnisSpawnedThisRound = false;
 	LastCountdownSecond = 0;
 	LastTimeTickSecond = 0;
+	ApplyPrestigeToPlayer(); // ダッシュ・ジャンプ（転生のお店で解放）
 	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
 	{
 		Hider->ResetDash(); // ラウンドの始めはすぐダッシュできる
@@ -1525,8 +1707,8 @@ bool AKakurenboGameMode::Prestige()
 	{
 		return false;
 	}
-	const double OldMultiplier = GetWallHPMultiplier();
 	State->PrestigePoints += Gained;
+	State->TotalPrestigePoints += Gained;
 	State->PrestigeCount++;
 
 	// 壁が硬くなる代わりに、ほかは最初から（置いた壁と罠は消えるが、設計図は残る）
@@ -1544,12 +1726,11 @@ bool AKakurenboGameMode::Prestige()
 	State->LastRefilledTraps = 0;
 	State->LastUnrefilledTraps = 0;
 
-	UE_LOG(LogKakurenbo, Log, TEXT("Prestige #%d: +%d points (total %d), wall HP x%.2f -> x%.2f"),
-		State->PrestigeCount, Gained, State->PrestigePoints, OldMultiplier, GetWallHPMultiplier());
+	UE_LOG(LogKakurenbo, Log, TEXT("Prestige #%d: +%d points (%d to spend, %d in total)"),
+		State->PrestigeCount, Gained, State->PrestigePoints, State->TotalPrestigePoints);
 	Sfx2D(this, EKakurenboSfx::Prestige);
 	FlashScreen(FLinearColor(0.7f, 0.5f, 1.f, 0.6f), 1.2f);
-	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生しました！ 転生ポイント +{0}（壁の耐久 ×{1}）"),
-		Gained, FText::FromString(UKakurenboLibrary::FormatStatNumber(GetWallHPMultiplier()))), 6.f);
+	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生しました！ 転生ポイント +{0}（購入パートの「転生のお店」で使えます）"), Gained), 6.f);
 
 	// ステージ 1 のかくれんぼから（ゲームの最初と同じ）
 	State->Phase = EKakurenboPhase::Result;
@@ -1574,7 +1755,9 @@ bool AKakurenboGameMode::SaveProgress()
 	Save->MashIncomeLevel = State->MashIncomeLevel;
 	Save->TimeIncomeLevel = State->TimeIncomeLevel;
 	Save->PrestigePoints = State->PrestigePoints;
+	Save->TotalPrestigePoints = State->TotalPrestigePoints;
 	Save->PrestigeCount = State->PrestigeCount;
+	Save->PrestigeLevels = State->PrestigeLevels;
 	Save->WallStock = State->WallStock;
 	Save->TrapStock = State->TrapStock;
 	Grid->ExportLayout(Save->Columns);
@@ -1611,8 +1794,12 @@ bool AKakurenboGameMode::LoadProgress()
 	State->Stage = FMath::Max(1, Save->Stage);
 	State->MashIncomeLevel = Save->MashIncomeLevel;
 	State->TimeIncomeLevel = Save->TimeIncomeLevel;
-	State->PrestigePoints = Save->PrestigePoints; // 転生ポイントは壁を作り直す前に戻す（耐久の倍率に使う）
+	// 転生のお店の強化は壁を作り直す前に戻す（耐久の倍率に使う）
+	State->PrestigePoints = Save->PrestigePoints;
+	State->TotalPrestigePoints = Save->SaveVersion >= 4 ? Save->TotalPrestigePoints : Save->PrestigePoints;
 	State->PrestigeCount = Save->PrestigeCount;
+	State->PrestigeLevels = Save->PrestigeLevels;
+	State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
 	State->WallStock = Save->WallStock;
 	State->WallStock.SetNum(WallTypes.Num()); // CSV で壁の種類が増減していても合わせる
 	State->TrapStock = Save->TrapStock;
@@ -1626,6 +1813,7 @@ bool AKakurenboGameMode::LoadProgress()
 			Player->SetActorLocation(Save->PlayerLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
+	ApplyPrestigeToPlayer();
 	UE_LOG(LogKakurenbo, Log, TEXT("Loaded save '%s': stage %d, coins %s, %d wall columns"),
 		*SaveSlotName, State->Stage, *UKakurenboLibrary::FormatBigNumber(State->Coins), Save->Columns.Num());
 	return true;
@@ -1653,7 +1841,9 @@ void AKakurenboGameMode::ResetProgress()
 	State->MashIncomeLevel = 0;
 	State->TimeIncomeLevel = 0;
 	State->PrestigePoints = 0;
+	State->TotalPrestigePoints = 0;
 	State->PrestigeCount = 0;
+	State->PrestigeLevels.Init(0, static_cast<int32>(EPrestigeUpgrade::Count));
 	State->WallStock.Init(0, WallTypes.Num());
 	State->TrapStock.Init(0, TrapTypes.Num());
 	State->LastRepairedWalls = 0;

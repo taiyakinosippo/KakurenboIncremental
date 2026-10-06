@@ -33,8 +33,9 @@
 | bSingleTargetAttack | True なら目の前の壁 1 個だけを壊す（範囲攻撃しない） |
 | AttackRadius / AttackWindup | 範囲攻撃の半径（cm）/ 攻撃の溜め時間（秒） |
 | PocketInspectChance | うろうろ中に「壁で囲まれた空洞」を見つけたとき、調べに行く（壊して入る）確率（0〜1） |
-| Color | 体の色 |
+| Color | 体の色（円柱のとき）・頭の上の玉の色・画面の一覧の色 |
 | BodyScale | 体の大きさの倍率 |
+| MeshMaterial | キャラクターのモデル（Cute Creature）を使うときの色違いのマテリアル（`/Game/...` のパス）。空ならモデルのまま |
 
 ## Upgrades.csv（強化）
 
@@ -55,7 +56,26 @@
 |---|---|
 | MinStage | このステージまで来たら転生できる |
 | PointsPerStage | 転生ポイント = (今のステージ − MinStage + 1) × PointsPerStage |
-| WallHPGrowth | すべての壁の耐久の倍率 = WallHPGrowth ^ 転生ポイントの合計（鬼の攻撃力はステージごとに ×1.6） |
+
+## PrestigeUpgrades.csv（転生のお店）
+
+転生ポイントで買う永続強化（転生しても残る）。行の名前（WallHP / Treasure / DashSpeed / DashCooldown / Jump）は
+プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
+
+| 列 | 意味 |
+|---|---|
+| DisplayName | 表示名 |
+| MaxLevel | 最大レベル（0 なら上限なし） |
+| BaseCost / CostGrowth | 価格（転生ポイント）= 切り上げ(BaseCost × CostGrowth ^ 今のレベル) |
+| BaseValue / ValueGrowth | 効果 = BaseValue × ValueGrowth ^ レベル |
+
+| 行 | 効果の意味 |
+|---|---|
+| WallHP | すべての壁の耐久の倍率（鬼の攻撃力はステージごとに ×1.6） |
+| Treasure | お宝の価値の倍率 |
+| DashSpeed | ダッシュの速さの倍率。**Lv0 はダッシュできない**（Lv1 で解放） |
+| DashCooldown | ダッシュのクールタイム（秒）。ValueGrowth を 1 より小さくすると短くなる |
+| Jump | **Lv0 はジャンプできない**（Lv1 で解放）。値は使わない |
 
 ## Walls.csv（壁）
 

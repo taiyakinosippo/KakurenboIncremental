@@ -66,6 +66,7 @@ void AKakurenboHUD::DrawHUD()
 		return;
 	}
 	UIScale = Canvas->ClipY / 1080.f;
+	Buttons.Reset(); // ボタンは毎フレーム描き直す
 
 	AKakurenboGameState* State = GetWorld()->GetGameState<AKakurenboGameState>();
 	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
@@ -188,6 +189,64 @@ void AKakurenboHUD::Panel(float X, float Y, float W, float H, const FLinearColor
 	Canvas->DrawItem(Tile);
 }
 
+void AKakurenboHUD::AddButton(float X, float Y, float W, float H, EKakurenboUIAction Action, int32 Index)
+{
+	FKakurenboUIButton& Button = Buttons.AddDefaulted_GetRef();
+	Button.Rect = FBox2D(FVector2D(X, Y) * UIScale, FVector2D(X + W, Y + H) * UIScale);
+	Button.Action = Action;
+	Button.Index = Index;
+}
+
+bool AKakurenboHUD::IsCursorOver(float X, float Y, float W, float H) const
+{
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	FVector2D Cursor;
+	return PC && PC->GetUICursorPosition(Cursor) && FBox2D(FVector2D(X, Y) * UIScale, FVector2D(X + W, Y + H) * UIScale).IsInside(Cursor);
+}
+
+void AKakurenboHUD::DrawButton(float X, float Y, float W, float H, const FString& Label, EKakurenboUIAction Action, int32 Index,
+	bool bSelected, int32 Size, const FLinearColor& TextColor)
+{
+	AddButton(X, Y, W, H, Action, Index);
+	const bool bHovered = IsCursorOver(X, Y, W, H);
+	const FLinearColor Back = bSelected ? FLinearColor(0.85f, 0.65f, 0.15f, 0.75f)
+		: bHovered ? FLinearColor(0.35f, 0.35f, 0.45f, 0.85f) : FLinearColor(0.08f, 0.08f, 0.1f, 0.75f);
+	Panel(X, Y, W, H, Back);
+	if (bHovered)
+	{
+		// 縁を明るくして「押せる」ことを示す
+		Panel(X, Y + H - 3, W, 3, FLinearColor(1.f, 1.f, 1.f, 0.7f));
+	}
+	TextPx(Label, (X + W * 0.5f) * UIScale, (Y + (H - Size * 1.2f) * 0.5f) * UIScale, Size, TextColor, true);
+}
+
+bool AKakurenboHUD::FindButtonAt(const FVector2D& ScreenPx, FKakurenboUIButton& OutButton) const
+{
+	// 後から描いたもの（上に重なっているもの）を優先する
+	for (int32 i = Buttons.Num() - 1; i >= 0; --i)
+	{
+		if (Buttons[i].Rect.IsInside(ScreenPx))
+		{
+			OutButton = Buttons[i];
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AKakurenboHUD::GetButtonCenter(EKakurenboUIAction Action, int32 Index, FVector2D& OutScreenPx) const
+{
+	for (const FKakurenboUIButton& Button : Buttons)
+	{
+		if (Button.Action == Action && Button.Index == Index)
+		{
+			OutScreenPx = Button.Rect.GetCenter();
+			return true;
+		}
+	}
+	return false;
+}
+
 void AKakurenboHUD::TrianglePx(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color)
 {
 	FCanvasTriangleItem Triangle(A, B, C, GWhiteTexture);
@@ -253,14 +312,14 @@ void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMo
 {
 	static const TCHAR* PhaseNames[] = { TEXT("購入パート"), TEXT("設置パート"), TEXT("かくれんぼ"), TEXT("リザルト") };
 
-	const bool bPrestiged = State->PrestigeCount > 0;
+	const bool bPrestiged = State->PrestigeCount > 0 || State->TotalPrestigePoints > 0;
 	Panel(20, 20, 380, bPrestiged ? 158 : 130);
 	Text(FString::Printf(TEXT("ステージ %d   [%s]"), State->Stage, PhaseNames[static_cast<int32>(State->Phase)]), 36, 30, 22);
 	Text(FString::Printf(TEXT("コイン  %s"), *Big(State->Coins)), 36, 64, 30, Gold);
 	Text(FString::Printf(TEXT("連打 +%s / 時間 +%s/秒"), *Stat(GM->GetMashIncome()), *Stat(GM->GetTimeIncomePerSecond())), 36, 108, 18, Gray);
 	if (bPrestiged)
 	{
-		Text(FString::Printf(TEXT("転生 %d 回（%d pt）・壁の耐久 ×%s"), State->PrestigeCount, State->PrestigePoints, *Stat(GM->GetWallHPMultiplier())), 36, 134, 18, Purple);
+		Text(FString::Printf(TEXT("転生 %d 回・転生ポイント %d pt"), State->PrestigeCount, State->PrestigePoints), 36, 134, 18, Purple);
 	}
 }
 
@@ -268,21 +327,41 @@ void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMo
 
 void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 {
-	const TArray<FShopItemView> Items = GM->GetShopItems();
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	const bool bPrestigeTab = PC && PC->bPrestigeShopTab;
+	const TArray<FShopItemView> Items = bPrestigeTab ? GM->GetPrestigeShopItems() : GM->GetShopItems();
+	const float CanvasW = Canvas->ClipX / UIScale;
 
 	// 商品が増えても画面に収まるよう、1 行の高さを詰める（1 商品 = 名前・説明・壊れた数の 3 行）
-	const float X = 520, Y = 130, W = 880;
-	const float RowH = FMath::Min(74.f, 660.f / FMath::Max(1, Items.Num()));
-	Panel(X, Y, W, 90 + Items.Num() * RowH);
-	Text(TEXT("購入パート"), 0, Y + 10, 34, FLinearColor::White, true);
+	// 上端は画面上部のお知らせ（y 116〜160）と重ならない高さにする
+	const float X = 520, Y = 168, W = 880;
+	const float RowH = FMath::Min(74.f, 600.f / FMath::Max(1, Items.Num()));
+	Panel(X, Y, W, 84 + Items.Num() * RowH);
+
+	// お店の切り替え（クリックか Tab）
+	DrawButton(X + 16, Y + 12, 300, 44, TEXT("コインのお店"), EKakurenboUIAction::ShopTab, 0, !bPrestigeTab, 22, !bPrestigeTab ? FLinearColor::Black : FLinearColor::White);
+	DrawButton(X + 330, Y + 12, 340, 44, FString::Printf(TEXT("転生のお店（%d pt）"), State->PrestigePoints), EKakurenboUIAction::ShopTab, 1, bPrestigeTab, 22,
+		bPrestigeTab ? FLinearColor::Black : Purple);
+	Text(TEXT("Tab: 切り替え"), X + 700, Y + 24, 16, Gray);
 
 	for (int32 i = 0; i < Items.Num(); ++i)
 	{
 		const FShopItemView& Item = Items[i];
-		const bool bAffordable = State->Coins >= Item.Cost;
-		const float RowY = Y + 66 + i * RowH;
+		const bool bAffordable = Item.bPrestigeItem ? (!Item.bMaxed && State->PrestigePoints >= Item.Cost) : State->Coins >= Item.Cost;
+		const float RowY = Y + 70 + i * RowH;
+
+		// 行全体がボタン（カーソルを乗せると明るくなる）
+		AddButton(X + 8, RowY - 4, W - 16, RowH - 2, EKakurenboUIAction::ShopItem, i);
+		if (IsCursorOver(X + 8, RowY - 4, W - 16, RowH - 2))
+		{
+			Panel(X + 8, RowY - 4, W - 16, RowH - 2, bAffordable ? FLinearColor(0.35f, 0.35f, 0.45f, 0.6f) : FLinearColor(0.3f, 0.15f, 0.15f, 0.5f));
+		}
+
 		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 23, bAffordable ? FLinearColor::White : Gray);
-		Text(FString::Printf(TEXT("%s コイン"), *Big(Item.Cost)), X + 640, RowY, 23, bAffordable ? Gold : Gray);
+		const FString CostText = Item.bMaxed ? FString(TEXT("最大"))
+			: Item.bPrestigeItem ? FString::Printf(TEXT("%d pt"), FMath::RoundToInt(Item.Cost))
+			: FString::Printf(TEXT("%s コイン"), *Big(Item.Cost));
+		Text(CostText, X + 680, RowY, 23, bAffordable ? (Item.bPrestigeItem ? Purple : Gold) : Gray);
 		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.43f, 16, Gray);
 		if (!Item.RepairText.IsEmpty())
 		{
@@ -291,8 +370,13 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		}
 	}
 
-	float BottomY = Y + 90 + Items.Num() * RowH + 12;
-	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	float BottomY = Y + 84 + Items.Num() * RowH + 12;
+	if (bPrestigeTab)
+	{
+		Text(TEXT("転生ポイントは転生するともらえます。強化は転生しても残ります"), 0, BottomY, 18, Purple, true);
+		BottomY += 30;
+	}
+	else if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
 		const int32 MissingWalls = Grid->GetTotalMissing();
 		const int32 MissingTraps = Grid->GetMissingTrapCount();
@@ -303,29 +387,27 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		}
 	}
 
-	// 転生
-	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	// 転生（クリックか P を 2 回）と、次へ
+	const float ButtonH = 48;
 	if (GM->CanPrestige())
 	{
-		const int32 Gain = GM->GetPrestigePointsOnReset();
-		if (PC && PC->IsPrestigeConfirmPending())
-		{
-			Text(TEXT("もう一度 P を押すと転生します"), 0, BottomY, 24, Bad, true);
-		}
-		else
-		{
-			Text(FString::Printf(TEXT("P: 転生する（転生ポイント +%d → 壁の耐久 ×%s → ×%s）"), Gain,
-				*Stat(GM->GetWallHPMultiplier()), *Stat(GM->GetWallHPMultiplierFor(State->PrestigePoints + Gain))), 0, BottomY, 22, Purple, true);
-		}
-		Text(TEXT("コイン・ステージ・強化・在庫・置いた壁と罠はなくなります（設計図は残ります）"), 0, BottomY + 30, 16, Gray, true);
-		BottomY += 56;
+		const bool bConfirm = PC && PC->IsPrestigeConfirmPending();
+		const FString Label = bConfirm ? FString(TEXT("もう一度押すと転生します"))
+			: FString::Printf(TEXT("転生する（+%d pt）[P]"), GM->GetPrestigePointsOnReset());
+		DrawButton(CanvasW * 0.5f - 470, BottomY, 460, ButtonH, Label, EKakurenboUIAction::Prestige, 0, false, 22, bConfirm ? Bad : Purple);
+		DrawButton(CanvasW * 0.5f + 10, BottomY, 460, ButtonH, TEXT("設置パートへ ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
+		BottomY += ButtonH + 8;
+		Text(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなります（設計図と転生のお店の強化は残ります）"), 0, BottomY, 16, Gray, true);
+		BottomY += 26;
 	}
 	else
 	{
-		Text(FString::Printf(TEXT("転生はステージ %d から（壁がずっと硬くなる）"), GM->PrestigeSettings.MinStage), 0, BottomY, 16, Gray, true);
+		DrawButton(CanvasW * 0.5f - 230, BottomY, 460, ButtonH, TEXT("設置パートへ ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
+		BottomY += ButtonH + 8;
+		Text(FString::Printf(TEXT("転生はステージ %d から（転生ポイントで永続強化が買える）"), GM->PrestigeSettings.MinStage), 0, BottomY, 16, Gray, true);
 		BottomY += 26;
 	}
-	Text(TEXT("数字キー: 購入　　Enter: 設置パートへ　　マウス・Q/E: カメラ回転　ホイール: ズーム"), 0, BottomY, 18, FLinearColor::White, true);
+	Text(TEXT("クリック・数字キー: 購入　Q/E・ホイールを押してドラッグ: カメラ回転　ホイール: ズーム"), 0, BottomY, 16, FLinearColor::White, true);
 }
 
 // ---------------------------------------------------------------- 設置
@@ -341,7 +423,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	Panel(20, HelpY, 480, 224);
 	Text(TEXT("WASD: カメラを動かす"), 36, HelpY + 12, 18);
 	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, HelpY + 40, 18);
-	Text(TEXT("数字キー: 置く物（壁・罠）"), 36, HelpY + 68, 18);
+	Text(TEXT("数字キー・下の欄をクリック: 置く物（壁・罠）"), 36, HelpY + 68, 18);
 	Text(TEXT("T: スタート位置（青い印）をカーソルのマスへ"), 36, HelpY + 96, 18, Blue);
 	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, HelpY + 124, 18);
 	Text(TEXT("ホイール: ズーム"), 36, HelpY + 152, 18);
@@ -393,7 +475,11 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		const FLinearColor& Color = bTrap ? GM->TrapTypes[TrapIndex].Color : Walls[i].Color;
 
 		const float X = StartX + i * SlotW;
-		Panel(X + 4, SlotY, SlotW - 8, SlotH, bSelected ? FLinearColor(0.9f, 0.75f, 0.2f, 0.6f) : FLinearColor(0.f, 0.f, 0.f, 0.55f));
+		// 欄全体がボタン（クリックで選ぶ）
+		AddButton(X + 4, SlotY, SlotW - 8, SlotH, EKakurenboUIAction::BuildSlot, i);
+		const bool bHovered = IsCursorOver(X + 4, SlotY, SlotW - 8, SlotH);
+		Panel(X + 4, SlotY, SlotW - 8, SlotH, bSelected ? FLinearColor(0.9f, 0.75f, 0.2f, 0.6f)
+			: bHovered ? FLinearColor(0.35f, 0.35f, 0.45f, 0.75f) : FLinearColor(0.f, 0.f, 0.f, 0.55f));
 		// 壁は縦長の四角、罠は平たい四角で見分ける
 		if (bTrap)
 		{
@@ -409,6 +495,9 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 			: FString::Printf(TEXT("在庫 %d　耐久 %s"), Stock, *Stat(Walls[i].MaxHP));
 		Text(Detail, X + 36, SlotY + 38, 16, Gray);
 	}
+
+	// かくれんぼを始めるボタン（Enter と同じ）
+	DrawButton(CanvasW - 420, CanvasH - 260, 390, 60, TEXT("かくれんぼ開始 ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
 
 	// 置けない理由をカーソルの下に出す
 	if (PC && PC->bHasBuildTarget && !PC->bCanPlaceAtTarget && !PC->BuildTargetReason.IsEmpty())
@@ -517,7 +606,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 
 	// ダッシュ（下部中央の少し上）
-	if (const AHiderCharacter* Hider = Cast<AHiderCharacter>(Pawn))
+	if (const AHiderCharacter* Hider = Cast<AHiderCharacter>(Pawn); Hider && Hider->bDashUnlocked)
 	{
 		const float GaugeW = 260, GaugeX = (CanvasW - GaugeW) * 0.5f, GaugeY = CanvasH - 150;
 		const float Cooldown = Hider->GetDashCooldownRemaining();
@@ -538,7 +627,17 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 
 	// 操作説明（下部中央）
-	Text(FString::Printf(TEXT("WASD: 移動　Space: ジャンプ　Shift: ダッシュ　左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome())), 0, CanvasH - 90, 22, FLinearColor::White, true);
+	FString Controls = TEXT("WASD: 移動　");
+	if (GM->IsJumpUnlocked())
+	{
+		Controls += TEXT("Space: ジャンプ　");
+	}
+	if (GM->IsDashUnlocked())
+	{
+		Controls += TEXT("Shift: ダッシュ　");
+	}
+	Controls += FString::Printf(TEXT("左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome()));
+	Text(Controls, 0, CanvasH - 90, 22, FLinearColor::White, true);
 	FString Stats = FString::Printf(TEXT("今回の獲得: %s コイン　連打 %d 回"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound);
 	if (State->TrapsTriggeredThisRound > 0)
 	{

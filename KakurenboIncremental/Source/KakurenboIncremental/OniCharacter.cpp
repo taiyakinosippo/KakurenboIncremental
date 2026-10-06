@@ -1,6 +1,8 @@
 ﻿#include "OniCharacter.h"
 
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Materials/MaterialInterface.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SpotLightComponent.h"
@@ -93,24 +95,67 @@ AOniCharacter::AOniCharacter()
 
 	// キャラクターのモデル（スケルタルメッシュ）は見た目だけ。視線や設置のカーソルの邪魔をしない
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	AccessoryMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("AccessoryMesh"));
+	AccessoryMesh->SetupAttachment(GetMesh());
+	AccessoryMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	AccessoryMesh->SetHiddenInGame(true);
 }
 
-void AOniCharacter::SetSkeletalAppearance(USkeletalMesh* InMesh, TSubclassOf<UAnimInstance> InAnimClass, float Scale, float ZOffset, float Yaw)
+void AOniCharacter::SetSkeletalAppearance(const FKakurenboOniLook& InLook)
 {
-	SkeletalMeshAsset = InMesh;
-	SkeletalAnimClass = InAnimClass;
-	SkeletalScale = Scale;
-	SkeletalZOffset = ZOffset;
-	SkeletalYaw = Yaw;
+	Look = InLook;
 }
 
 void AOniCharacter::SetBodySquash(const FVector& Ratio)
 {
 	BodyMesh->SetRelativeScale3D(BaseBodyScale * Ratio);
-	if (SkeletalMeshAsset)
+	if (Look.Mesh)
 	{
 		GetMesh()->SetRelativeScale3D(BaseMeshScale * Ratio);
 	}
+}
+
+void AOniCharacter::UpdateMeshAnimation()
+{
+	if (!Look.Mesh || Look.AnimClass)
+	{
+		return; // 円柱のまま、またはアニメーション BP に任せる
+	}
+	// 今の様子に合ったアニメーションを選ぶ（無いものは待機で代用）
+	UAnimSequence* Desired = Look.Idle;
+	float PlayRate = 1.f;
+	const float Speed = GetVelocity().Size2D();
+	if (!FoundReason.IsNone() && Look.Win)
+	{
+		Desired = Look.Win; // 見つけた！
+	}
+	else if (State == EOniState::Stunned && Look.Stunned)
+	{
+		Desired = Look.Stunned;
+	}
+	else if (State == EOniState::Attack && Look.Attack)
+	{
+		Desired = Look.Attack;
+	}
+	else if (Speed > 30.f && Look.Run)
+	{
+		Desired = Look.Run;
+		PlayRate = FMath::Clamp(Speed / FMath::Max(Look.RunAnimSpeed, 1.f), 0.5f, 2.5f);
+	}
+	if (!Desired)
+	{
+		return;
+	}
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (Desired != PlayingAnim)
+	{
+		PlayingAnim = Desired;
+		// 攻撃・見つけたは 1 回だけ、それ以外は繰り返す
+		const bool bLoop = Desired != Look.Attack && Desired != Look.Win;
+		MeshComp->PlayAnimation(Desired, bLoop);
+	}
+	MeshComp->SetPlayRate(PlayRate);
 }
 
 void AOniCharacter::DebugGoTo(const FIntPoint& Cell)
@@ -169,21 +214,49 @@ void AOniCharacter::BeginPlay()
 		UKakurenboLibrary::ApplyColor(Star, FLinearColor(1.f, 0.9f, 0.2f));
 	}
 
-	if (SkeletalMeshAsset)
+	if (Look.Mesh)
 	{
-		// キャラクターのモデルを足元に合わせて置き、円柱の体と顔は隠す。種類の色は頭の上の玉で示す
+		// キャラクターのモデルを足元に合わせて置き、円柱の体と顔は隠す。種類は色違いのマテリアルと頭の上の玉で示す
 		USkeletalMeshComponent* MeshComp = GetMesh();
-		MeshComp->SetSkeletalMesh(SkeletalMeshAsset);
-		if (SkeletalAnimClass)
+		MeshComp->SetSkeletalMesh(Look.Mesh);
+		if (Look.Material)
 		{
-			MeshComp->SetAnimInstanceClass(SkeletalAnimClass);
+			// 体が複数の部分（マテリアルの枠）に分かれているモデルもあるので、全部を色違いにする
+			for (int32 i = 0; i < MeshComp->GetNumMaterials(); ++i)
+			{
+				MeshComp->SetMaterial(i, Look.Material);
+			}
 		}
-		MeshComp->SetRelativeLocation(FVector(0.f, 0.f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + SkeletalZOffset));
-		MeshComp->SetRelativeRotation(FRotator(0.f, SkeletalYaw, 0.f));
-		BaseMeshScale = FVector(SkeletalScale * BodyScaleMultiplier);
+		if (Look.AnimClass)
+		{
+			MeshComp->SetAnimInstanceClass(Look.AnimClass);
+		}
+		else
+		{
+			// アニメーション BP が無いので、1 つのアニメーションを直接再生するモードにする（UpdateMeshAnimation で切り替える）
+			MeshComp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		}
+		// モデルの大きさはアセットによってまちまちなので、体（カプセル）の高さに合わせて拡大・縮小し、足を床に置く。
+		// Look.Scale はその上にかける倍率
+		const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FBoxSphereBounds Bounds = Look.Mesh->GetImportedBounds();
+		const float MeshHeight = FMath::Max(Bounds.BoxExtent.Z * 2.f, 1.f);
+		const float MeshBottom = Bounds.Origin.Z - Bounds.BoxExtent.Z;
+		const float Fit = HalfHeight * 2.f / MeshHeight * Look.Scale * BodyScaleMultiplier;
+		MeshComp->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight - MeshBottom * Fit + Look.ZOffset));
+		MeshComp->SetRelativeRotation(FRotator(0.f, Look.Yaw, 0.f));
+		BaseMeshScale = FVector(Fit);
+		if (Look.Accessory)
+		{
+			// 小物は体と同じ骨の動きをそのまま使う（LeaderPose: 自分ではアニメーションせず、親の姿勢に合わせる）
+			AccessoryMesh->SetSkeletalMesh(Look.Accessory);
+			AccessoryMesh->SetLeaderPoseComponent(MeshComp);
+			AccessoryMesh->SetHiddenInGame(false);
+		}
 		BodyMesh->SetHiddenInGame(true);
 		FaceMesh->SetHiddenInGame(true);
 		TypeMarker->SetHiddenInGame(false);
+		UpdateMeshAnimation();
 	}
 	ResetBodyScale();
 }
@@ -347,6 +420,7 @@ void AOniCharacter::TickLookAround(float DeltaSeconds, float AmplitudeDegrees)
 void AOniCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	UpdateMeshAnimation(); // 止まっている間（見つけた後など）もアニメーションは切り替える
 
 	UKakurenboGridSubsystem* G = Grid();
 	if (!bActive || !G || !G->IsConfigured())
@@ -1060,6 +1134,7 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 	AttackCell = WallCell;
 	AttackTimer = 0.f;
 	bAttackFired = false;
+	PlayingAnim = nullptr; // 攻撃のアニメーションを最初から再生し直す
 	SetState(EOniState::Attack);
 }
 
@@ -1116,6 +1191,7 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 			// まだ残っている → もう一度
 			AttackTimer = 0.f;
 			bAttackFired = false;
+			PlayingAnim = nullptr;
 			return;
 		}
 

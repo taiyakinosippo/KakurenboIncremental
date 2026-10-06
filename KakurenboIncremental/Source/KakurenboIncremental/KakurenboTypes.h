@@ -6,6 +6,8 @@
 #include "Engine/DataTable.h"
 #include "KakurenboTypes.generated.h"
 
+class UMaterialInterface;
+
 /** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
 UENUM(BlueprintType)
 enum class EKakurenboPhase : uint8
@@ -53,6 +55,18 @@ enum class ETrapKind : uint8
 {
 	Sticky UMETA(DisplayName = "Sticky"), // トリモチ：踏んだ鬼をしばらく動けなくする（1 回使うと消える）
 	Decoy  UMETA(DisplayName = "Decoy"),  // おとり：一定の間隔で音を出して鬼を呼び寄せる（鬼が触れると壊れる）
+};
+
+/** 転生のお店で買える永続強化（Data/PrestigeUpgrades.csv の行名と同じ名前） */
+UENUM(BlueprintType)
+enum class EPrestigeUpgrade : uint8
+{
+	WallHP       UMETA(DisplayName = "WallHP"),       // 壁の硬さ：すべての壁の耐久の倍率
+	Treasure     UMETA(DisplayName = "Treasure"),     // お宝の強化：お宝の価値の倍率
+	DashSpeed    UMETA(DisplayName = "DashSpeed"),    // ダッシュの速さ：Lv1 でダッシュが使えるようになる
+	DashCooldown UMETA(DisplayName = "DashCooldown"), // ダッシュの回復：クールタイム（秒）
+	Jump         UMETA(DisplayName = "Jump"),         // ジャンプ：Lv1 でジャンプできるようになる
+	Count        UMETA(Hidden)
 };
 
 /** 効果音の種類（音のファイルが無くても、プログラムで波形を作って鳴らす） */
@@ -108,6 +122,14 @@ struct FShopItemView
 	/** 壁・罠：在庫が足りず、直せないものがある */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	bool bNeedsMoreForRepair = false;
+
+	/** 転生のお店の商品か（価格の単位が転生ポイント） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bPrestigeItem = false;
+
+	/** これ以上強化できない */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bMaxed = false;
 };
 
 /**
@@ -153,10 +175,35 @@ struct FKakurenboPrestigeRow : public FTableRowBase
 	/** 転生ポイント = (今のステージ - MinStage + 1) × PointsPerStage */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	int32 PointsPerStage = 1;
+};
 
-	/** すべての壁の耐久の倍率 = WallHPGrowth ^ 転生ポイントの合計 */
+/**
+ * 転生のお店の商品 1 つ。Data/PrestigeUpgrades.csv の 1 行（行名は EPrestigeUpgrade の名前）。
+ * 価格（転生ポイント） = 切り上げ(BaseCost × CostGrowth ^ 今のレベル)、効果 = BaseValue × ValueGrowth ^ レベル
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboPrestigeUpgradeRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
-	double WallHPGrowth = 1.5;
+	FText DisplayName;
+
+	/** 最大レベル（0 なら上限なし） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	int32 MaxLevel = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double BaseCost = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double CostGrowth = 1.5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double BaseValue = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double ValueGrowth = 1.5;
 };
 
 /** 強化 1 種類の数値。Data/Upgrades.csv（または GameMode の UpgradeTable）の 1 行 */
@@ -271,6 +318,10 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	/** 見た目の太さの倍率 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float BodyScale = 1.f;
+
+	/** キャラクターのモデル（スケルタルメッシュ）を使うときの、この種類のマテリアル（色違い）。空ならメッシュのまま */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	TSoftObjectPtr<UMaterialInterface> MeshMaterial;
 };
 
 /** 罠 1 種類の数値。Data/Traps.csv の 1 行（行の並び順が購入パート・設置パートでの並び順） */

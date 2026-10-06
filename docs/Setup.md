@@ -63,4 +63,14 @@ setx UE_ROOT "D:\Epic Games\UE_5.8"
 - Git に入らないもの
   - `Binaries/`・`Intermediate/`（ビルドの結果）: pull した後はビルドし直す
   - `Saved/`（セーブデータ・ログ・テストのスクリーンショット）: セーブを持っていきたいときは `KakurenboIncremental/Saved/SaveGames/Kakurenbo.sav` をコピーする
+  - `Content/CuteCreature/`（鬼の見た目。Fab のアセットは公開リポジトリに置けないため）: 下の手順でそのパソコンでも追加する
+
+## 鬼の見た目（Cute Creature）を入れる
+
+無くても動く（鬼が円柱になるだけ）。入れるときは：
+
+1. `KakurenboIncremental.uproject` を開いてエディタを起動する
+2. メニューの「ウィンドウ」→「Fab」（無ければ「編集」→「プラグイン」で Fab を有効にして再起動）
+3. 「Cute Creature」を検索して「プロジェクトに追加」。`Content/CuteCreature` ができれば完了（パスの設定は Git に入っているので何もしなくてよい）
+4. エディタを閉じる
 - Claude との会話の履歴と、コマンドの許可の設定はパソコンごと。ルールと仕様は CLAUDE.md と docs/GameDesign.md に書いてあるので、別のパソコンの Claude もそこから続けられる

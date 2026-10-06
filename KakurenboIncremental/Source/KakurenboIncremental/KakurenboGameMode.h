@@ -13,6 +13,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "KakurenboTypes.h"
+#include "OniCharacter.h"
 #include "KakurenboGameMode.generated.h"
 
 class AKakurenboArena;
@@ -22,7 +23,9 @@ class APlaceableBlock;
 class ATrapActor;
 class ATreasureActor;
 class UAnimInstance;
+class UAnimSequence;
 class UDataTable;
+class UMaterialInterface;
 class USkeletalMesh;
 class USoundBase;
 
@@ -62,6 +65,10 @@ public:
 	/** 転生の数値。Data/Prestige.csv の代わりに使う DataTable（行の型: KakurenboPrestigeRow。行名 Prestige） */
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> PrestigeTable;
+
+	/** 転生のお店の商品。Data/PrestigeUpgrades.csv の代わりに使う DataTable（行の型: KakurenboPrestigeUpgradeRow） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> PrestigeUpgradeTable;
 
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
@@ -127,9 +134,13 @@ public:
 
 	// ===== 転生（Prestige.csv で上書きされる） =====
 
-	/** 転生の条件と、転生ポイントで壁がどれだけ硬くなるか */
+	/** 転生の条件と、もらえる転生ポイント */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	FKakurenboPrestigeRow PrestigeSettings;
+
+	/** 転生のお店の商品（インデックスは EPrestigeUpgrade。PrestigeUpgrades.csv で上書きされる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	TArray<FKakurenboPrestigeUpgradeRow> PrestigeUpgrades;
 
 	// ===== お宝 =====
 
@@ -175,11 +186,37 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
 	TSoftObjectPtr<USkeletalMesh> OniSkeletalMesh;
 
-	/** 鬼のアニメーション BP（無ければ動かないまま）。ini では OniAnimClass=/Game/.../ABP_xxx.ABP_xxx_C */
+	/** 鬼のアニメーション BP。ini では OniAnimClass=/Game/.../ABP_xxx.ABP_xxx_C。無ければ下の OniAnim〜 を直接再生する */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
 	TSoftClassPtr<UAnimInstance> OniAnimClass;
 
-	/** メッシュの大きさ・高さの調整（cm）・向き（度。多くのキャラクターは -90 で正面を向く） */
+	/** アニメーション BP が無いときに直接再生するアニメーション（待機・走る・攻撃・見つけた・罠で動けない） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<UAnimSequence> OniAnimIdle;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<UAnimSequence> OniAnimRun;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<UAnimSequence> OniAnimAttack;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<UAnimSequence> OniAnimWin;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<UAnimSequence> OniAnimStunned;
+
+	/** 走るアニメーションがちょうどよく見える速さ（cm/秒）。速く動くほど速く再生する */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float OniRunAnimSpeed = 450.f;
+
+	/** 体に重ねて表示する小物のメッシュ（Cute Creature の包帯など。同じ骨で動く） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	TSoftObjectPtr<USkeletalMesh> OniAccessoryMesh;
+
+	/**
+	 * メッシュの大きさ（体の高さ 190cm に自動で合わせた上にかける倍率）・高さの調整（cm）・向き（度。多くのキャラクターは -90 で正面を向く）
+	 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
 	float OniMeshScale = 1.f;
 
@@ -260,8 +297,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetWallHPMultiplier() const;
 
-	/** 転生ポイントの合計が Points のときの壁の耐久の倍率 */
-	double GetWallHPMultiplierFor(int32 Points) const;
+	/** 転生のお店の強化レベル */
+	int32 GetPrestigeLevel(EPrestigeUpgrade Upgrade) const;
+
+	/** 転生のお店の強化の効果（Level を省くと今のレベル） */
+	double GetPrestigeValue(EPrestigeUpgrade Upgrade, int32 Level) const;
+	double GetPrestigeValue(EPrestigeUpgrade Upgrade) const { return GetPrestigeValue(Upgrade, GetPrestigeLevel(Upgrade)); }
+
+	/** 1 つ上げる価格（転生ポイント。最大なら INDEX_NONE） */
+	int32 GetPrestigeUpgradeCost(EPrestigeUpgrade Upgrade) const;
+
+	/** 転生のお店の商品一覧（並び＝EPrestigeUpgrade の順＝番号キー順） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	TArray<FShopItemView> GetPrestigeShopItems() const;
+
+	/** 転生のお店で買う（購入パートでだけ。Index は 0 始まり＝EPrestigeUpgrade の順） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool TryBuyPrestigeUpgrade(int32 Index);
+
+	/** ダッシュ・ジャンプなど、転生のお店の強化をプレイヤーに反映する */
+	void ApplyPrestigeToPlayer();
+
+	/** ダッシュ・ジャンプが使えるか（転生のお店で解放） */
+	bool IsDashUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::DashSpeed) > 0; }
+	bool IsJumpUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::Jump) > 0; }
 
 	/** 転生を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
 	TArray<FWallTypeDef> GetEffectiveWallTypes() const;
@@ -277,7 +336,7 @@ public:
 	int32 GetPrestigePointsOnReset() const;
 
 	/**
-	 * 転生する（購入パートでだけ）。転生ポイントをもらい、壁が硬くなる代わりに
+	 * 転生する（購入パートでだけ）。転生ポイント（転生のお店で永続強化に使う）をもらう代わりに
 	 * コイン・ステージ・強化・壁と罠の在庫・置いた壁と罠がなくなる（設計図は残るので、在庫を買えば設置パートで自動で直る）。
 	 * ステージ 1 のかくれんぼから始め直す
 	 */
@@ -507,11 +566,13 @@ protected:
 	/** 鬼の見た目のメッシュを読み込む（設定が無ければ何もしない） */
 	void LoadOniAppearance();
 
+	/** 読み込んだ鬼の見た目（メッシュが無ければ空＝円柱のまま） */
 	UPROPERTY()
-	TObjectPtr<USkeletalMesh> LoadedOniMesh;
+	FKakurenboOniLook LoadedOniLook;
 
+	/** 鬼の種類ごとの色違いのマテリアル（読み込んだもの） */
 	UPROPERTY()
-	TSubclassOf<UAnimInstance> LoadedOniAnimClass;
+	TMap<EOniType, TObjectPtr<UMaterialInterface>> LoadedOniMaterials;
 
 	UPROPERTY()
 	TObjectPtr<AKakurenboArena> Arena;

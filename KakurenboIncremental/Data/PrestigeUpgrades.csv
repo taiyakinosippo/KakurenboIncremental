@@ -1,0 +1,6 @@
+﻿---,DisplayName,MaxLevel,BaseCost,CostGrowth,BaseValue,ValueGrowth
+WallHP,壁の硬さ,0,1,1.5,1,1.5
+Treasure,お宝の強化,0,1,1.5,1,1.5
+DashSpeed,ダッシュの速さ,4,2,1.6,1.25,1.12
+DashCooldown,ダッシュの回復,6,1,1.5,8,0.85
+Jump,ジャンプ,1,2,1,1,1

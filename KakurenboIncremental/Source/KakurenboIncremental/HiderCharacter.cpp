@@ -28,6 +28,9 @@ AHiderCharacter::AHiderCharacter()
 	Move->JumpZVelocity = 650.f; // ブロック 1 段（160cm）に飛び乗れる高さ
 	Move->AirControl = 0.5f;
 
+	// ジャンプは最初はできない（転生のお店で解放すると GameMode が 1 にする）
+	JumpMaxCount = 0;
+
 	// CreateDefaultSubobject: コンストラクタでコンポーネントを作る UE の決まった書き方
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -180,7 +183,7 @@ void AHiderCharacter::PlayMashFeedback()
 
 bool AHiderCharacter::TryStartDash()
 {
-	if (DashCooldownRemaining > 0.f)
+	if (!bDashUnlocked || DashCooldownRemaining > 0.f)
 	{
 		return false;
 	}

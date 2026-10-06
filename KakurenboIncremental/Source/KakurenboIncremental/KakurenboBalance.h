@@ -31,6 +31,12 @@ namespace KakurenboBalance
 	/** ステージ Stage で転生したときにもらえる転生ポイント（MinStage より前なら 0） */
 	KAKURENBOINCREMENTAL_API int32 GetPrestigePoints(int32 Stage, const FKakurenboPrestigeRow& Settings);
 
+	/** 転生のお店：今のレベルから 1 つ上げる価格（転生ポイント。最大レベルなら INDEX_NONE） */
+	KAKURENBOINCREMENTAL_API int32 GetPrestigeUpgradeCost(const FKakurenboPrestigeUpgradeRow& Row, int32 Level);
+
+	/** 転生のお店：そのレベルの効果（BaseValue × ValueGrowth ^ レベル） */
+	KAKURENBOINCREMENTAL_API double GetPrestigeUpgradeValue(const FKakurenboPrestigeUpgradeRow& Row, int32 Level);
+
 	/** <プロジェクト>/Data/<FileName> のフルパス */
 	KAKURENBOINCREMENTAL_API FString GetDataFilePath(const FString& FileName);
 

@@ -39,9 +39,12 @@ class KAKURENBOINCREMENTAL_API UKakurenboSaveGame : public USaveGame
 	GENERATED_BODY()
 
 public:
-	/** 保存形式の版（項目を増やしたときに古いデータを見分けるため）。2: 罠・壁の補強を追加 / 3: 壁の補強をやめて転生を追加 */
+	/**
+	 * 保存形式の版（項目を増やしたときに古いデータを見分けるため）。
+	 * 2: 罠・壁の補強を追加 / 3: 壁の補強をやめて転生を追加 / 4: 転生のお店（ポイントを使う永続強化）
+	 */
 	UPROPERTY()
-	int32 SaveVersion = 3;
+	int32 SaveVersion = 4;
 
 	UPROPERTY()
 	double Coins = 0.0;
@@ -55,12 +58,22 @@ public:
 	UPROPERTY()
 	int32 TimeIncomeLevel = 0;
 
-	/** 転生ポイントの合計と転生した回数（版 2 までのセーブには無いので 0 になる。版 2 の「壁の補強」は引き継がない） */
+	/**
+	 * 使える転生ポイント・もらった合計・転生した回数・転生のお店の強化レベル。
+	 * 版 2 までのセーブには無いので 0 になる（版 2 の「壁の補強」は引き継がない）。
+	 * 版 3 の PrestigePoints は「合計」だったが、版 4 では「使えるポイント」として読む（全部使える状態で再開）
+	 */
 	UPROPERTY()
 	int32 PrestigePoints = 0;
 
 	UPROPERTY()
+	int32 TotalPrestigePoints = 0;
+
+	UPROPERTY()
 	int32 PrestigeCount = 0;
+
+	UPROPERTY()
+	TArray<int32> PrestigeLevels;
 
 	UPROPERTY()
 	TArray<int32> WallStock;

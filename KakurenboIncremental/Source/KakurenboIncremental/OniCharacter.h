@@ -29,6 +29,54 @@ class USkeletalMesh;
 class USpotLightComponent;
 class UStaticMeshComponent;
 
+class UAnimSequence;
+class UMaterialInterface;
+class USkeletalMeshComponent;
+
+/** 鬼をキャラクターのモデル（スケルタルメッシュ）で表示するときの設定。Mesh が空なら円柱のまま */
+USTRUCT()
+struct FKakurenboOniLook
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<USkeletalMesh> Mesh;
+
+	/** アニメーション BP（あればこちらを使う） */
+	UPROPERTY()
+	TSubclassOf<UAnimInstance> AnimClass;
+
+	/** アニメーション BP が無いときに直接再生するアニメーション */
+	UPROPERTY()
+	TObjectPtr<UAnimSequence> Idle;
+
+	UPROPERTY()
+	TObjectPtr<UAnimSequence> Run;
+
+	UPROPERTY()
+	TObjectPtr<UAnimSequence> Attack;
+
+	UPROPERTY()
+	TObjectPtr<UAnimSequence> Win;
+
+	UPROPERTY()
+	TObjectPtr<UAnimSequence> Stunned;
+
+	/** 体に重ねる小物（同じ骨で動く） */
+	UPROPERTY()
+	TObjectPtr<USkeletalMesh> Accessory;
+
+	/** 種類ごとの色違い（無ければメッシュのまま） */
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> Material;
+
+	float Scale = 1.f;
+	float ZOffset = 0.f;
+	float Yaw = -90.f;
+	/** 走るアニメーションが等速に見える速さ（cm/秒） */
+	float RunAnimSpeed = 450.f;
+};
+
 DECLARE_MULTICAST_DELEGATE(FOnOniFoundHider);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnOniDestroyedWalls, int32 /*Count*/);
 
@@ -61,14 +109,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<UStaticMeshComponent> TypeMarker;
 
+	/** スケルタルメッシュに重ねる小物（包帯など） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<USkeletalMeshComponent> AccessoryMesh;
+
 	/**
 	 * 見た目をスケルタルメッシュ（キャラクターのモデル）にする。スポーン直後、FinishSpawning より前に呼ぶ。
-	 * 円柱の体と顔は隠し、種類の色は頭の上の玉で示す
-	 * @param Yaw メッシュの向きの調整（度）
+	 * 円柱の体と顔は隠し、種類の色は頭の上の玉と色違いのマテリアルで示す
 	 */
-	void SetSkeletalAppearance(USkeletalMesh* InMesh, TSubclassOf<UAnimInstance> InAnimClass, float Scale, float ZOffset, float Yaw);
+	void SetSkeletalAppearance(const FKakurenboOniLook& InLook);
 
-	bool UsesSkeletalMesh() const { return SkeletalMeshAsset != nullptr; }
+	bool UsesSkeletalMesh() const { return Look.Mesh != nullptr; }
+
+	/** 今再生しているアニメーション（テスト用。アニメーション BP を使っているときは null） */
+	const UAnimSequence* GetPlayingAnimation() const { return PlayingAnim; }
 
 	// ===== 種類 =====
 
@@ -361,13 +415,13 @@ private:
 
 	/** スケルタルメッシュの見た目（SetSkeletalAppearance で設定） */
 	UPROPERTY()
-	TObjectPtr<USkeletalMesh> SkeletalMeshAsset;
+	FKakurenboOniLook Look;
+
+	/** 状態に合ったアニメーションを再生する（アニメーション BP が無いとき） */
+	void UpdateMeshAnimation();
 
 	UPROPERTY()
-	TSubclassOf<UAnimInstance> SkeletalAnimClass;
+	TObjectPtr<UAnimSequence> PlayingAnim;
 
-	float SkeletalScale = 1.f;
-	float SkeletalZOffset = 0.f;
-	float SkeletalYaw = -90.f;
 	FVector BaseMeshScale = FVector::OneVector;
 };

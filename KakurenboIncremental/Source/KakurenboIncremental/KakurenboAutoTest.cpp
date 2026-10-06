@@ -6,6 +6,7 @@
 // 疑似入力（SimulateKey / SimulateMouse）の結果は、次のフレームの入力処理で反映されるので NextTick で確かめる。
 
 #include "Camera/CameraComponent.h"
+#include "Animation/AnimSequence.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -24,6 +25,7 @@
 #include "KakurenboSaveGame.h"
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
@@ -124,6 +126,30 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::MouseX, IE_Axis, DX, 1));
 			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::MouseY, IE_Axis, DY, 1));
 		}
+	};
+	// HUD のボタンをクリックする（本物と同じ入力の経路。カーソル位置はテスト用で、本物のマウスは動かさない）。
+	// ボタンは HUD が描いた次のフレームから押せる。結果は NextTick で確かめる
+	auto ClickUI = [this](EKakurenboUIAction Action, int32 Index) -> bool
+	{
+		FVector2D Center;
+		const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+		if (!HUD || !HUD->GetButtonCenter(Action, Index, Center) || !PlayerInput)
+		{
+			return false;
+		}
+		bUseTestCursor = true;
+		TestCursorPosition = Center;
+		PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Pressed, 1.f));
+		PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Released, 1.f));
+		return true;
+	};
+	// 画面上の点をクリックする（設置パートで床を指して置く）
+	auto ClickAt = [this](const FVector2D& ScreenPx)
+	{
+		bUseTestCursor = true;
+		TestCursorPosition = ScreenPx;
+		PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Pressed, 1.f));
+		PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Released, 1.f));
 	};
 	// プレイヤーを床の上の指定位置へ動かす
 	auto TeleportPlayer = [this](const FVector& FloorLocation)
@@ -518,6 +544,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
+			// ジャンプは最初はできない（転生のお店で解放する）
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
 			const int32 MashBefore = GS()->MashCountThisRound;
@@ -526,8 +553,20 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
-				Check(FString::Printf(TEXT("Space jumps in hide phase (vz=%.0f)"), VelZ), VelZ > 100.f);
+				Check(FString::Printf(TEXT("Space does not jump before it is unlocked (vz=%.0f)"), VelZ), VelZ < 50.f && !GM->IsJumpUnlocked());
 				Check(FString::Printf(TEXT("left click mashes (count %d -> %d)"), MashBefore, GS()->MashCountThisRound), GS()->MashCountThisRound == MashBefore + 1);
+			});
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1; // 転生のお店で買ったことにする
+			GM->ApplyPrestigeToPlayer();
+			SimulateKey(EKeys::SpaceBar, IE_Pressed);
+			SimulateKey(EKeys::SpaceBar, IE_Released);
+			NextTick([=, this]
+			{
+				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
+				Check(FString::Printf(TEXT("after unlocking, Space jumps in hide phase (vz=%.0f)"), VelZ), VelZ > 100.f);
 			});
 		} });
 
@@ -1172,6 +1211,39 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("broken walls and used traps are repaired from the stock (walls %d, traps %d)"), GS()->LastRepairedWalls, GS()->LastRefilledTraps),
 				GS()->LastRepairedWalls == 2 && GS()->LastRefilledTraps == 1 && Grid()->GetTotalMissing() == 0 && Grid()->GetMissingTrapCount() == 0);
 		} });
+		// 設置パートもマウスで：下の欄をクリックして罠を選び、床をクリックして置く
+		TSharedRef<FIntPoint> ClickCell = MakeShared<FIntPoint>(0, 0);
+		Steps.Add({ 1.0f, [=, this]
+		{
+			const int32 TrapSlot = GM->WallTypes.Num(); // 壁の後ろに罠が並ぶ
+			Check(TEXT("the trap slot is clickable"), ClickUI(EKakurenboUIAction::BuildSlot, TrapSlot));
+			NextTick([=, this] { Check(FString::Printf(TEXT("clicking a slot selects it (slot %d)"), SelectedBuildSlot), SelectedBuildSlot == TrapSlot && IsTrapSlotSelected()); });
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			*ClickCell = Me + FIntPoint(-2, -2);
+			FVector2D ScreenPos;
+			ProjectWorldLocationToScreen(Grid()->CellFloorCenter(*ClickCell), ScreenPos, true);
+			const int32 StockBefore = GS()->TrapStock[0];
+			ClickAt(ScreenPos);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("clicking the floor places the trap (cell (%d,%d), stock %d -> %d)"), ClickCell->X, ClickCell->Y, StockBefore, GS()->TrapStock[0]),
+					Grid()->GetTrap(*ClickCell) != nullptr && GS()->TrapStock[0] == StockBefore - 1);
+				ShotLater(TEXT("shop_04_build_click"));
+			});
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			// 「かくれんぼ開始」ボタン
+			Check(TEXT("the start button is clickable"), ClickUI(EKakurenboUIAction::NextPhase, 0));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the start button starts the round (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Hide);
+				bUseTestCursor = false;
+			});
+		} });
 	}
 	// ================================================================ Fx（演出と効果音）
 	else if (Scenario.Equals(TEXT("Fx"), ESearchCase::IgnoreCase))
@@ -1339,6 +1411,18 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Used.Add(Cell);
 			}
 			Check(FString::Printf(TEXT("all 6 onis come out of the gate cells, one per cell (%d onis, %d cells)"), GM->GetOnis().Num(), Used.Num()), bAllAtGate && Used.Num() == 6);
+
+			// 鬼の見た目：アセット（Fab の Cute Creature）がこのパソコンにあればそのモデル、無ければ円柱
+			const bool bAssetHere = !GM->OniSkeletalMesh.IsNull() && FPackageName::DoesPackageExist(GM->OniSkeletalMesh.ToSoftObjectPath().GetLongPackageName());
+			bool bAllMatch = true;
+			bool bAllAnimated = true;
+			for (const AOniCharacter* Oni : GM->GetOnis())
+			{
+				bAllMatch &= Oni->UsesSkeletalMesh() == bAssetHere;
+				bAllAnimated &= !bAssetHere || Oni->GetPlayingAnimation() != nullptr;
+			}
+			Check(FString::Printf(TEXT("oni look matches the project (character model in project=%d)"), bAssetHere ? 1 : 0), bAllMatch);
+			Check(TEXT("character model onis play an animation"), bAllAnimated);
 			Log(TEXT("onis out"));
 			Shot(TEXT("gate_02_onis_out"));
 		} });
@@ -1362,6 +1446,48 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(TEXT("cannot start the round in front of the gate"), !GM->MovePlayerStart(GM->GetOniGateCells()[0]));
 			Shot(TEXT("gate_03_build_topdown"));
+		} });
+	}
+	// ================================================================ Look（鬼の見た目を近くで見る）
+	else if (Scenario.Equals(TEXT("Look"), ESearchCase::IgnoreCase))
+	{
+		// 4 種類の鬼をプレイヤーの前に横一列に並べ、こちらを向かせて撮る（大きさ・向き・色の確認）
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced, EOniType::Scout, EOniType::Breaker, EOniType::Careful }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			for (int32 i = 0; i < GM->GetOnis().Num(); ++i)
+			{
+				AOniCharacter* Oni = GM->GetOnis()[i];
+				Oni->Deactivate(); // 止めて待機のアニメーションにする
+				const FVector Location = Grid()->CellFloorCenter(Me + FIntPoint(4, i * 2 - 3)) + FVector(0.f, 0.f, 100.f);
+				Oni->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f)); // プレイヤーの方（-X）を向く
+			}
+			SetControlRotation(FRotator(-12.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 3.0f, [=, this]
+		{
+			Shot(TEXT("look_01_lineup"));
+			// 1 体だけ動かして、走るアニメーションを見る
+			if (AOniCharacter* Oni = GM->GetOnis()[1])
+			{
+				Oni->Activate(GetHider());
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->DebugGoTo(Grid()->WorldToCell(Oni->GetActorLocation()) + FIntPoint(0, 8));
+			}
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[1];
+			Check(FString::Printf(TEXT("a moving oni plays a different animation from a standing one (%s / %s)"),
+				Oni->GetPlayingAnimation() ? *Oni->GetPlayingAnimation()->GetName() : TEXT("none"),
+				GM->GetOnis()[0]->GetPlayingAnimation() ? *GM->GetOnis()[0]->GetPlayingAnimation()->GetName() : TEXT("none")),
+				!Oni->UsesSkeletalMesh() || Oni->GetPlayingAnimation() != GM->GetOnis()[0]->GetPlayingAnimation());
+			Shot(TEXT("look_02_running"));
 		} });
 	}
 	// ================================================================ Crowd（鬼どうしのすれ違い）
@@ -1520,9 +1646,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Oni->HearingRadius = 1000.f; // 連打は 10m、ダッシュ（×1.5）は 15m まで届く
 			Oni->SetActorLocation(GetPawn()->GetActorLocation() + FVector(1300.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
 			KakuMash(1);
-			NextTick([=]
+			// ダッシュは最初は使えない
+			const int32 SoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Dash);
+			SimulateKey(EKeys::LeftShift, IE_Pressed);
+			SimulateKey(EKeys::LeftShift, IE_Released);
+			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("a mash does not reach the oni 13m away (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Investigate);
+				Check(TEXT("Shift does nothing before the dash is unlocked"), !GetHider()->IsDashing() && Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore);
+				// 転生のお店でダッシュの速さ Lv1 を買ったことにする（クールタイムは Lv0 のまま）
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::DashSpeed)] = 1;
+				GM->ApplyPrestigeToPlayer();
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
@@ -1534,8 +1668,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				AHiderCharacter* Hider = GetHider();
-				Check(FString::Printf(TEXT("Shift starts a dash (speed %.0f)"), Hider->GetCharacterMovement()->MaxWalkSpeed),
-					Hider->IsDashing() && Hider->GetCharacterMovement()->MaxWalkSpeed > 700.f);
+				const float Expected = 420.f * static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashSpeed, 1));
+				Check(FString::Printf(TEXT("after unlocking, Shift starts a dash (speed %.0f, expected %.0f)"), Hider->GetCharacterMovement()->MaxWalkSpeed, Expected),
+					Hider->IsDashing() && FMath::IsNearlyEqual(Hider->GetCharacterMovement()->MaxWalkSpeed, Expected, 1.f));
 				Check(TEXT("dash makes the dash sound"), Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore + 1);
 				Check(FString::Printf(TEXT("the loud dash reaches the oni 13m away (intent=%s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())), TheOni()->GetIntent() == EOniState::Investigate);
 			});
@@ -1543,7 +1678,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			const float Speed = GetHider()->GetVelocity().Size2D();
-			Check(FString::Printf(TEXT("running faster while dashing (%.0f cm/s)"), Speed), Speed > 600.f);
+			Check(FString::Printf(TEXT("running faster while dashing (%.0f cm/s)"), Speed), Speed > 520.f);
 			Shot(TEXT("dash_01_dashing"));
 			// クールタイム中はもう一度押してもダッシュしない
 			const int32 SoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Dash);
@@ -1564,9 +1699,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("dash_02_cooldown"));
 			TheOni()->Deactivate();
 		} });
-		Steps.Add({ 4.5f, [=, this]
+		Steps.Add({ 6.5f, [=, this]
 		{
-			Check(FString::Printf(TEXT("after the cooldown, can dash again (%.1fs)"), GetHider()->GetDashCooldownRemaining()), GetHider()->GetDashCooldownRemaining() <= 0.f);
+			Check(FString::Printf(TEXT("after the cooldown (%.1fs), can dash again (%.1fs left)"), GetHider()->DashCooldown, GetHider()->GetDashCooldownRemaining()),
+				GetHider()->GetDashCooldownRemaining() <= 0.f && FMath::IsNearlyEqual(GetHider()->DashCooldown, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashCooldown, 0))));
 		} });
 	}
 	// ================================================================ Prestige（転生）
@@ -1623,9 +1759,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				const AKakurenboGameState* S = GS();
-				Check(FString::Printf(TEXT("the second P prestiges (count %d, points %d)"), S->PrestigeCount, S->PrestigePoints), S->PrestigeCount == 1 && S->PrestigePoints == 2);
-				Check(FString::Printf(TEXT("walls are harder (x%.2f, expected x%.2f)"), GM->GetWallHPMultiplier(), FMath::Pow(GM->PrestigeSettings.WallHPGrowth, 2.0)),
-					FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), FMath::Pow(GM->PrestigeSettings.WallHPGrowth, 2.0), 0.001));
+				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
+					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
+				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));
 				Check(FString::Printf(TEXT("everything else starts over (stage %d, coins %.1f, mash Lv%d, wood stock %d, phase %s)"), S->Stage, S->Coins, S->MashIncomeLevel, S->WallStock[0], *UEnum::GetValueAsString(S->Phase)),
 					S->Stage == 1 && S->Coins < 0.01 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0 && S->Phase == EKakurenboPhase::Hide);
 				Check(FString::Printf(TEXT("placed walls are gone but the layout is kept (blocks %d, missing %d)"), Grid()->GetBlockCount(), Grid()->GetTotalMissing()),
@@ -1634,18 +1770,79 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			});
 		} });
 		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("prestige_02_restart")); KakuSkipTime(1000.f); } });
-		Steps.Add({ 1.f, [=, this]
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } }); // → 購入（次のフレームで HUD がボタンを描く）
+
+		// 転生のお店：マウスでタブを開いて、商品をクリックで買う
+		auto Click = ClickUI;
+		Steps.Add({ 0.4f, [=, this]
 		{
-			KakuNext(); // → 購入
-			KakuAddCoins(100.0);
-			BuyWall(0, 1);
-			const TArray<FShopItemView> Items = GM->GetShopItems();
-			Check(FString::Printf(TEXT("the shop shows the harder wall ('%s')"), *Items[GM->GetShopIndexOfWall(0)].Description.ToString()),
-				Items[GM->GetShopIndexOfWall(0)].Description.ToString().Contains(UKakurenboLibrary::FormatStatNumber(GM->WallTypes[0].MaxHP * GM->GetWallHPMultiplier())));
+			Check(TEXT("shop starts on the coin tab, with a clickable prestige tab"), !bPrestigeShopTab && Click(EKakurenboUIAction::ShopTab, 1));
+			NextTick([=, this] { Check(TEXT("clicking the tab opens the prestige shop"), bPrestigeShopTab); });
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			const TArray<FShopItemView> Items = GM->GetPrestigeShopItems();
+			Check(FString::Printf(TEXT("the prestige shop lists every permanent upgrade (%d)"), Items.Num()), Items.Num() == static_cast<int32>(EPrestigeUpgrade::Count) && Items[0].bPrestigeItem);
+			Check(TEXT("dash and jump are locked at first"), !GM->IsDashUnlocked() && !GM->IsJumpUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked);
+			Check(TEXT("click the wall hardness upgrade"), Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::WallHP)));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("clicking buys it with points (Lv%d, %d pt left, walls x%.2f)"), GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP), GS()->PrestigePoints, GM->GetWallHPMultiplier()),
+					GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 1 && GS()->PrestigePoints == 1 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1)));
+				Shot(TEXT("prestige_03_prestige_shop"));
+			});
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
-			KakuNext(); // → 設置（設計図どおりに 1 個だけ直る）
+			// 足りないと買えない（ジャンプは 2 pt）
+			Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::Jump));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("not enough points -> not bought (jump Lv%d, %d pt)"), GM->GetPrestigeLevel(EPrestigeUpgrade::Jump), GS()->PrestigePoints),
+					GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 0 && GS()->PrestigePoints == 1);
+				// ほかの強化も確かめる（ポイントを足して、番号で買う）
+				GS()->PrestigePoints += 20;
+				const double TreasureBefore = GM->GetTreasureValue();
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::DashSpeed) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::DashCooldown) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1);
+				const int32 PointsAfter = GS()->PrestigePoints;
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1); // 最大レベルなのでもう買えない
+				AHiderCharacter* Hider = GetHider();
+				Check(FString::Printf(TEXT("treasure upgrade raises the treasure value (%.1f -> %.1f)"), TreasureBefore, GM->GetTreasureValue()),
+					FMath::IsNearlyEqual(GM->GetTreasureValue(), TreasureBefore * GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 1) / GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 0), 0.01));
+				Check(FString::Printf(TEXT("dash unlocked with its speed and cooldown (x%.2f, %.1fs)"), Hider->DashSpeedMultiplier, Hider->DashCooldown),
+					Hider->bDashUnlocked && FMath::IsNearlyEqual(Hider->DashSpeedMultiplier, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashSpeed, 1)), 0.001f)
+					&& FMath::IsNearlyEqual(Hider->DashCooldown, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashCooldown, 1)), 0.001f));
+				Check(TEXT("jump unlocked"), Hider->JumpMaxCount == 1 && GM->IsJumpUnlocked());
+				Check(TEXT("jump is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Jump)].bMaxed);
+			});
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(TEXT("click the coin shop tab"), Click(EKakurenboUIAction::ShopTab, 0));
+			NextTick([=, this]
+			{
+				// コインのお店：クリックで木の壁を買う
+				KakuAddCoins(100.0);
+				Check(TEXT("back on the coin tab"), !bPrestigeShopTab && Click(EKakurenboUIAction::ShopItem, GM->GetShopIndexOfWall(0)));
+				NextTick([=, this]
+				{
+					const TArray<FShopItemView> Items = GM->GetShopItems();
+					Check(FString::Printf(TEXT("clicking a coin shop item buys it (wood stock %d)"), GS()->WallStock[0]), GS()->WallStock[0] == 1);
+					Check(FString::Printf(TEXT("the shop shows the harder wall ('%s')"), *Items[GM->GetShopIndexOfWall(0)].Description.ToString()),
+						Items[GM->GetShopIndexOfWall(0)].Description.ToString().Contains(UKakurenboLibrary::FormatStatNumber(GM->WallTypes[0].MaxHP * GM->GetWallHPMultiplier())));
+				});
+			});
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 「設置パートへ」ボタン（設計図どおりに 1 個だけ直る）
+			Check(TEXT("click the next button"), Click(EKakurenboUIAction::NextPhase, 0));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
 			double MaxHP = 0.0;
 			for (int32 Y = 0; Y < Grid()->GetSizeY(); ++Y)
 			{
@@ -1657,10 +1854,12 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					}
 				}
 			}
+			Check(FString::Printf(TEXT("the next button goes to the build phase (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Build);
 			Check(FString::Printf(TEXT("the kept layout is repaired from new stock with harder walls (repaired %d, HP %.2f)"), GS()->LastRepairedWalls, MaxHP),
 				GS()->LastRepairedWalls == 1 && Grid()->GetTotalMissing() == 2 && FMath::IsNearlyEqual(MaxHP, GM->WallTypes[0].MaxHP * GM->GetWallHPMultiplier(), 0.001));
+			bUseTestCursor = false;
 		} });
-		Steps.Add({ 0.6f, [=] { Shot(TEXT("prestige_03_build")); } });
+		Steps.Add({ 0.6f, [=] { Shot(TEXT("prestige_04_build")); } });
 	}
 	// ================================================================ SaveRun1 / SaveRun2（再起動をまたぐセーブ。Tools/RunSaveRestartTest.ps1 から使う）
 	else if (Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase))
@@ -1737,8 +1936,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuNext(); // → 購入
 			KakuAddCoins(1000.0);
 			KakuBuy(1);     // 連打強化
-			GS()->PrestigePoints = 2; // 転生したことにする（壁の耐久 ×1.5^2）
+			// 転生して、転生のお店で壁の硬さ Lv2（耐久 ×1.5^2）を買い、3 pt 残っていることにする
+			GS()->PrestigePoints = 3;
+			GS()->TotalPrestigePoints = 6;
 			GS()->PrestigeCount = 1;
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::WallHP)] = 2;
 			BuyWall(0, 3);  // 木の壁 ×3
 			BuyWall(1, 1);  // 石の壁 ×1
 			BuyTrap(0, 2);  // トリモチ ×2
@@ -1766,8 +1968,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Grid()->ExportLayout(Expected->Layout);
 			Expected->PlayerLocation = GetPawn()->GetActorLocation();
 			Check(TEXT("save file exists after starting the round"), UGameplayStatics::DoesSaveGameExist(GM->SaveSlotName, 0));
-			Check(FString::Printf(TEXT("test setup: 2 prestige points, 1 trap placed, 1 in stock (%d pt, traps %d, stock %d)"), S->PrestigePoints, Grid()->GetAllTraps().Num(), S->TrapStock.IsValidIndex(0) ? S->TrapStock[0] : -1),
-				S->PrestigePoints == 2 && Grid()->GetAllTraps().Num() == 1 && S->TrapStock.IsValidIndex(0) && S->TrapStock[0] == 1);
+			Check(FString::Printf(TEXT("test setup: 3 prestige points, 1 trap placed, 1 in stock (%d pt, traps %d, stock %d)"), S->PrestigePoints, Grid()->GetAllTraps().Num(), S->TrapStock.IsValidIndex(0) ? S->TrapStock[0] : -1),
+				S->PrestigePoints == 3 && Grid()->GetAllTraps().Num() == 1 && S->TrapStock.IsValidIndex(0) && S->TrapStock[0] == 1);
 			Log(TEXT("saved"));
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -1779,7 +1981,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			S->Stage = 1;
 			S->MashIncomeLevel = 0;
 			S->PrestigePoints = 0;
+			S->TotalPrestigePoints = 0;
 			S->PrestigeCount = 0;
+			S->PrestigeLevels.Init(0, S->PrestigeLevels.Num());
 			S->WallStock.Init(0, S->WallStock.Num());
 			S->TrapStock.Init(0, S->TrapStock.Num());
 			TeleportPlayer(FVector::ZeroVector);
@@ -1808,13 +2012,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("save loads"), bLoaded);
 			Check(FString::Printf(TEXT("coins / stage / upgrades / prestige restored (%.1f, %d, mash Lv%d, %d pt, %d times)"), S->Coins, S->Stage, S->MashIncomeLevel, S->PrestigePoints, S->PrestigeCount),
 				FMath::IsNearlyEqual(S->Coins, Expected->Coins, 0.01) && S->Stage == Expected->Stage && S->MashIncomeLevel == Expected->MashLevel
-				&& S->PrestigePoints == Expected->PrestigePoints && S->PrestigeCount == 1);
+				&& S->PrestigePoints == Expected->PrestigePoints && S->PrestigeCount == 1 && S->TotalPrestigePoints == 6
+				&& GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 2);
 			Check(FString::Printf(TEXT("wall stock restored (%s)"), *FString::JoinBy(S->WallStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->WallStock == Expected->Stock);
 			Check(FString::Printf(TEXT("trap stock restored (%s)"), *FString::JoinBy(S->TrapStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->TrapStock == Expected->TrapStock);
 			Check(FString::Printf(TEXT("wall and trap layout restored (%d columns, %d blocks, %d traps)"), Layout.Num(), Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
 				bSameLayout && Grid()->GetBlockCount() == 3 && Grid()->GetAllTraps().Num() == 1);
-			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetWallHPMultiplierFor(2)),
-				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetWallHPMultiplierFor(2), 0.001));
+			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2)),
+				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2), 0.001));
 			Check(FString::Printf(TEXT("player position restored (%.0f cm off)"), FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation)),
 				FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation) < 5.f);
 			Log(TEXT("loaded"));
@@ -1825,7 +2030,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			GM->ResetProgress();
 			const AKakurenboGameState* S = GS();
 			Check(FString::Printf(TEXT("reset -> stage 1, no coins, no walls, no traps (stage %d, coins %.1f, blocks %d, traps %d)"), S->Stage, S->Coins, Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
-				S->Stage == 1 && S->Coins < 0.01 && Grid()->GetBlockCount() == 0 && Grid()->GetAllTraps().Num() == 0 && S->PrestigePoints == 0 && S->Phase == EKakurenboPhase::Hide);
+				S->Stage == 1 && S->Coins < 0.01 && Grid()->GetBlockCount() == 0 && Grid()->GetAllTraps().Num() == 0 && S->PrestigePoints == 0 && GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 0 && S->Phase == EKakurenboPhase::Hide);
 			UGameplayStatics::DeleteGameInSlot(GM->SaveSlotName, 0);
 			GM->bSaveEnabled = false;
 			Shot(TEXT("save_01_after_reset"));
