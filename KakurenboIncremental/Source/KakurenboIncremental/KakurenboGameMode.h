@@ -12,6 +12,7 @@
 class AKakurenboArena;
 class AKakurenboGameState;
 class AOniCharacter;
+class APlaceableBlock;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
@@ -70,6 +71,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double TimeUpgradeCostGrowth = 1.7;
+
+	// ===== 壁 =====
+
+	/** 購入できる壁の種類（ショップの並び順） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	TArray<FWallTypeDef> WallTypes;
 
 	// ===== 鬼（ステージが上がるほど強くなる） =====
 
@@ -174,6 +181,20 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyTimeUpgrade();
+
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool TryBuyWall(int32 WallTypeIndex);
+
+	/** 設置パート：在庫の壁をマスの一番上に置けるか（置けない理由も返す） */
+	bool CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex, FText* OutReason = nullptr) const;
+
+	/** 設置パート：在庫の壁をマスの一番上に置く */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool PlaceWall(FIntPoint Cell, int32 WallTypeIndex);
+
+	/** 設置パート：置いた壁を回収して在庫に戻す */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool PickUpWall(APlaceableBlock* Block);
 
 	/** 連打 1 回分の処理（コイン獲得＋音を出す） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")

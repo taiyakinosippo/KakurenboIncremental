@@ -102,6 +102,77 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		}
 		Steps.Add({ 0.f, [=] { LookAtOni(); Log(TEXT("final")); Shot(TEXT("oni_03_final")); } });
 	}
+	else if (Scenario.Equals(TEXT("Build"), ESearchCase::IgnoreCase))
+	{
+		// 壁を買う → プレイヤーの周りを 2 段の壁で囲む → 鬼を呼んで壁を壊させる
+		Steps.Add({ 1.f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(2000.0);
+			for (int32 i = 0; i < 9; ++i) { KakuBuy(3); } // 木の壁
+			for (int32 i = 0; i < 8; ++i) { KakuBuy(4); } // 石の壁
+			Log(TEXT("shop bought walls"));
+			Shot(TEXT("build_01_shop"));
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 設置
+			UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+			const FIntPoint Me = Grid->WorldToCell(GetPawn()->GetActorLocation());
+			// マスの中心に立たせる（はみ出していると隣のマスに置けないため）
+			GetPawn()->SetActorLocation(Grid->CellFloorCenter(Me) + FVector(0, 0, GetPawn()->GetSimpleCollisionHalfHeight() + 2.f));
+			// 周囲 8 マスに 下段: 木 / 上段: 石
+			for (int32 Level = 0; Level < 2; ++Level)
+			{
+				for (int32 DY = -1; DY <= 1; ++DY)
+				{
+					for (int32 DX = -1; DX <= 1; ++DX)
+					{
+						if (DX != 0 || DY != 0)
+						{
+							KakuPlaceWall(Me.X + DX, Me.Y + DY, Level == 0 ? 0 : 1);
+						}
+					}
+				}
+			}
+			// 回収のテスト：1 つ置いて回収すると在庫が戻る
+			KakuPlaceWall(Me.X + 3, Me.Y, 0);
+			Log(TEXT("placed (+1 extra)"));
+			GM->PickUpWall(Grid->GetTopBlock(FIntPoint(Me.X + 3, Me.Y)));
+			Log(TEXT("picked up extra"));
+			// 自分のマスには置けない
+			KakuPlaceWall(Me.X, Me.Y, 0);
+			Log(TEXT("tried own cell"));
+			SetControlRotation(FRotator(-35.f, 30.f, 0.f));
+		} });
+		Steps.Add({ 0.5f, [=] { Shot(TEXT("build_02_placed")); } });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); Log(TEXT("hide start")); } }); // → かくれんぼ
+		Steps.Add({ 3.5f, [=] { EnableOniDebug(); LookAtOni(); Log(TEXT("oni spawned")); } });
+
+		TSharedRef<bool> bAttackShot = MakeShared<bool>(false);
+		for (int32 i = 0; i < 150; ++i)
+		{
+			Steps.Add({ 0.2f, [=, this]
+			{
+				KakuMash(1);
+				const AOniCharacter* Oni = GM->GetOni();
+				if (Oni && Oni->GetOniState() == EOniState::Attack && !*bAttackShot)
+				{
+					*bAttackShot = true;
+					LookAtOni();
+					Log(TEXT("oni attacking"));
+					Shot(TEXT("build_03_oni_attacking"));
+				}
+			} });
+			if (i % 10 == 9)
+			{
+				const FString Label = FString::Printf(TEXT("t+%.0fs"), (i + 1) * 0.2f);
+				Steps.Add({ 0.f, [=] { LookAtOni(); Log(Label); } });
+			}
+		}
+		Steps.Add({ 0.5f, [=] { Log(TEXT("final")); Shot(TEXT("build_04_final")); } });
+	}
 	else
 	{
 		// 基本ループ: 連打 → 逃げ切り → 購入 → 設置 → 次のステージ

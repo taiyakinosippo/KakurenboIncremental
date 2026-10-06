@@ -31,7 +31,8 @@ AHiderCharacter::AHiderCharacter()
 	CameraBoom->TargetArmLength = 450.f;
 	CameraBoom->SocketOffset = FVector(0.f, 0.f, 80.f);
 	CameraBoom->bUsePawnControlRotation = true; // マウスの上下左右でカメラを回す
-	CameraBoom->bDoCollisionTest = true;
+	// 壁で囲って隠れたときもカメラが中に押し込まれないよう、壁をすり抜けて外から見る
+	CameraBoom->bDoCollisionTest = false;
 
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);

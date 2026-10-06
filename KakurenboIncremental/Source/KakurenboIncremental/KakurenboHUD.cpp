@@ -6,6 +6,7 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboPlayerController.h"
 #include "OniCharacter.h"
 
 namespace
@@ -105,9 +106,44 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 
 void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM)
 {
-	Panel(20, 170, 380, 110);
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	const float CanvasW = Canvas->ClipX / UIScale;
+	const float CanvasH = Canvas->ClipY / UIScale;
+
+	// 操作説明
+	Panel(20, 170, 420, 150);
 	Text(TEXT("WASD: 移動　Space: ジャンプ"), 36, 182, 18);
-	Text(TEXT("Enter: かくれんぼ開始"), 36, 214, 22, Gold);
+	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, 210, 18);
+	Text(TEXT("数字キー / ホイール: 壁の種類"), 36, 238, 18);
+	Text(TEXT("Enter: かくれんぼ開始"), 36, 274, 22, Gold);
+
+	// 照準
+	Text(TEXT("+"), 0, CanvasH * 0.5f - 18, 28, FLinearColor::White, true);
+
+	// 壁の在庫（下部中央に並べる）
+	const int32 Num = GM->WallTypes.Num();
+	const float SlotW = 220, SlotH = 70;
+	const float StartX = (CanvasW - SlotW * Num) * 0.5f;
+	const float SlotY = CanvasH - 170;
+	for (int32 i = 0; i < Num; ++i)
+	{
+		const FWallTypeDef& Def = GM->WallTypes[i];
+		const bool bSelected = PC && PC->SelectedWallType == i;
+		const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
+		const float X = StartX + i * SlotW;
+		Panel(X + 4, SlotY, SlotW - 8, SlotH, bSelected ? FLinearColor(0.9f, 0.75f, 0.2f, 0.6f) : FLinearColor(0.f, 0.f, 0.f, 0.55f));
+		Panel(X + 12, SlotY + 10, 14, SlotH - 20, Def.Color);
+		Text(FString::Printf(TEXT("[%d] %s"), i + 1, *Def.DisplayName.ToString()), X + 36, SlotY + 8, 20, Stock > 0 ? FLinearColor::White : Gray);
+		Text(FString::Printf(TEXT("在庫 %d　耐久 %s"), Stock, *Big(Def.MaxHP)), X + 36, SlotY + 38, 16, Gray);
+	}
+
+	// 置けない理由
+	if (PC && PC->bHasBuildTarget && !PC->bCanPlaceAtTarget && !PC->BuildTargetReason.IsEmpty())
+	{
+		Text(PC->BuildTargetReason.ToString(), 0, CanvasH * 0.5f + 30, 20, Bad, true);
+	}
+
+	Text(FString::Printf(TEXT("このステージの鬼の攻撃力: %s"), *Big(GM->GetOniAttackDamage())), 0, CanvasH - 60, 18, Gray, true);
 }
 
 void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)

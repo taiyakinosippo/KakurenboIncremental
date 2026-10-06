@@ -10,6 +10,7 @@
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "OniCharacter.h"
+#include "PlaceableBlock.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboPlayerController.h"
 
@@ -25,6 +26,20 @@ AKakurenboGameMode::AKakurenboGameMode()
 	GameStateClass = AKakurenboGameState::StaticClass();
 	HUDClass = AKakurenboHUD::StaticClass();
 	OniClass = AOniCharacter::StaticClass();
+
+	// 壁の初期設定。鬼の攻撃力はステージごとに 1.6 倍になるので、
+	// 木は常に一撃、石はステージ 4 から一撃、鉄はステージ 7 から一撃で壊れる
+	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color)
+	{
+		FWallTypeDef& Def = WallTypes.AddDefaulted_GetRef();
+		Def.DisplayName = FText::FromString(Name);
+		Def.MaxHP = HP;
+		Def.Cost = Cost;
+		Def.Color = Color;
+	};
+	AddWall(TEXT("木の壁"), 1.0, 10.0, FLinearColor(0.55f, 0.35f, 0.18f));
+	AddWall(TEXT("石の壁"), 4.0, 120.0, FLinearColor(0.22f, 0.22f, 0.25f));
+	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f));
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -50,6 +65,11 @@ void AKakurenboGameMode::BeginPlay()
 		Arena->GridSizeY = GridSizeY;
 		Arena->CellSize = CellSize;
 		Arena->FinishSpawning(FTransform::Identity);
+	}
+
+	if (AKakurenboGameState* State = GS())
+	{
+		State->WallStock.SetNum(WallTypes.Num());
 	}
 
 	// グリッド（ブロック配置・鬼の経路探索）を舞台に合わせて初期化
@@ -211,6 +231,18 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 			Fmt(GetTimeIncomePerSecond()), Fmt(UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State->TimeIncomeLevel + 1)));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->TimeIncomeLevel);
 	}
+	for (int32 i = 0; i < WallTypes.Num(); ++i)
+	{
+		const FWallTypeDef& Def = WallTypes[i];
+		FShopItemView& Item = Items.AddDefaulted_GetRef();
+		Item.DisplayName = Def.DisplayName;
+		Item.Cost = Def.Cost;
+		// 今のステージの鬼に何発耐えるか
+		const int32 Hits = FMath::Max(1, FMath::CeilToInt(Def.MaxHP / GetOniAttackDamage()));
+		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallDesc", "耐久 {0}（今の鬼の攻撃 {1} 回で壊れる）"),
+			Fmt(Def.MaxHP), Hits);
+		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopStock", "在庫 {0}"), State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0);
+	}
 	return Items;
 }
 
@@ -220,8 +252,105 @@ bool AKakurenboGameMode::TryBuyShopItem(int32 Index)
 	{
 	case KakurenboShop::MashUpgrade: return TryBuyMashUpgrade();
 	case KakurenboShop::TimeUpgrade: return TryBuyTimeUpgrade();
-	default: return false;
+	default: return TryBuyWall(Index - KakurenboShop::NumUpgrades);
 	}
+}
+
+bool AKakurenboGameMode::TryBuyWall(int32 WallTypeIndex)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Shop || !WallTypes.IsValidIndex(WallTypeIndex))
+	{
+		return false;
+	}
+	const double Cost = WallTypes[WallTypeIndex].Cost;
+	if (State->Coins < Cost)
+	{
+		return false;
+	}
+	State->Coins -= Cost;
+	State->WallStock.SetNum(WallTypes.Num());
+	State->WallStock[WallTypeIndex]++;
+	return true;
+}
+
+// ---------------------------------------------------------------- 設置
+
+bool AKakurenboGameMode::CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex, FText* OutReason) const
+{
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || State->Phase != EKakurenboPhase::Build)
+	{
+		return false;
+	}
+	if (!State->WallStock.IsValidIndex(WallTypeIndex) || State->WallStock[WallTypeIndex] <= 0)
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceNoStock", "在庫がありません（購入パートで買えます）");
+		return false;
+	}
+	if (!Grid->CanPlaceBlock(Cell, OutReason))
+	{
+		return false;
+	}
+
+	// プレイヤーと重なる場所には置けない（カプセルとブロックの箱が交わるかを調べる）
+	if (const ACharacter* Pawn = Cast<ACharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr))
+	{
+		const float Half = Grid->GetCellSize() * 0.5f;
+		const FVector BoxCenter = Grid->CellToWorld(Cell, Grid->GetColumnHeight(Cell));
+		const FVector P = Pawn->GetActorLocation();
+		const float Radius = Pawn->GetSimpleCollisionRadius();
+		const float HalfHeight = Pawn->GetSimpleCollisionHalfHeight();
+
+		const float DX = FMath::Max(0.f, FMath::Abs(P.X - BoxCenter.X) - Half);
+		const float DY = FMath::Max(0.f, FMath::Abs(P.Y - BoxCenter.Y) - Half);
+		const bool bOverlapXY = DX * DX + DY * DY < Radius * Radius;
+		const bool bOverlapZ = FMath::Abs(P.Z - BoxCenter.Z) < HalfHeight + Half;
+		if (bOverlapXY && bOverlapZ)
+		{
+			if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlacePlayer", "自分と重なる場所には置けません");
+			return false;
+		}
+	}
+	return true;
+}
+
+bool AKakurenboGameMode::PlaceWall(FIntPoint Cell, int32 WallTypeIndex)
+{
+	if (!CanPlaceWall(Cell, WallTypeIndex))
+	{
+		return false;
+	}
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const FWallTypeDef& Def = WallTypes[WallTypeIndex];
+	if (!Grid->PlaceBlock(Cell, WallTypeIndex, Def.MaxHP, Def.Color))
+	{
+		return false;
+	}
+	GS()->WallStock[WallTypeIndex]--;
+	return true;
+}
+
+bool AKakurenboGameMode::PickUpWall(APlaceableBlock* Block)
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || !Block || State->Phase != EKakurenboPhase::Build)
+	{
+		return false;
+	}
+	const int32 TypeIndex = Block->WallTypeIndex;
+	if (!Grid->RemoveBlock(Block))
+	{
+		return false;
+	}
+	// 回収した壁は新品として在庫に戻る
+	if (State->WallStock.IsValidIndex(TypeIndex))
+	{
+		State->WallStock[TypeIndex]++;
+	}
+	return true;
 }
 
 bool AKakurenboGameMode::TryBuyMashUpgrade()
