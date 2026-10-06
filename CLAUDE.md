@@ -2,6 +2,7 @@
 
 UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリメンタルゲーム。
 ゲーム仕様は [docs/GameDesign.md](docs/GameDesign.md) を参照し、仕様が変わったら更新すること。
+これまでのユーザーの依頼と決めたことは [docs/History.md](docs/History.md)。大きな依頼や決定があったら追記すること。
 
 ## 構成
 
