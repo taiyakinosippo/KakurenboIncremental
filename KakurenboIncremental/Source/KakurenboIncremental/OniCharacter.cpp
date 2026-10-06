@@ -10,16 +10,19 @@
 #include "HiderCharacter.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboOniBlackboard.h"
+#include "PlaceableBlock.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
 {
-	constexpr float EyeHeight = 60.f;          // カプセル中心から目までの高さ
-	constexpr float ReachDistance = 25.f;      // マスの中心にこれだけ近づいたら「着いた」
-	constexpr float RepathInterval = 1.f;      // 定期的に経路を作り直す間隔（秒）
+	constexpr float EyeHeight = 60.f;           // カプセル中心から目までの高さ
+	constexpr float ReachDistance = 25.f;       // マスの中心にこれだけ近づいたら「着いた」
+	constexpr float RepathInterval = 1.f;       // 定期的に経路を作り直す間隔（秒）
 	constexpr float ChaseRepathInterval = 0.3f; // 追いかけ中は相手が動くので頻繁に作り直す
-	constexpr float SenseInterval = 0.1f;      // 視界チェックの間隔（秒）
-	const FVector BodyScale(0.76f, 0.76f, 1.9f);
+	constexpr float SenseInterval = 0.1f;       // 視界チェックの間隔（秒）
+	constexpr float WallHuntInterval = 0.5f;    // パワー鬼が見えている壁を探す間隔（秒）
+	constexpr float ChaseStopDistance = 70.f;   // 追いかけ中、相手（の真下）にこれより近いときは歩かず向くだけ
 }
 
 AOniCharacter::AOniCharacter()
@@ -45,7 +48,7 @@ AOniCharacter::AOniCharacter()
 	BodyMesh->SetupAttachment(RootComponent);
 	BodyMesh->SetStaticMesh(CylinderFinder.Object);
 	BodyMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	BodyMesh->SetRelativeScale3D(BodyScale);
+	BodyMesh->SetRelativeScale3D(BaseBodyScale);
 
 	FaceMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FaceMesh"));
 	FaceMesh->SetupAttachment(RootComponent);
@@ -68,11 +71,41 @@ UKakurenboGridSubsystem* AOniCharacter::Grid() const
 	return GetWorld() ? GetWorld()->GetSubsystem<UKakurenboGridSubsystem>() : nullptr;
 }
 
+UKakurenboOniBlackboard* AOniCharacter::Blackboard() const
+{
+	return GetWorld() ? GetWorld()->GetSubsystem<UKakurenboOniBlackboard>() : nullptr;
+}
+
+void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow& Row)
+{
+	OniType = Type;
+	TypeDisplayName = Row.DisplayName;
+	BodyColor = Row.Color;
+	BodyScaleMultiplier = Row.BodyScale;
+	SightRadius = Row.SightRadius;
+	SightHalfAngle = Row.SightHalfAngle;
+	bSingleTargetAttack = Row.bSingleTargetAttack;
+	AttackRadius = Row.AttackRadius;
+	AttackWindup = Row.AttackWindup;
+	PocketInspectChance = Row.PocketInspectChance;
+}
+
 void AOniCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	UKakurenboLibrary::ApplyColor(BodyMesh, FLinearColor(0.9f, 0.1f, 0.08f));
+	BaseBodyScale = FVector(0.76f * BodyScaleMultiplier, 0.76f * BodyScaleMultiplier, 1.9f);
+	ResetBodyScale();
+	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	UKakurenboLibrary::ApplyColor(FaceMesh, FLinearColor(0.02f, 0.02f, 0.02f));
+}
+
+void AOniCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UKakurenboOniBlackboard* BB = Blackboard())
+	{
+		BB->ClearReservedTarget(this);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void AOniCharacter::Activate(AHiderCharacter* InTarget)
@@ -83,11 +116,19 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 	LastProgressLocation = GetActorLocation();
 
 	// 懐中電灯を視界と同じ形にする
-	Flashlight->SetOuterConeAngle(SightHalfAngle);
-	Flashlight->SetInnerConeAngle(SightHalfAngle * 0.7f);
+	Flashlight->SetOuterConeAngle(FMath::Min(SightHalfAngle, 80.f));
+	Flashlight->SetInnerConeAngle(FMath::Min(SightHalfAngle, 80.f) * 0.7f);
 	Flashlight->SetAttenuationRadius(SightRadius);
 
+	if (const UKakurenboGridSubsystem* G = Grid())
+	{
+		const int32 RegionsX = FMath::DivideAndRoundUp(G->GetSizeX(), RegionSize);
+		const int32 RegionsY = FMath::DivideAndRoundUp(G->GetSizeY(), RegionSize);
+		RegionVisitTime.Init(-1.f, RegionsX * RegionsY);
+	}
+
 	SetState(EOniState::Wander);
+	BeginLookAround();
 	IdleTimer = 0.5f;
 }
 
@@ -108,8 +149,10 @@ void AOniCharacter::SetState(EOniState NewState)
 	{
 	case EOniState::Wander:      Move->MaxWalkSpeed = WanderSpeed; break;
 	case EOniState::Investigate: Move->MaxWalkSpeed = InvestigateSpeed; break;
+	case EOniState::Inspect:     Move->MaxWalkSpeed = InvestigateSpeed; break;
 	case EOniState::Chase:       Move->MaxWalkSpeed = ChaseSpeed; break;
-	case EOniState::Attack:      Move->StopMovementImmediately(); break;
+	case EOniState::Attack:
+	case EOniState::Stunned:     Move->StopMovementImmediately(); break;
 	}
 }
 
@@ -119,9 +162,10 @@ void AOniCharacter::StartInvestigate(const FIntPoint& Cell)
 	SetState(EOniState::Investigate);
 	StateBeforeAttack = EOniState::Investigate;
 	IntentElapsed = 0.f;
-	if (!RequestPathTo(Cell, true))
+	if (!RequestPathTo(Cell, EPathMode::BreakIfNeeded))
 	{
 		bHasGoal = false;
+		BeginLookAround();
 		SearchTimer = SearchDuration;
 	}
 }
@@ -134,10 +178,24 @@ void AOniCharacter::StartChase()
 	IntentElapsed = 0.f;
 	LostSightTimer = 0.f;
 	ChaseRepathTimer = 0.f;
+	ChaseStartTime = GetWorld()->GetTimeSeconds();
 	bHasGoal = false;
 	if (Target)
 	{
 		LastKnownTargetLocation = Target->GetActorLocation();
+	}
+}
+
+void AOniCharacter::StartInspect(const FIntPoint& Cell)
+{
+	ResetBodyScale();
+	SetState(EOniState::Inspect);
+	StateBeforeAttack = EOniState::Inspect;
+	IntentElapsed = 0.f;
+	InspectCell = Cell;
+	if (!RequestPathTo(Cell, EPathMode::BreakIfNeeded))
+	{
+		ReturnToWander(false);
 	}
 }
 
@@ -149,10 +207,42 @@ void AOniCharacter::ReturnToWander(bool bWithSightCooldown)
 	bHasGoal = false;
 	IdleTimer = 0.5f;
 	IntentElapsed = 0.f;
+	BeginLookAround();
 	if (bWithSightCooldown)
 	{
 		SightCooldown = GiveUpSightCooldown;
 	}
+	if (UKakurenboOniBlackboard* BB = Blackboard())
+	{
+		BB->ClearReservedTarget(this);
+	}
+}
+
+void AOniCharacter::Stun(float Seconds)
+{
+	if (!bActive)
+	{
+		return;
+	}
+	ResetBodyScale();
+	SetState(EOniState::Stunned);
+	StateBeforeAttack = EOniState::Wander;
+	bHasGoal = false;
+	StunTimer = Seconds;
+}
+
+void AOniCharacter::BeginLookAround()
+{
+	LookAroundBaseYaw = GetActorRotation().Yaw;
+	LookAroundTime = 0.f;
+}
+
+void AOniCharacter::TickLookAround(float DeltaSeconds, float AmplitudeDegrees)
+{
+	// 元の向きを中心に左右へゆっくり往復する（その場でくるくる回らない）
+	LookAroundTime += DeltaSeconds;
+	const float DesiredYaw = LookAroundBaseYaw + AmplitudeDegrees * FMath::Sin(LookAroundTime * 2.2f);
+	SetActorRotation(FMath::RInterpTo(GetActorRotation(), FRotator(0.f, DesiredYaw, 0.f), DeltaSeconds, 6.f));
 }
 
 // ---------------------------------------------------------------- Tick
@@ -161,8 +251,16 @@ void AOniCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (!bActive || !Grid() || !Grid()->IsConfigured())
+	UKakurenboGridSubsystem* G = Grid();
+	if (!bActive || !G || !G->IsConfigured())
 	{
+		return;
+	}
+
+	// 罠で動けない間は、見ることも捕まえることもできない
+	if (State == EOniState::Stunned)
+	{
+		TickStunned(DeltaSeconds);
 		return;
 	}
 
@@ -181,6 +279,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	if (SenseTimer >= SenseInterval)
 	{
 		SenseTimer = 0.f;
+		UpdateMemory();
 		bTargetInSight = CanSeeTarget();
 		if (bTargetInSight && Target)
 		{
@@ -210,13 +309,34 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	{
 		ReturnToWander(false);
 	}
+	else if (Intent == EOniState::Inspect && IntentElapsed >= InspectMaxDuration)
+	{
+		ReturnToWander(false);
+	}
+
+	// パワー鬼：うろうろ中に壁が見えたら壊しに行く
+	if (OniType == EOniType::Breaker && GetIntent() == EOniState::Wander)
+	{
+		WallHuntTimer -= DeltaSeconds;
+		FIntPoint WallCell;
+		if (WallHuntTimer <= 0.f)
+		{
+			WallHuntTimer = WallHuntInterval;
+			if (FindVisibleWallCell(WallCell))
+			{
+				StartInspect(WallCell);
+			}
+		}
+	}
 
 	switch (State)
 	{
 	case EOniState::Attack:      TickAttack(DeltaSeconds); break;
 	case EOniState::Wander:      TickWander(DeltaSeconds); break;
 	case EOniState::Investigate: TickInvestigate(DeltaSeconds); break;
+	case EOniState::Inspect:     TickInspect(DeltaSeconds); break;
 	case EOniState::Chase:       TickChase(DeltaSeconds); break;
+	case EOniState::Stunned:     break;
 	}
 
 	if (bDrawDebug)
@@ -225,24 +345,61 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	}
 }
 
+void AOniCharacter::UpdateMemory()
+{
+	const float Now = GetWorld()->GetTimeSeconds();
+	const FIntPoint Here = GetCurrentCell();
+
+	// スピード鬼：今いる区画を「訪れた」と覚える
+	if (OniType == EOniType::Scout && RegionVisitTime.Num() > 0)
+	{
+		const int32 RegionsX = FMath::DivideAndRoundUp(Grid()->GetSizeX(), RegionSize);
+		const int32 Index = (Here.Y / RegionSize) * RegionsX + (Here.X / RegionSize);
+		if (RegionVisitTime.IsValidIndex(Index))
+		{
+			RegionVisitTime[Index] = Now;
+		}
+	}
+
+	// 慎重鬼：自分の周り 3×3 マスを「調べた」と仲間と共有する
+	if (OniType == EOniType::Careful)
+	{
+		if (UKakurenboOniBlackboard* BB = Blackboard())
+		{
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					BB->MarkChecked(Here + FIntPoint(DX, DY), Now);
+				}
+			}
+		}
+	}
+}
+
 void AOniCharacter::TickWander(float DeltaSeconds)
 {
 	if (bHasGoal)
 	{
-		const EFollowResult Result = FollowPath(DeltaSeconds, false);
+		const EFollowResult Result = FollowPath(DeltaSeconds);
 		if (Result == EFollowResult::Arrived || Result == EFollowResult::Failed)
 		{
 			bHasGoal = false;
-			IdleTimer = FMath::FRandRange(0.3f, 1.2f);
+			IdleTimer = FMath::FRandRange(0.3f, 1.0f);
+			BeginLookAround();
 		}
 		return;
 	}
 
+	// 次の行き先を決めるまで、その場で軽く見回す
+	TickLookAround(DeltaSeconds, 35.f);
 	IdleTimer -= DeltaSeconds;
-	AddActorWorldRotation(FRotator(0.f, 60.f * DeltaSeconds, 0.f));
 	if (IdleTimer <= 0.f)
 	{
-		PickWanderTarget();
+		if (!TryInspectPocket() && !ChooseWanderTarget())
+		{
+			IdleTimer = 1.f; // 行き先が見つからなければ少し待って再挑戦
+		}
 	}
 }
 
@@ -250,18 +407,41 @@ void AOniCharacter::TickInvestigate(float DeltaSeconds)
 {
 	if (bHasGoal)
 	{
-		const EFollowResult Result = FollowPath(DeltaSeconds, true);
+		const EFollowResult Result = FollowPath(DeltaSeconds);
 		if (Result == EFollowResult::Arrived || Result == EFollowResult::Failed)
 		{
 			bHasGoal = false;
+			BeginLookAround();
 			SearchTimer = SearchDuration;
 		}
 		return;
 	}
 
-	// 音のした場所で見回す。何も見つからなければ（見失ったら）うろうろに戻る
+	// 音のした場所で左右を見渡す。何も見つからなければ（見失ったら）うろうろに戻る
+	TickLookAround(DeltaSeconds, 80.f);
 	SearchTimer -= DeltaSeconds;
-	AddActorWorldRotation(FRotator(0.f, 150.f * DeltaSeconds, 0.f));
+	if (SearchTimer <= 0.f)
+	{
+		ReturnToWander(false);
+	}
+}
+
+void AOniCharacter::TickInspect(float DeltaSeconds)
+{
+	if (bHasGoal)
+	{
+		const EFollowResult Result = FollowPath(DeltaSeconds);
+		if (Result == EFollowResult::Arrived || Result == EFollowResult::Failed)
+		{
+			bHasGoal = false;
+			BeginLookAround();
+			SearchTimer = SearchDuration * 0.6f;
+		}
+		return;
+	}
+
+	TickLookAround(DeltaSeconds, 80.f);
+	SearchTimer -= DeltaSeconds;
 	if (SearchTimer <= 0.f)
 	{
 		ReturnToWander(false);
@@ -284,10 +464,19 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 	if (!bHasGoal || TargetCell != GoalCell || ChaseRepathTimer <= 0.f)
 	{
 		ChaseRepathTimer = ChaseRepathInterval;
-		if (!RequestPathTo(TargetCell, true))
+		if (!RequestPathTo(TargetCell, EPathMode::BreakIfNeeded))
 		{
 			bHasGoal = false;
 		}
+	}
+
+	// 相手（の真下）のすぐ近くでは歩かず向くだけにする。
+	// （ジャンプしたプレイヤーの真下で行ったり来たりすると、体の向きが反転し続けてくるくる回って見えるため）
+	const float Dist2D = FVector::Dist2D(ChaseLocation, GetActorLocation());
+	if (Dist2D <= ChaseStopDistance)
+	{
+		FaceTowards(ChaseLocation, DeltaSeconds, 360.f);
+		return;
 	}
 
 	const FVector ToTarget = (ChaseLocation - GetActorLocation()).GetSafeNormal2D();
@@ -298,10 +487,172 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 	}
 
 	// 同じマスまで来たら、まっすぐ相手（最後に見えた場所）に向かう（ぶつかれば発見）
-	if (FollowPath(DeltaSeconds, true) == EFollowResult::Arrived && FVector::Dist2D(ChaseLocation, GetActorLocation()) > 30.f)
+	if (FollowPath(DeltaSeconds) == EFollowResult::Arrived)
 	{
 		AddMovementInput(ToTarget);
 	}
+}
+
+void AOniCharacter::TickStunned(float DeltaSeconds)
+{
+	// ぷるぷる震えて、動けないことを見せる
+	StunTimer -= DeltaSeconds;
+	const float Wobble = 1.f + 0.06f * FMath::Sin(GetWorld()->GetTimeSeconds() * 30.f);
+	BodyMesh->SetRelativeScale3D(FVector(BaseBodyScale.X * Wobble, BaseBodyScale.Y * Wobble, BaseBodyScale.Z / Wobble));
+	if (StunTimer <= 0.f)
+	{
+		ReturnToWander(false);
+	}
+}
+
+// ---------------------------------------------------------------- うろうろの行き先
+
+bool AOniCharacter::ChooseWanderTarget()
+{
+	switch (OniType)
+	{
+	case EOniType::Scout:   return ChooseScoutTarget() || ChooseRandomTarget(0);
+	case EOniType::Breaker: return ChooseRandomTarget(6); // 積極的に探さない：近場をうろうろ
+	case EOniType::Careful: return ChooseCarefulTarget() || ChooseRandomTarget(0);
+	default:                return ChooseRandomTarget(0);
+	}
+}
+
+bool AOniCharacter::ChooseRandomTarget(int32 MaxDistanceCells)
+{
+	UKakurenboGridSubsystem* G = Grid();
+	const FIntPoint Here = GetCurrentCell();
+	for (int32 Try = 0; Try < 12; ++Try)
+	{
+		FIntPoint Cell;
+		if (MaxDistanceCells > 0)
+		{
+			Cell = ClampToGrid(Here + FIntPoint(FMath::RandRange(-MaxDistanceCells, MaxDistanceCells), FMath::RandRange(-MaxDistanceCells, MaxDistanceCells)));
+			if (G->GetColumnHeight(Cell) > 0)
+			{
+				continue;
+			}
+		}
+		else if (!G->FindRandomFreeCell(Cell))
+		{
+			continue;
+		}
+		if (Cell != Here && RequestPathTo(Cell, EPathMode::WalkOnly))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AOniCharacter::ChooseScoutTarget()
+{
+	// 一番長く訪れていない区画へ行く（マップ全体を大まかに回る）
+	UKakurenboGridSubsystem* G = Grid();
+	if (RegionVisitTime.Num() == 0)
+	{
+		return false;
+	}
+	const int32 RegionsX = FMath::DivideAndRoundUp(G->GetSizeX(), RegionSize);
+	const FIntPoint Here = GetCurrentCell();
+	const int32 HereRegion = (Here.Y / RegionSize) * RegionsX + (Here.X / RegionSize);
+
+	TArray<int32> Order;
+	for (int32 i = 0; i < RegionVisitTime.Num(); ++i)
+	{
+		if (i != HereRegion)
+		{
+			Order.Add(i);
+		}
+	}
+	// 古い順（同じなら遠い順に近い形でばらつかせる）
+	Order.Sort([this](int32 A, int32 B) { return RegionVisitTime[A] < RegionVisitTime[B]; });
+	const int32 Candidates = FMath::Min(3, Order.Num());
+	for (int32 c = 0; c < Candidates; ++c)
+	{
+		const int32 Region = Order[FMath::RandRange(0, Candidates - 1)];
+		const FIntPoint Origin((Region % RegionsX) * RegionSize, (Region / RegionsX) * RegionSize);
+		for (int32 Try = 0; Try < 6; ++Try)
+		{
+			const FIntPoint Cell = ClampToGrid(Origin + FIntPoint(FMath::RandRange(0, RegionSize - 1), FMath::RandRange(0, RegionSize - 1)));
+			if (G->GetColumnHeight(Cell) == 0 && RequestPathTo(Cell, EPathMode::WalkOnly))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool AOniCharacter::ChooseCarefulTarget()
+{
+	// 仲間と共有している記録を見て、まだ誰も調べていない一番近いマスへ行く。
+	// 仲間が向かっているマスの近くは避ける。壁に囲まれていれば壊してでも入る（隅々まで調べる）
+	UKakurenboGridSubsystem* G = Grid();
+	UKakurenboOniBlackboard* BB = Blackboard();
+	if (!BB)
+	{
+		return false;
+	}
+	const float Now = GetWorld()->GetTimeSeconds();
+	const FVector Here = GetActorLocation();
+
+	TArray<TPair<float, FIntPoint>> Candidates;
+	for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < G->GetSizeX(); ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			if (G->GetColumnHeight(Cell) > 0 || BB->IsChecked(Cell, Now, CarefulMemorySeconds) || BB->IsNearOthersTarget(this, Cell, 3))
+			{
+				continue;
+			}
+			Candidates.Emplace(FVector::DistSquared2D(Here, G->CellFloorCenter(Cell)), Cell);
+		}
+	}
+	Candidates.Sort([](const TPair<float, FIntPoint>& A, const TPair<float, FIntPoint>& B) { return A.Key < B.Key; });
+
+	for (int32 i = 0; i < FMath::Min(5, Candidates.Num()); ++i)
+	{
+		const FIntPoint Cell = Candidates[i].Value;
+		if (RequestPathTo(Cell, EPathMode::BreakIfNeeded))
+		{
+			BB->SetReservedTarget(this, Cell);
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AOniCharacter::TryInspectPocket()
+{
+	if (PocketInspectChance <= 0.f || FMath::FRand() > PocketInspectChance)
+	{
+		return false;
+	}
+	// 壁に囲まれて歩いては入れない空きマス（空洞）のうち、一番近いマスを調べに行く
+	const TArray<TArray<FIntPoint>> Pockets = Grid()->FindEnclosedPockets();
+	const FVector Here = GetActorLocation();
+	float BestDistSq = TNumericLimits<float>::Max();
+	FIntPoint Best = FIntPoint::ZeroValue;
+	for (const TArray<FIntPoint>& Pocket : Pockets)
+	{
+		for (const FIntPoint& Cell : Pocket)
+		{
+			const float DistSq = FVector::DistSquared2D(Here, Grid()->CellFloorCenter(Cell));
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				Best = Cell;
+			}
+		}
+	}
+	if (BestDistSq == TNumericLimits<float>::Max())
+	{
+		return false;
+	}
+	StartInspect(Best);
+	return State == EOniState::Inspect;
 }
 
 // ---------------------------------------------------------------- 感覚
@@ -316,7 +667,7 @@ void AOniCharacter::FoundTarget(FName Reason)
 	{
 		SetActorRotation(FRotator(0.f, (Target->GetActorLocation() - GetActorLocation()).Rotation().Yaw, 0.f));
 	}
-	UE_LOG(LogTemp, Log, TEXT("Oni %s found the hider by %s"), *GetName(), *Reason.ToString());
+	UE_LOG(LogTemp, Log, TEXT("Oni %s (%s) found the hider by %s"), *GetName(), *UEnum::GetValueAsString(OniType), *Reason.ToString());
 	OnFoundHider.Broadcast();
 }
 
@@ -377,10 +728,59 @@ bool AOniCharacter::CanSeeTarget() const
 	return false;
 }
 
+bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const
+{
+	const UKakurenboGridSubsystem* G = Grid();
+	const FVector Eye = GetActorLocation() + FVector(0.f, 0.f, EyeHeight);
+	const FVector Forward2D = GetActorForwardVector().GetSafeNormal2D();
+	const float CosHalfAngle = FMath::Cos(FMath::DegreesToRadians(SightHalfAngle));
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniWallHunt), false, this);
+	if (Target)
+	{
+		Params.AddIgnoredActor(Target);
+	}
+
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < G->GetSizeX(); ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			if (G->GetColumnHeight(Cell) == 0)
+			{
+				continue;
+			}
+			const FVector BlockCenter = G->CellToWorld(Cell, 0);
+			const FVector ToBlock = BlockCenter - Eye;
+			const float DistSq = ToBlock.SizeSquared2D();
+			if (DistSq > FMath::Square(SightRadius) || DistSq >= BestDistSq)
+			{
+				continue;
+			}
+			if (FVector::DotProduct(Forward2D, ToBlock.GetSafeNormal2D()) < CosHalfAngle)
+			{
+				continue;
+			}
+			// 視線がそのマスのブロックに当たれば「見えている」
+			FHitResult Hit;
+			if (GetWorld()->LineTraceSingleByChannel(Hit, Eye, BlockCenter, ECC_Visibility, Params))
+			{
+				const APlaceableBlock* Block = Cast<APlaceableBlock>(Hit.GetActor());
+				if (Block && Block->Cell == Cell)
+				{
+					BestDistSq = DistSq;
+					OutCell = Cell;
+				}
+			}
+		}
+	}
+	return BestDistSq < TNumericLimits<float>::Max();
+}
+
 void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 {
 	UKakurenboGridSubsystem* G = Grid();
-	if (!bActive || !G)
+	if (!bActive || !G || HearingRadius <= 0.f || State == EOniState::Stunned)
 	{
 		return;
 	}
@@ -416,6 +816,7 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness)
 		StateBeforeAttack = EOniState::Investigate;
 		IntentElapsed = 0.f;
 		GoalCell = Cell;
+		CurrentPathMode = EPathMode::BreakIfNeeded;
 		bHasGoal = true;
 		return;
 	}
@@ -430,24 +831,34 @@ FIntPoint AOniCharacter::ClampToGrid(const FIntPoint& Cell) const
 	return FIntPoint(FMath::Clamp(Cell.X, 0, G->GetSizeX() - 1), FMath::Clamp(Cell.Y, 0, G->GetSizeY() - 1));
 }
 
-bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, bool bAllowWalls)
+FIntPoint AOniCharacter::GetCurrentCell() const
+{
+	return ClampToGrid(Grid()->WorldToCell(GetActorLocation()));
+}
+
+bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, EPathMode Mode)
 {
 	UKakurenboGridSubsystem* G = Grid();
 	if (!G)
 	{
 		return false;
 	}
-
-	FKakurenboPathGrid PathGrid = G->BuildPathGrid(AttackDamage, PathCostPerAttack);
-	const FIntPoint Start = ClampToGrid(G->WorldToCell(GetActorLocation()));
-	PathGrid.SetExtra(Start, 0.f); // 自分のいるマスは常に通れる扱い
-
+	const FIntPoint Start = GetCurrentCell();
 	TArray<FIntPoint> NewPath;
-	if (!KakurenboPathfinding::FindPath(PathGrid, Start, Goal, NewPath))
+
+	// 1) 壁を「通れない」ものとして探す（入り口があればそこから入る）
+	FKakurenboPathGrid WalkGrid = G->BuildWalkGrid();
+	WalkGrid.SetExtra(Start, 0.f); // 自分のいるマスは常に通れる扱い
+	bool bFound = KakurenboPathfinding::FindPath(WalkGrid, Start, Goal, NewPath);
+
+	// 2) 他に行く道が無いときだけ、壁を壊す経路を使う（目の前の壁から壊していく）
+	if (!bFound && Mode == EPathMode::BreakIfNeeded)
 	{
-		return false;
+		FKakurenboPathGrid BreakGrid = G->BuildPathGrid(AttackDamage, PathCostPerAttack);
+		BreakGrid.SetExtra(Start, 0.f);
+		bFound = KakurenboPathfinding::FindPath(BreakGrid, Start, Goal, NewPath);
 	}
-	if (!bAllowWalls && KakurenboPathfinding::PathContainsWalls(PathGrid, NewPath))
+	if (!bFound)
 	{
 		return false;
 	}
@@ -456,6 +867,7 @@ bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, bool bAllowWalls)
 	PathIndex = 0;
 	GoalCell = Goal;
 	bHasGoal = true;
+	CurrentPathMode = Mode;
 	PathGridVersion = G->GetGridVersion();
 	RepathTimer = RepathInterval;
 	StuckTimer = 0.f;
@@ -463,29 +875,15 @@ bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, bool bAllowWalls)
 	return true;
 }
 
-void AOniCharacter::PickWanderTarget()
-{
-	UKakurenboGridSubsystem* G = Grid();
-	for (int32 Try = 0; Try < 8; ++Try)
-	{
-		FIntPoint Cell;
-		if (G->FindRandomFreeCell(Cell) && RequestPathTo(Cell, false))
-		{
-			return;
-		}
-	}
-	IdleTimer = 1.f; // 見つからなければ少し待って再挑戦
-}
-
-AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds, bool bAllowWalls)
+AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds)
 {
 	UKakurenboGridSubsystem* G = Grid();
 
-	// 配置が変わった・一定時間たった → 経路を作り直す
+	// 配置が変わった（壁が壊れて道ができた等）・一定時間たった → 経路を作り直す
 	RepathTimer -= DeltaSeconds;
 	if (PathGridVersion != G->GetGridVersion() || RepathTimer <= 0.f)
 	{
-		if (!RequestPathTo(GoalCell, bAllowWalls))
+		if (!RequestPathTo(GoalCell, CurrentPathMode))
 		{
 			return EFollowResult::Failed;
 		}
@@ -501,7 +899,7 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds, bool 
 	const FVector Loc = GetActorLocation();
 	const float Dist2D = FVector::Dist2D(Loc, NextCenter);
 
-	// 次のマスに壁がある → 十分近づいたら壊す
+	// 次のマスに壁がある（他に道が無かった）→ 目の前まで来たら壊す
 	if (G->GetColumnHeight(Next) > 0)
 	{
 		if (Dist2D <= G->GetCellSize() * 1.1f)
@@ -536,9 +934,13 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds, bool 
 
 void AOniCharacter::FaceTowards(const FVector& Location, float DeltaSeconds, float DegreesPerSecond)
 {
-	const FRotator Current = GetActorRotation();
-	const FRotator Desired(0.f, (Location - GetActorLocation()).Rotation().Yaw, 0.f);
-	SetActorRotation(FMath::RInterpConstantTo(Current, Desired, DeltaSeconds, DegreesPerSecond));
+	const FVector To = Location - GetActorLocation();
+	if (To.SizeSquared2D() < 1.f)
+	{
+		return; // ほぼ真上・真下：向きを決めない（くるくる回らないように）
+	}
+	const FRotator Desired(0.f, To.Rotation().Yaw, 0.f);
+	SetActorRotation(FMath::RInterpConstantTo(GetActorRotation(), Desired, DeltaSeconds, DegreesPerSecond));
 }
 
 // ---------------------------------------------------------------- 攻撃
@@ -557,7 +959,7 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 
 void AOniCharacter::ResetBodyScale()
 {
-	BodyMesh->SetRelativeScale3D(BodyScale);
+	BodyMesh->SetRelativeScale3D(BaseBodyScale);
 }
 
 void AOniCharacter::TickAttack(float DeltaSeconds)
@@ -570,13 +972,23 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 	// 溜め中は体を縮める（見た目の予兆）
 	const float Windup = FMath::Clamp(AttackTimer / AttackWindup, 0.f, 1.f);
 	const float Squash = bAttackFired ? 1.f : 1.f - 0.25f * Windup;
-	BodyMesh->SetRelativeScale3D(FVector(BodyScale.X / FMath::Sqrt(Squash), BodyScale.Y / FMath::Sqrt(Squash), BodyScale.Z * Squash));
+	BodyMesh->SetRelativeScale3D(FVector(BaseBodyScale.X / FMath::Sqrt(Squash), BaseBodyScale.Y / FMath::Sqrt(Squash), BaseBodyScale.Z * Squash));
 
 	if (!bAttackFired && AttackTimer >= AttackWindup)
 	{
 		bAttackFired = true;
-		const int32 Destroyed = G->DamageBlocksInRadius(GetActorLocation(), AttackRadius, AttackDamage);
-		DrawDebugSphere(GetWorld(), GetActorLocation(), AttackRadius, 16, FColor(255, 80, 40), false, 0.25f, 0, 3.f);
+		int32 Destroyed = 0;
+		if (bSingleTargetAttack)
+		{
+			// 目の前の壁 1 個だけ
+			Destroyed = G->DamageBottomBlock(AttackCell, AttackDamage);
+			DrawDebugBox(GetWorld(), G->CellToWorld(AttackCell, 0), FVector(G->GetCellSize() * 0.5f, G->GetCellSize() * 0.5f, G->GetBlockHeight() * 0.5f), FColor(255, 80, 40), false, 0.25f, 0, 3.f);
+		}
+		else
+		{
+			Destroyed = G->DamageBlocksInRadius(GetActorLocation(), AttackRadius, AttackDamage);
+			DrawDebugSphere(GetWorld(), GetActorLocation(), AttackRadius, 16, FColor(255, 80, 40), false, 0.25f, 0, 3.f);
+		}
 		if (Destroyed > 0)
 		{
 			OnDestroyedWalls.Broadcast(Destroyed);
@@ -600,9 +1012,10 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 		{
 			bHasGoal = false;
 		}
-		else if (bHasGoal && !RequestPathTo(GoalCell, State == EOniState::Investigate))
+		else if (bHasGoal && !RequestPathTo(GoalCell, CurrentPathMode))
 		{
 			bHasGoal = false;
+			BeginLookAround();
 			SearchTimer = SearchDuration;
 		}
 	}
@@ -618,5 +1031,8 @@ void AOniCharacter::DrawDebug() const
 		const FVector P = G->CellFloorCenter(Path[i]) + FVector(0, 0, 5);
 		DrawDebugPoint(GetWorld(), P, 8.f, G->GetColumnHeight(Path[i]) > 0 ? FColor::Red : FColor::Yellow, false, 0.f);
 	}
-	DrawDebugCircle(GetWorld(), GetActorLocation(), HearingRadius, 48, FColor(255, 255, 255, 60), false, 0.f, 0, 2.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+	if (HearingRadius > 0.f)
+	{
+		DrawDebugCircle(GetWorld(), GetActorLocation(), HearingRadius, 48, FColor(255, 255, 255, 60), false, 0.f, 0, 2.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+	}
 }

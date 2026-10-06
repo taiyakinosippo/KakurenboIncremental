@@ -225,6 +225,22 @@ int32 UKakurenboGridSubsystem::DamageBlocksInRadius(const FVector& Center, float
 	return Destroyed;
 }
 
+int32 UKakurenboGridSubsystem::DamageBottomBlock(const FIntPoint& Cell, double Damage)
+{
+	if (!IsInside(Cell))
+	{
+		return 0;
+	}
+	TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
+	if (Blocks.Num() == 0 || !Blocks[0] || !Blocks[0]->ApplyBlockDamage(Damage))
+	{
+		return 0;
+	}
+	RemoveAtLevel(Cell, 0);
+	MarkChanged();
+	return 1;
+}
+
 void UKakurenboGridSubsystem::ClearAllBlocks()
 {
 	for (FKakurenboBlockColumn& Column : Columns)
@@ -438,8 +454,42 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, f
 	return Grid;
 }
 
+FKakurenboPathGrid UKakurenboGridSubsystem::BuildWalkGrid() const
+{
+	FKakurenboPathGrid Grid;
+	Grid.Init(SizeX, SizeY);
+	for (int32 Index = 0; Index < Columns.Num(); ++Index)
+	{
+		if (Columns[Index].Blocks.Num() > 0)
+		{
+			Grid.ExtraCost[Index] = -1.f; // 壁は通れない
+		}
+	}
+	return Grid;
+}
+
+TArray<TArray<FIntPoint>> UKakurenboGridSubsystem::FindEnclosedPockets() const
+{
+	return KakurenboPathfinding::FindEnclosedPockets(BuildWalkGrid());
+}
+
+TArray<bool> UKakurenboGridSubsystem::BuildMainAreaMask() const
+{
+	TArray<int32> Labels, Sizes;
+	KakurenboPathfinding::LabelFreeRegions(BuildWalkGrid(), Labels, Sizes);
+	const int32 Largest = KakurenboPathfinding::FindLargestRegion(Sizes);
+	TArray<bool> Mask;
+	Mask.SetNum(Labels.Num());
+	for (int32 i = 0; i < Labels.Num(); ++i)
+	{
+		Mask[i] = (Labels[i] != INDEX_NONE && Labels[i] == Largest);
+	}
+	return Mask;
+}
+
 TArray<FIntPoint> UKakurenboGridSubsystem::FindSpreadFreeCells(const TArray<FVector>& AvoidPoints, int32 Count) const
 {
+	const TArray<bool> MainArea = BuildMainAreaMask();
 	TArray<FVector> Avoid = AvoidPoints;
 	TArray<FIntPoint> Result;
 	for (int32 k = 0; k < Count; ++k)
@@ -451,7 +501,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::FindSpreadFreeCells(const TArray<FVec
 			for (int32 X = 0; X < SizeX; ++X)
 			{
 				const FIntPoint Cell(X, Y);
-				if (GetColumnHeight(Cell) > 0 || Result.Contains(Cell))
+				if (!MainArea[ToIndex(Cell)] || Result.Contains(Cell))
 				{
 					continue;
 				}
@@ -481,6 +531,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::FindSpreadFreeCells(const TArray<FVec
 TArray<FIntPoint> UKakurenboGridSubsystem::FindRandomFreeCells(int32 Count, const TArray<FVector>& AvoidPoints, float MinDistanceCells, FRandomStream& Stream) const
 {
 	const float MinDistCm = MinDistanceCells * CellSize;
+	const TArray<bool> MainArea = BuildMainAreaMask();
 
 	// 条件を満たす空きマスを集めて、ランダムに並べ替える
 	TArray<FIntPoint> Candidates;
@@ -489,7 +540,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::FindRandomFreeCells(int32 Count, cons
 		for (int32 X = 0; X < SizeX; ++X)
 		{
 			const FIntPoint Cell(X, Y);
-			if (GetColumnHeight(Cell) > 0)
+			if (!MainArea[ToIndex(Cell)])
 			{
 				continue;
 			}

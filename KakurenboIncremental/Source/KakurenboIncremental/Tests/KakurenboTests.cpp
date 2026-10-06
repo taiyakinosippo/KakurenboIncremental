@@ -182,11 +182,11 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	Rows[1].OniDamage = 1.6;
 	Rows[1].OniHearingRadius = 1300.f;
 	Rows[1].OniSpeedBonus = 15.f;
-	Rows[1].NumOnis = 3;
+	Rows[1].OniTypes = { EOniType::Scout, EOniType::Breaker, EOniType::Careful };
 
 	// 表の中はその行
 	TestEqual(TEXT("stage 1 from table"), KakurenboBalance::ResolveStage(Rows, 1, Growth).HideDuration, 30.f);
-	TestEqual(TEXT("stage 2 from table"), KakurenboBalance::ResolveStage(Rows, 2, Growth).NumOnis, 3);
+	TestEqual(TEXT("stage 2 from table"), KakurenboBalance::ResolveStage(Rows, 2, Growth).OniTypes.Num(), 3);
 
 	// 表より後は最後の行から伸ばす（ステージ 4 = 2 ステージぶん）
 	const FKakurenboStageRow S4 = KakurenboBalance::ResolveStage(Rows, 4, Growth);
@@ -195,7 +195,7 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("stage 4 damage"), FMath::IsNearlyEqual(S4.OniDamage, 4.096, 0.0001));
 	TestEqual(TEXT("stage 4 hearing"), S4.OniHearingRadius, 1500.f);
 	TestEqual(TEXT("stage 4 speed bonus"), S4.OniSpeedBonus, 45.f);
-	TestEqual(TEXT("stage 4 keeps last row's oni count"), S4.NumOnis, 3);
+	TestEqual(TEXT("stage 4 keeps last row's oni types"), S4.OniTypes.Num(), 3);
 
 	// 表が空ならステージ 1 の既定値から伸ばす
 	const FKakurenboStageRow S3 = KakurenboBalance::ResolveStage({}, 3, Growth);
@@ -227,7 +227,7 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("stages has rows"), Rows.Num() >= 1);
 		if (Rows.Num() > 0)
 		{
-			TestTrue(TEXT("stage 1 has onis and time"), Rows[0]->NumOnis >= 1 && Rows[0]->HideDuration > 0.f);
+			TestTrue(TEXT("stage 1 has onis and time"), Rows[0]->OniTypes.Num() >= 1 && Rows[0]->HideDuration > 0.f);
 		}
 	}
 	if (UDataTable* Upgrades = Load(FKakurenboUpgradeRow::StaticStruct(), TEXT("Upgrades.csv")))
@@ -246,6 +246,67 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestFalse(TEXT("wall 1 has a name"), Rows[0]->DisplayName.IsEmpty());
 		}
 	}
+	if (UDataTable* OniTypes = Load(FKakurenboOniTypeRow::StaticStruct(), TEXT("OniTypes.csv")))
+	{
+		// 4 種類すべての行があり、行名が鬼の種類の名前と一致している
+		for (const TCHAR* Name : { TEXT("Balanced"), TEXT("Scout"), TEXT("Breaker"), TEXT("Careful") })
+		{
+			const FKakurenboOniTypeRow* Row = OniTypes->FindRow<FKakurenboOniTypeRow>(Name, TEXT("Test"));
+			TestNotNull(FString::Printf(TEXT("oni type row %s"), Name), Row);
+			TestTrue(FString::Printf(TEXT("enum has %s"), Name), StaticEnum<EOniType>()->GetValueByNameString(Name) != INDEX_NONE);
+		}
+		if (const FKakurenboOniTypeRow* Careful = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Careful"), TEXT("Test")))
+		{
+			TestTrue(TEXT("careful breaks one wall at a time"), Careful->bSingleTargetAttack);
+		}
+	}
+	if (UDataTable* Stages = Load(FKakurenboStageRow::StaticStruct(), TEXT("Stages.csv")))
+	{
+		// "(Balanced,Scout)" の書き方で鬼の種類のリストが読めている
+		TArray<FKakurenboStageRow*> Rows;
+		Stages->GetAllRows<FKakurenboStageRow>(TEXT("Test"), Rows);
+		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 0 && Rows[0]->OniTypes.Num() >= 2);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboPocketTest, "Kakurenbo.Path.EnclosedPockets", TestFlags)
+bool FKakurenboPocketTest::RunTest(const FString& Parameters)
+{
+	// 角に斜めに壁を並べる: (0,3) (1,2) (2,1) (3,0) → 角の三角形（x+y<3 の 6 マス）が空洞になる
+	FKakurenboPathGrid Grid;
+	Grid.Init(10, 10);
+	for (int32 k = 0; k <= 3; ++k)
+	{
+		Grid.SetExtra(FIntPoint(k, 3 - k), -1.f);
+	}
+	TArray<TArray<FIntPoint>> Pockets = KakurenboPathfinding::FindEnclosedPockets(Grid);
+	TestEqual(TEXT("one pocket"), Pockets.Num(), 1);
+	if (Pockets.Num() == 1)
+	{
+		TestEqual(TEXT("pocket size"), Pockets[0].Num(), 6);
+		TestTrue(TEXT("corner is in the pocket"), Pockets[0].Contains(FIntPoint(0, 0)));
+	}
+
+	// 1 マス開けると入り口ができて空洞ではなくなる
+	Grid.SetExtra(FIntPoint(1, 2), 0.f);
+	TestEqual(TEXT("opening removes the pocket"), KakurenboPathfinding::FindEnclosedPockets(Grid).Num(), 0);
+
+	// 3x3 の輪（中央 1 マス）も空洞
+	FKakurenboPathGrid Ring;
+	Ring.Init(10, 10);
+	for (int32 DY = -1; DY <= 1; ++DY)
+	{
+		for (int32 DX = -1; DX <= 1; ++DX)
+		{
+			if (DX != 0 || DY != 0)
+			{
+				Ring.SetExtra(FIntPoint(5 + DX, 5 + DY), -1.f);
+			}
+		}
+	}
+	Pockets = KakurenboPathfinding::FindEnclosedPockets(Ring);
+	TestTrue(TEXT("ring center is a pocket"), Pockets.Num() == 1 && Pockets[0].Num() == 1 && Pockets[0][0] == FIntPoint(5, 5));
 	return true;
 }
 

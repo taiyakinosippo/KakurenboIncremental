@@ -48,4 +48,21 @@ namespace KakurenboPathfinding
 
 	/** 経路が壁のマスを含むか */
 	KAKURENBOINCREMENTAL_API bool PathContainsWalls(const FKakurenboPathGrid& Grid, const TArray<FIntPoint>& Path);
+
+	/**
+	 * 通れるマス（追加コスト 0）を縦横にたどって、まとまり（連結成分）ごとに番号を付ける。
+	 * 斜め移動は「両隣が空いているときだけ」なので、縦横のつながりだけ見れば十分。
+	 * @param OutLabels マスごとのまとまりの番号（通れないマスは INDEX_NONE）
+	 * @param OutSizes  まとまりごとのマス数
+	 */
+	KAKURENBOINCREMENTAL_API void LabelFreeRegions(const FKakurenboPathGrid& Grid, TArray<int32>& OutLabels, TArray<int32>& OutSizes);
+
+	/** 一番大きいまとまりの番号（通れるマスが無ければ INDEX_NONE） */
+	KAKURENBOINCREMENTAL_API int32 FindLargestRegion(const TArray<int32>& Sizes);
+
+	/**
+	 * 壁に囲まれて、一番大きいまとまりから歩いては入れない空きマスのまとまり（＝空洞）を返す。
+	 * 例: 角に斜めに壁を並べると、角の三角の部分が空洞になる
+	 */
+	KAKURENBOINCREMENTAL_API TArray<TArray<FIntPoint>> FindEnclosedPockets(const FKakurenboPathGrid& Grid);
 }

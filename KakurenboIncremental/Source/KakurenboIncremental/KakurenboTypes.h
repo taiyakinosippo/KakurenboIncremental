@@ -31,7 +31,19 @@ enum class EOniState : uint8
 	Wander      UMETA(DisplayName = "Wander"),      // うろうろ
 	Investigate UMETA(DisplayName = "Investigate"), // 音のした方へ向かう
 	Chase       UMETA(DisplayName = "Chase"),       // プレイヤーを見つけて追いかける
+	Inspect     UMETA(DisplayName = "Inspect"),     // 怪しい場所（壁に囲まれた空洞・見つけた壁）を調べに行く
 	Attack      UMETA(DisplayName = "Attack"),      // 壁を壊している
+	Stunned     UMETA(DisplayName = "Stunned"),     // 罠にかかって動けない
+};
+
+/** 鬼の種類（パックマンのお化けのように、それぞれ動き方が違う） */
+UENUM(BlueprintType)
+enum class EOniType : uint8
+{
+	Balanced UMETA(DisplayName = "Balanced"), // 標準：速さも壁を壊す力も普通
+	Scout    UMETA(DisplayName = "Scout"),    // スピード：足が速く視界が広い。マップ全体を大まかに回る。壁を壊す力は弱い
+	Breaker  UMETA(DisplayName = "Breaker"),  // パワー：遅いが壁を壊す力が強い。見つけた壁を壊しに行く。自分から探さない
+	Careful  UMETA(DisplayName = "Careful"),  // 慎重：近くから隅々まで調べる。調べた場所を仲間の慎重鬼と共有。壁は 1 個ずつ壊す
 };
 
 /** 購入パートの商品 1 つ分の表示用データ */
@@ -114,9 +126,9 @@ struct FKakurenboStageRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
 	float HideDuration = 30.f;
 
-	/** 鬼の数 */
+	/** 出てくる鬼の種類と数。CSV では "(Balanced,Scout)" のように書く */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
-	int32 NumOnis = 2;
+	TArray<EOniType> OniTypes = { EOniType::Balanced, EOniType::Scout };
 
 	/** お宝の数 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
@@ -137,4 +149,57 @@ struct FKakurenboStageRow : public FTableRowBase
 	/** 鬼の移動速度に足す値（cm/秒。うろうろ・調べる・追いかける の全部に足す） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
 	float OniSpeedBonus = 0.f;
+};
+
+/** 鬼の種類ごとの数値。Data/OniTypes.csv の 1 行（行名は Balanced / Scout / Breaker / Careful） */
+USTRUCT(BlueprintType)
+struct FKakurenboOniTypeRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	FText DisplayName;
+
+	/** 移動速度の倍率（基本の速さ: うろうろ 420 / 調べる 700 / 追いかける 840） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float SpeedScale = 1.f;
+
+	/** 壁を壊す力の倍率（ステージの攻撃力に掛ける） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	double DamageScale = 1.0;
+
+	/** 視界の距離（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float SightRadius = 900.f;
+
+	/** 視界の半角（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float SightHalfAngle = 40.f;
+
+	/** 音が聞こえる距離の倍率（0 なら音を気にしない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float HearingScale = 1.f;
+
+	/** true なら目の前の壁 1 個だけを壊す（範囲攻撃しない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	bool bSingleTargetAttack = false;
+
+	/** 範囲攻撃の半径（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float AttackRadius = 160.f;
+
+	/** 攻撃の溜め時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float AttackWindup = 0.8f;
+
+	/** うろうろ中、壁に囲まれた空洞があればそこを調べに行く確率（0〜1） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float PocketInspectChance = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	FLinearColor Color = FLinearColor(0.9f, 0.1f, 0.08f);
+
+	/** 見た目の太さの倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float BodyScale = 1.f;
 };

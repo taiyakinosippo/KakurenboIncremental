@@ -126,6 +126,80 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 	return true;
 }
 
+void KakurenboPathfinding::LabelFreeRegions(const FKakurenboPathGrid& Grid, TArray<int32>& OutLabels, TArray<int32>& OutSizes)
+{
+	const int32 NumCells = Grid.SizeX * Grid.SizeY;
+	OutLabels.Init(INDEX_NONE, NumCells);
+	OutSizes.Reset();
+
+	static const FIntPoint Dirs[4] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	TArray<int32> Stack;
+	for (int32 Index = 0; Index < NumCells; ++Index)
+	{
+		if (OutLabels[Index] != INDEX_NONE || Grid.ExtraCost[Index] != 0.f)
+		{
+			continue;
+		}
+		// 新しいまとまり：ここから塗りつぶす（深さ優先）
+		const int32 Label = OutSizes.Add(0);
+		OutLabels[Index] = Label;
+		Stack.Reset();
+		Stack.Add(Index);
+		while (Stack.Num() > 0)
+		{
+			const int32 Current = Stack.Pop(EAllowShrinking::No);
+			++OutSizes[Label];
+			const FIntPoint P = Grid.FromIndex(Current);
+			for (const FIntPoint& D : Dirs)
+			{
+				const FIntPoint N = P + D;
+				if (!Grid.IsFree(N))
+				{
+					continue;
+				}
+				const int32 NIndex = Grid.ToIndex(N);
+				if (OutLabels[NIndex] == INDEX_NONE)
+				{
+					OutLabels[NIndex] = Label;
+					Stack.Add(NIndex);
+				}
+			}
+		}
+	}
+}
+
+int32 KakurenboPathfinding::FindLargestRegion(const TArray<int32>& Sizes)
+{
+	int32 Best = INDEX_NONE;
+	for (int32 i = 0; i < Sizes.Num(); ++i)
+	{
+		if (Best == INDEX_NONE || Sizes[i] > Sizes[Best])
+		{
+			Best = i;
+		}
+	}
+	return Best;
+}
+
+TArray<TArray<FIntPoint>> KakurenboPathfinding::FindEnclosedPockets(const FKakurenboPathGrid& Grid)
+{
+	TArray<int32> Labels, Sizes;
+	LabelFreeRegions(Grid, Labels, Sizes);
+	const int32 Largest = FindLargestRegion(Sizes);
+
+	TArray<TArray<FIntPoint>> Pockets;
+	Pockets.SetNum(Sizes.Num());
+	for (int32 Index = 0; Index < Labels.Num(); ++Index)
+	{
+		if (Labels[Index] != INDEX_NONE && Labels[Index] != Largest)
+		{
+			Pockets[Labels[Index]].Add(Grid.FromIndex(Index));
+		}
+	}
+	Pockets.RemoveAll([](const TArray<FIntPoint>& Pocket) { return Pocket.Num() == 0; });
+	return Pockets;
+}
+
 bool KakurenboPathfinding::PathContainsWalls(const FKakurenboPathGrid& Grid, const TArray<FIntPoint>& Path)
 {
 	for (const FIntPoint& P : Path)

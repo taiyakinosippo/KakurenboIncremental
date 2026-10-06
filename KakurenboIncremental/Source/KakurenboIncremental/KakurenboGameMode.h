@@ -43,6 +43,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> WallTable;
 
+	/** 鬼の種類ごとの数値。Data/OniTypes.csv の代わりに使う DataTable（行の型: KakurenboOniTypeRow。行名 Balanced / Scout / Breaker / Careful） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> OniTypeTable;
+
+	/** 読み込んだ鬼の種類ごとの数値 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
+	TMap<EOniType, FKakurenboOniTypeRow> OniTypeRows;
+
 	/** 読み込んだステージの表（CSV・DataTable が無ければ空 → ステージ 1 の既定値から伸ばす） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
 	TArray<FKakurenboStageRow> StageRows;
@@ -126,7 +134,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	TSubclassOf<AOniCharacter> OniClass;
 
-	/** うろうろするときの速さ（プレイヤーは 420） */
+	/** うろうろするときの速さ（プレイヤーは 420）。鬼の種類ごとの倍率（SpeedScale）を掛ける */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniWanderSpeedBase = 420.f;
 
@@ -137,12 +145,6 @@ public:
 	/** 追いかけるときの速さ（プレイヤーの 2 倍）。見つかったら走って逃げ切るのは難しく、壁の陰に隠れて見失わせる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniChaseSpeedBase = 840.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniSightRadius = 900.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniSightHalfAngle = 40.f;
 
 	/** 連打したとき、音の届く範囲を床に表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -216,6 +218,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetNumOnis() const;
+
+	/** 鬼の種類ごとの数値（表に無ければ既定値） */
+	FKakurenboOniTypeRow GetOniTypeRow(EOniType Type) const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetNumTreasures() const;

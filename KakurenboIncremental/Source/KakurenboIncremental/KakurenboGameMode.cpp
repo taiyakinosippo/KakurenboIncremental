@@ -12,6 +12,7 @@
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboOniBlackboard.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
 #include "Kismet/GameplayStatics.h"
@@ -49,6 +50,29 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddWall(TEXT("木の壁"), 1.0, 10.0, FLinearColor(0.55f, 0.35f, 0.18f));
 	AddWall(TEXT("石の壁"), 4.0, 120.0, FLinearColor(0.22f, 0.22f, 0.25f));
 	AddWall(TEXT("鉄の壁"), 16.0, 1500.0, FLinearColor(0.25f, 0.35f, 0.55f));
+
+	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
+	auto AddOniType = [this](EOniType Type, const TCHAR* Name, float Speed, double Damage, float Sight, float Angle, float Hearing,
+		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body)
+	{
+		FKakurenboOniTypeRow& Row = OniTypeRows.Add(Type);
+		Row.DisplayName = FText::FromString(Name);
+		Row.SpeedScale = Speed;
+		Row.DamageScale = Damage;
+		Row.SightRadius = Sight;
+		Row.SightHalfAngle = Angle;
+		Row.HearingScale = Hearing;
+		Row.bSingleTargetAttack = bSingle;
+		Row.AttackRadius = Radius;
+		Row.AttackWindup = Windup;
+		Row.PocketInspectChance = Pocket;
+		Row.Color = Color;
+		Row.BodyScale = Body;
+	};
+	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f);
+	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f);
+	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 800.f, 70.f, 0.f, false, 200.f, 1.0f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f);
+	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f);
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -246,8 +270,24 @@ void AKakurenboGameMode::LoadBalanceData()
 		}
 	}
 
-	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, mash %.2f x%.2f (cost %.1f x%.2f)"),
-		StageRows.Num(), WallTypes.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
+	if (UDataTable* Table = GetTable(OniTypeTable, FKakurenboOniTypeRow::StaticStruct(), TEXT("OniTypes.csv")))
+	{
+		// 行名（Balanced など）を鬼の種類に対応させる
+		const UEnum* TypeEnum = StaticEnum<EOniType>();
+		for (const TPair<FName, uint8*>& Pair : Table->GetRowMap())
+		{
+			const int64 Value = TypeEnum->GetValueByNameString(Pair.Key.ToString());
+			if (Value == INDEX_NONE)
+			{
+				UE_LOG(LogKakurenbo, Warning, TEXT("OniTypes.csv: unknown oni type '%s'"), *Pair.Key.ToString());
+				continue;
+			}
+			OniTypeRows.Add(static_cast<EOniType>(Value), *reinterpret_cast<const FKakurenboOniTypeRow*>(Pair.Value));
+		}
+	}
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, %d oni types, mash %.2f x%.2f (cost %.1f x%.2f)"),
+		StageRows.Num(), WallTypes.Num(), OniTypeRows.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
 }
 
 FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
@@ -320,7 +360,16 @@ float AKakurenboGameMode::GetOniHearingRadius() const
 
 int32 AKakurenboGameMode::GetNumOnis() const
 {
-	return FMath::Max(0, GetStageSettings().NumOnis);
+	return GetStageSettings().OniTypes.Num();
+}
+
+FKakurenboOniTypeRow AKakurenboGameMode::GetOniTypeRow(EOniType Type) const
+{
+	if (const FKakurenboOniTypeRow* Row = OniTypeRows.Find(Type))
+	{
+		return *Row;
+	}
+	return FKakurenboOniTypeRow();
 }
 
 int32 AKakurenboGameMode::GetNumTreasures() const
@@ -654,11 +703,20 @@ void AKakurenboGameMode::SpawnOnis()
 		return;
 	}
 
-	// プレイヤーからも、鬼どうしでも、なるべく遠い空きマスに出現させる
-	const FKakurenboStageRow Settings = GetStageSettings();
-	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, GetNumOnis());
-	for (const FIntPoint& Cell : Cells)
+	// 慎重鬼が共有する「調べた場所」の記録を新しくする
+	if (UKakurenboOniBlackboard* Blackboard = GetWorld()->GetSubsystem<UKakurenboOniBlackboard>())
 	{
+		Blackboard->Reset(Grid->GetSizeX(), Grid->GetSizeY());
+	}
+
+	// プレイヤーからも、鬼どうしでも、なるべく遠い空きマスに出現させる。種類はステージの表で決まる
+	const FKakurenboStageRow Settings = GetStageSettings();
+	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, Settings.OniTypes.Num());
+	for (int32 i = 0; i < Cells.Num(); ++i)
+	{
+		const FIntPoint Cell = Cells[i];
+		const EOniType Type = Settings.OniTypes[i];
+		const FKakurenboOniTypeRow TypeRow = GetOniTypeRow(Type);
 		const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
 		const FRotator Facing(0.f, (Hider->GetActorLocation() - Location).Rotation().Yaw, 0.f);
 
@@ -667,13 +725,12 @@ void AKakurenboGameMode::SpawnOnis()
 		{
 			continue;
 		}
-		Oni->WanderSpeed = OniWanderSpeedBase + Settings.OniSpeedBonus;
-		Oni->InvestigateSpeed = OniInvestigateSpeedBase + Settings.OniSpeedBonus;
-		Oni->ChaseSpeed = OniChaseSpeedBase + Settings.OniSpeedBonus;
-		Oni->SightRadius = OniSightRadius;
-		Oni->SightHalfAngle = OniSightHalfAngle;
-		Oni->HearingRadius = Settings.OniHearingRadius;
-		Oni->AttackDamage = Settings.OniDamage;
+		Oni->ApplyTypeSettings(Type, TypeRow);
+		Oni->WanderSpeed = OniWanderSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
+		Oni->InvestigateSpeed = OniInvestigateSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
+		Oni->ChaseSpeed = OniChaseSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
+		Oni->HearingRadius = Settings.OniHearingRadius * TypeRow.HearingScale;
+		Oni->AttackDamage = Settings.OniDamage * TypeRow.DamageScale;
 		Oni->bDrawDebug = bDebugOni;
 		Oni->FinishSpawning(FTransform(Facing, Location));
 
@@ -683,7 +740,8 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->Activate(Hider);
 		Onis.Add(Oni);
 
-		UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f, chase speed %.0f"), Cell.X, Cell.Y, Oni->AttackDamage, Oni->ChaseSpeed);
+		UE_LOG(LogKakurenbo, Log, TEXT("Oni %s spawned at cell (%d,%d), damage %.2f, chase speed %.0f"),
+			*UEnum::GetValueAsString(Type), Cell.X, Cell.Y, Oni->AttackDamage, Oni->ChaseSpeed);
 	}
 }
 

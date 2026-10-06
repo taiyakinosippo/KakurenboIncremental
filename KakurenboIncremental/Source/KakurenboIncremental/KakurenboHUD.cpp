@@ -35,8 +35,16 @@ namespace
 		{
 		case EOniState::Chase:       OutText = TEXT("追いかけてくる！"); OutColor = Bad; break;
 		case EOniState::Investigate: OutText = TEXT("音に気づいた"); OutColor = Warn; break;
+		case EOniState::Inspect:     OutText = TEXT("怪しい場所を調べている"); OutColor = Warn; break;
+		case EOniState::Stunned:     OutText = TEXT("罠にかかって動けない"); OutColor = FLinearColor(0.6f, 1.f, 0.4f); break;
 		default:                     OutText = TEXT("うろうろしている"); OutColor = FLinearColor(0.95f, 0.95f, 0.95f); break;
 		}
+	}
+
+	/** 種類名（CSV の DisplayName。無ければ「鬼」） */
+	FString OniName(const AOniCharacter* Oni)
+	{
+		return Oni->TypeDisplayName.IsEmpty() ? FString(TEXT("鬼")) : Oni->TypeDisplayName.ToString();
 	}
 }
 
@@ -294,7 +302,10 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 				FLinearColor Color;
 				DescribeOni(Oni, StateText, Color);
 				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f;
-				DrawWorldIndicator(Oni->GetActorLocation() + FVector(0.f, 0.f, 130.f), FString::Printf(TEXT("鬼 %.0fm"), DistM), Color, 0.33f, 1.f);
+				// 追いかけ始めた直後は「！」を付ける
+				const bool bJustSpotted = Oni->GetChaseStartTime() >= 0.f && GetWorld()->GetTimeSeconds() - Oni->GetChaseStartTime() < 1.5f;
+				const FString Label = FString::Printf(TEXT("%s%s %.0fm"), bJustSpotted ? TEXT("！ ") : TEXT(""), *OniName(Oni), DistM);
+				DrawWorldIndicator(Oni->GetActorLocation() + FVector(0.f, 0.f, 130.f), Label, Color, 0.33f, 1.f);
 			}
 		}
 	}
@@ -322,7 +333,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const TArray<TObjectPtr<AOniCharacter>>& Onis = GM->GetOnis();
 	if (Onis.Num() > 0 && Pawn)
 	{
-		Panel(20, 170, 420, 20 + Onis.Num() * 34);
+		Panel(20, 170, 520, 20 + Onis.Num() * 34);
 		for (int32 i = 0; i < Onis.Num(); ++i)
 		{
 			if (const AOniCharacter* Oni = Onis[i])
@@ -331,7 +342,9 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 				FLinearColor Color;
 				DescribeOni(Oni, StateText, Color);
 				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f;
-				Text(FString::Printf(TEXT("鬼%d: %s（%.1f m）"), i + 1, *StateText, DistM), 36, 180 + i * 34, 20, Color);
+				const float RowY = 180 + i * 34;
+				Panel(32, RowY + 4, 16, 20, Oni->BodyColor); // 体の色（どの鬼か見分ける）
+				Text(FString::Printf(TEXT("%s: %s（%.1f m）"), *OniName(Oni), *StateText, DistM), 58, RowY, 20, Color);
 			}
 		}
 	}

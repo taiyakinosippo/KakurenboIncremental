@@ -82,6 +82,12 @@ public:
 	 */
 	int32 DamageBlocksInRadius(const FVector& Center, float Radius, double Damage);
 
+	/**
+	 * 1 個だけ攻撃。そのマスの一番下のブロックに Damage を与え、壊れたら取り除く（上の段は落ちる）。
+	 * @return 壊れたブロックの数（0 か 1）
+	 */
+	int32 DamageBottomBlock(const FIntPoint& Cell, double Damage);
+
 	/** すべてのブロックと設計図を消す */
 	void ClearAllBlocks();
 
@@ -119,18 +125,26 @@ public:
 	 */
 	FKakurenboPathGrid BuildPathGrid(double AttackDamage, float CostPerAttack) const;
 
+	/** 壁を「通れない」ものとした経路探索用の表（入り口から入る経路を探すのに使う） */
+	FKakurenboPathGrid BuildWalkGrid() const;
+
+	/** 壁に囲まれて歩いては入れない空きマスのまとまり（空洞）。一番大きな空き地は含まない */
+	TArray<TArray<FIntPoint>> FindEnclosedPockets() const;
+
 	/** 配置が変わるたびに増える番号（鬼が経路を作り直すタイミングの判定に使う） */
 	int32 GetGridVersion() const { return GridVersion; }
 
 	FOnKakurenboGridChanged OnGridChanged;
 
 	/**
-	 * 空きマスを Count 個選ぶ。AvoidPoints と、選んだマスどうしから、なるべく遠いマスを順に選ぶ（鬼の出現位置用）
+	 * 空きマスを Count 個選ぶ。AvoidPoints と、選んだマスどうしから、なるべく遠いマスを順に選ぶ（鬼の出現位置用）。
+	 * 壁に囲まれた空洞の中は選ばない（一番大きな空き地の中だけ）
 	 */
 	TArray<FIntPoint> FindSpreadFreeCells(const TArray<FVector>& AvoidPoints, int32 Count) const;
 
 	/**
-	 * ランダムな空きマスを Count 個選ぶ。AvoidPoints から MinDistanceCells マス以上、選んだマスどうしも離す（お宝用）
+	 * ランダムな空きマスを Count 個選ぶ。AvoidPoints から MinDistanceCells マス以上、選んだマスどうしも離す（お宝用）。
+	 * 壁に囲まれた空洞の中は選ばない（一番大きな空き地の中だけ）
 	 */
 	TArray<FIntPoint> FindRandomFreeCells(int32 Count, const TArray<FVector>& AvoidPoints, float MinDistanceCells, FRandomStream& Stream) const;
 
@@ -139,6 +153,8 @@ public:
 
 private:
 	int32 ToIndex(const FIntPoint& Cell) const { return Cell.Y * SizeX + Cell.X; }
+	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
+	TArray<bool> BuildMainAreaMask() const;
 	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color);
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);

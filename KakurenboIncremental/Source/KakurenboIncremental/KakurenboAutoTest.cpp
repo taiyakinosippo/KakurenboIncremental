@@ -13,6 +13,7 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
+#include "KakurenboOniBlackboard.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
 #include "Kismet/GameplayStatics.h"
@@ -152,10 +153,291 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		}
 	};
 
+	// テスト用：指定した 1 体だけを動かし、他の鬼は止めて遠くへ置く
+	auto KeepOnlyOni = [this, GM, Grid](int32 Keep) -> AOniCharacter*
+	{
+		AOniCharacter* Kept = GM->GetOnis().IsValidIndex(Keep) ? GM->GetOnis()[Keep].Get() : nullptr;
+		for (int32 i = 0; i < GM->GetOnis().Num(); ++i)
+		{
+			AOniCharacter* Oni = GM->GetOnis()[i];
+			if (Oni && Oni != Kept)
+			{
+				Oni->Deactivate();
+				Oni->SetActorLocation(FVector(0.f, 0.f, -5000.f)); // 舞台の下へ（ぶつからないように）
+				Oni->GetCharacterMovement()->DisableMovement();
+			}
+		}
+		return Kept;
+	};
+	// テスト用：設置パートを通さずにマスへ木の壁を置く
+	auto PlaceTestWall = [GM, Grid](const FIntPoint& Cell)
+	{
+		const FWallTypeDef& Def = GM->WallTypes[0];
+		Grid()->PlaceBlock(Cell, 0, Def.MaxHP, Def.Color);
+	};
+	// テスト用：このラウンドに出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ）
+	auto SetStageOniTypes = [GM](const TArray<EOniType>& Types)
+	{
+		if (GM->StageRows.Num() == 0)
+		{
+			GM->StageRows.AddDefaulted();
+		}
+		GM->StageRows[0].OniTypes = Types;
+	};
+	// テスト用：目も耳も使わず、指定どおりに動く鬼にする
+	auto MakeBlindListener = [](AOniCharacter* Oni)
+	{
+		Oni->SightRadius = 0.f;
+		Oni->CloseSenseRadius = 0.f;
+		Oni->HearingRadius = 100000.f;
+		Oni->NoiseInaccuracyCells = 0.f;
+		Oni->InvestigateMaxDuration = 100.f;
+		Oni->PocketInspectChance = 0.f;
+		Oni->bDrawDebug = true;
+	};
+	auto FoundReasonOfAny = [GM]() -> FName
+	{
+		for (const AOniCharacter* Oni : GM->GetOnis())
+		{
+			if (Oni && !Oni->GetFoundReason().IsNone())
+			{
+				return Oni->GetFoundReason();
+			}
+		}
+		return NAME_None;
+	};
+
 	TArray<FAutoTestStep> Steps;
 
+	// ================================================================ Entrance / Closed
+	if (Scenario.Equals(TEXT("Entrance"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Closed"), ESearchCase::IgnoreCase))
+	{
+		// プレイヤーの周り 8 マスを木の壁で囲む。Entrance は東側の 1 マスを開けて入り口にする
+		const bool bWithEntrance = Scenario.Equals(TEXT("Entrance"), ESearchCase::IgnoreCase);
+		const FString Prefix = bWithEntrance ? TEXT("entrance") : TEXT("closed");
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					const bool bEntrance = bWithEntrance && DX == 1 && DY == 0;
+					if ((DX != 0 || DY != 0) && !bEntrance)
+					{
+						PlaceTestWall(Me + FIntPoint(DX, DY));
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("%s: player is %s (pockets=%d)"), *Prefix, bWithEntrance ? TEXT("not enclosed") : TEXT("enclosed"), Grid()->FindEnclosedPockets().Num()),
+				Grid()->FindEnclosedPockets().Num() == (bWithEntrance ? 0 : 1));
+		} });
+		Steps.Add({ 3.3f, [=]
+		{
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				MakeBlindListener(Oni); // 目を使わず、連打の音だけで近づかせる
+			}
+			Log(TEXT("oni ready"));
+		} });
+		for (int32 i = 0; i < 80; ++i)
+		{
+			Steps.Add({ 0.25f, [=, this] { KakuMash(1); } });
+			if (i % 20 == 19)
+			{
+				const FString Label = FString::Printf(TEXT("t+%.0fs"), (i + 1) * 0.25f);
+				Steps.Add({ 0.f, [=] { Log(Label); } });
+			}
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const int32 Destroyed = GS()->LastRoundWallsDestroyed;
+			Check(FString::Printf(TEXT("%s: oni reached the player (phase=%s, reason=%s)"), *Prefix, *UEnum::GetValueAsString(GS()->Phase), *FoundReasonOfAny().ToString()),
+				GS()->Phase == EKakurenboPhase::Result && FoundReasonOfAny() == FName(TEXT("touch")));
+			if (bWithEntrance)
+			{
+				Check(FString::Printf(TEXT("entrance: came in through the entrance without breaking walls (destroyed=%d)"), Destroyed), Destroyed == 0);
+			}
+			else
+			{
+				Check(FString::Printf(TEXT("closed: no other route, so it broke in (destroyed=%d)"), Destroyed), Destroyed >= 1);
+			}
+			Shot(Prefix + TEXT("_01_result"));
+		} });
+	}
+	// ================================================================ Pocket
+	else if (Scenario.Equals(TEXT("Pocket"), ESearchCase::IgnoreCase))
+	{
+		// 角に斜めに壁を置いて空洞を作り、鬼が壊して調べに行くか
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			for (int32 k = 0; k <= 3; ++k)
+			{
+				PlaceTestWall(FIntPoint(k, 3 - k));
+			}
+			Check(FString::Printf(TEXT("diagonal walls make a hollow corner (pockets=%d)"), Grid()->FindEnclosedPockets().Num()), Grid()->FindEnclosedPockets().Num() == 1);
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->PocketInspectChance = 1.f; // 空洞があれば必ず調べに行く
+				Oni->bDrawDebug = true;
+			}
+			// プレイヤーは空洞から遠い反対側の隅へ
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() - 2, Grid()->GetSizeY() - 2)));
+			GetHider()->SetOverheadYaw(225.f);
+		} });
+		for (int32 i = 0; i < 25; ++i)
+		{
+			Steps.Add({ 1.f, [=]
+			{
+				const AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr;
+				if (Oni && Oni->GetOniState() == EOniState::Attack)
+				{
+					LookAtOni();
+				}
+				Log(TEXT("waiting"));
+			} });
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const int32 Destroyed = GS()->LastRoundWallsDestroyed;
+			Check(FString::Printf(TEXT("oni broke into the hollow corner (destroyed=%d, pockets left=%d)"), Destroyed, Grid()->FindEnclosedPockets().Num()),
+				Destroyed >= 1 && Grid()->FindEnclosedPockets().Num() == 0);
+			Shot(TEXT("pocket_01_after"));
+		} });
+	}
+	// ================================================================ Spin
+	else if (Scenario.Equals(TEXT("Spin"), ESearchCase::IgnoreCase))
+	{
+		// プレイヤーが鬼の真上（少しずれた位置）に浮いているとき、鬼がくるくる回らないか
+		struct FSpinRecord
+		{
+			float LastYaw = 0.f;
+			float TotalTurn = 0.f;
+			FVector StartLocation = FVector::ZeroVector;
+		};
+		TSharedRef<FSpinRecord> Record = MakeShared<FSpinRecord>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			UCharacterMovementComponent* Move = GetHider()->GetCharacterMovement();
+			Move->SetMovementMode(MOVE_Flying);
+			Move->StopMovementImmediately();
+			GetPawn()->SetActorLocation(Oni->GetActorLocation() + FVector(30.f, 0.f, 250.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("oni chases the player above it (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() == EOniState::Chase);
+			Record->LastYaw = Oni->GetActorRotation().Yaw;
+			Record->StartLocation = Oni->GetActorLocation();
+		} });
+		for (int32 i = 0; i < 30; ++i)
+		{
+			Steps.Add({ 0.05f, [=]
+			{
+				AOniCharacter* Oni = GM->GetOnis()[0];
+				const float Yaw = Oni->GetActorRotation().Yaw;
+				Record->TotalTurn += FMath::Abs(FRotator::NormalizeAxis(Yaw - Record->LastYaw));
+				Record->LastYaw = Yaw;
+			} });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			const float Moved = FVector::Dist2D(Oni->GetActorLocation(), Record->StartLocation);
+			Check(FString::Printf(TEXT("oni does not spin under the player (turned %.0f deg in 1.5s, moved %.0f cm)"), Record->TotalTurn, Moved),
+				Record->TotalTurn < 90.f && Moved < 60.f);
+			Check(TEXT("hovering player is not caught"), GS()->Phase == EKakurenboPhase::Hide);
+		} });
+	}
+	// ================================================================ Breaker
+	else if (Scenario.Equals(TEXT("Breaker"), ESearchCase::IgnoreCase))
+	{
+		// パワー鬼：音には反応せず、見えた壁を壊しに行く。範囲攻撃・高い攻撃力
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Breaker }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(FString::Printf(TEXT("breaker spawned (type=%s, damage=%.2f, chase=%.0f)"), *UEnum::GetValueAsString(Oni->OniType), Oni->AttackDamage, Oni->ChaseSpeed),
+				Oni->OniType == EOniType::Breaker && Oni->AttackDamage > 2.f && Oni->ChaseSpeed < 840.f);
+			Oni->SightRadius = 1200.f;
+			Oni->bDrawDebug = true;
+			// パワー鬼の正面 4〜5 マス先に壁を 2 個置く（プレイヤーは見えない遠くへ）
+			const FVector Fwd = Oni->GetActorForwardVector().GetSafeNormal2D();
+			PlaceTestWall(Grid()->WorldToCell(Oni->GetActorLocation() + Fwd * 400.f));
+			PlaceTestWall(Grid()->WorldToCell(Oni->GetActorLocation() + Fwd * 550.f + FVector(0.f, 100.f, 0.f)));
+			TeleportPlayer(Grid()->CellFloorCenter(Grid()->FindSpreadFreeCells({ Oni->GetActorLocation() }, 1)[0]));
+			KakuMash(1);
+			NextTick([=]
+			{
+				Check(FString::Printf(TEXT("breaker ignores the mash noise (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Investigate);
+			});
+		} });
+		for (int32 i = 0; i < 15; ++i)
+		{
+			Steps.Add({ 1.f, [=] { Log(TEXT("waiting")); } });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			Check(FString::Printf(TEXT("breaker went and broke the walls it saw (destroyed=%d)"), GS()->LastRoundWallsDestroyed), GS()->LastRoundWallsDestroyed >= 2);
+			Shot(TEXT("breaker_01_after"));
+		} });
+	}
+	// ================================================================ Careful
+	else if (Scenario.Equals(TEXT("Careful"), ESearchCase::IgnoreCase))
+	{
+		// 慎重鬼 2 体：調べた場所を共有し、互いに離れた場所を調べる
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Careful, EOniType::Careful }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("two careful onis (%d)"), GM->GetOnis().Num()), GM->GetOnis().Num() == 2 && GM->GetOnis()[0]->OniType == EOniType::Careful);
+			Check(TEXT("careful breaks one wall at a time"), GM->GetOnis()[0]->bSingleTargetAttack);
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->SightRadius = 0.f; // プレイヤーを追いかけず、調べる動きだけを見る
+				Oni->CloseSenseRadius = 0.f;
+				Oni->bDrawDebug = true;
+			}
+			// プレイヤーは隅で動かない（見つからないように遠くへ）
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		TSharedRef<int32> MaxTargetGapViolations = MakeShared<int32>(0);
+		for (int32 i = 0; i < 16; ++i)
+		{
+			Steps.Add({ 0.5f, [=, this]
+			{
+				// 2 体が同じ場所（3 マス以内）に向かっていないか
+				const AOniCharacter* A = GM->GetOnis()[0];
+				const AOniCharacter* B = GM->GetOnis()[1];
+				const FIntPoint CA = Grid()->WorldToCell(A->GetActorLocation());
+				const FIntPoint CB = Grid()->WorldToCell(B->GetActorLocation());
+				if (FMath::Max(FMath::Abs(CA.X - CB.X), FMath::Abs(CA.Y - CB.Y)) <= 1)
+				{
+					++*MaxTargetGapViolations;
+				}
+			} });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			const UKakurenboOniBlackboard* BB = GetWorld()->GetSubsystem<UKakurenboOniBlackboard>();
+			const int32 Checked = BB ? BB->GetCheckedCount(GetWorld()->GetTimeSeconds(), 1000.f) : 0;
+			Check(FString::Printf(TEXT("careful onis share the cells they checked (%d cells)"), Checked), Checked >= 30);
+			Check(FString::Printf(TEXT("careful onis search separate places (times they were side by side: %d / 16)"), *MaxTargetGapViolations), *MaxTargetGapViolations <= 3);
+			Shot(TEXT("careful_01"));
+		} });
+	}
 	// ================================================================ Camera
-	if (Scenario.Equals(TEXT("Camera"), ESearchCase::IgnoreCase))
+	else if (Scenario.Equals(TEXT("Camera"), ESearchCase::IgnoreCase))
 	{
 		// ---- 1. かくれんぼ（三人称）：マウスでカメラが回るか ----
 		Steps.Add({ 1.f, [=, this]
