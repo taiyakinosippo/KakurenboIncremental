@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/DataTable.h"
 #include "KakurenboTypes.generated.h"
 
 /** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
@@ -54,9 +55,12 @@ struct FShopItemView
 	FText OwnedText;
 };
 
-/** 購入できる壁の種類。GameMode の WallTypes 配列で定義する */
+/**
+ * 購入できる壁の種類。Data/Walls.csv（または GameMode の WallTable）の 1 行。
+ * FTableRowBase を継承すると、DataTable（表形式のデータ）の行として使える
+ */
 USTRUCT(BlueprintType)
-struct FWallTypeDef
+struct FWallTypeDef : public FTableRowBase
 {
 	GENERATED_BODY()
 
@@ -72,4 +76,65 @@ struct FWallTypeDef
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	FLinearColor Color = FLinearColor(0.5f, 0.35f, 0.2f);
+};
+
+/** 強化 1 種類の数値。Data/Upgrades.csv（または GameMode の UpgradeTable）の 1 行 */
+USTRUCT(BlueprintType)
+struct FKakurenboUpgradeRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upgrade")
+	FText DisplayName;
+
+	/** Lv.0 から Lv.1 に上げる価格 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upgrade")
+	double BaseCost = 10.0;
+
+	/** レベルが 1 上がるごとの価格の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upgrade")
+	double CostGrowth = 1.5;
+
+	/** Lv.0 のときの効果（連打 1 回のコイン、毎秒のコインなど） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upgrade")
+	double BaseValue = 1.0;
+
+	/** レベルが 1 上がるごとの効果の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Upgrade")
+	double ValueGrowth = 1.5;
+};
+
+/** ステージ 1 つ分の設定。Data/Stages.csv（または GameMode の StageTable）の 1 行（行の順番＝ステージ番号） */
+USTRUCT(BlueprintType)
+struct FKakurenboStageRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** 制限時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	float HideDuration = 30.f;
+
+	/** 鬼の数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	int32 NumOnis = 2;
+
+	/** お宝の数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	int32 NumTreasures = 3;
+
+	/** 逃げ切り報酬（コイン） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	double ClearReward = 100.0;
+
+	/** 鬼の攻撃力（壁の耐久値と比べる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	double OniDamage = 1.0;
+
+	/** 鬼に連打の音が聞こえる距離（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	float OniHearingRadius = 1200.f;
+
+	/** 鬼の移動速度に足す値（cm/秒。うろうろ・調べる・追いかける の全部に足す） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	float OniSpeedBonus = 0.f;
 };

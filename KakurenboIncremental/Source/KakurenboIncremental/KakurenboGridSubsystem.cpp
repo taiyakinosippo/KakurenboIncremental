@@ -2,6 +2,7 @@
 
 #include "Engine/World.h"
 #include "KakurenboLayout.h"
+#include "KakurenboSaveGame.h"
 #include "PlaceableBlock.h"
 
 void UKakurenboGridSubsystem::Configure(const FVector& InOrigin, int32 InSizeX, int32 InSizeY, float InCellSize, float InBlockHeight, int32 InMaxStackHeight)
@@ -351,6 +352,58 @@ void UKakurenboGridSubsystem::RepairFromDesign(TArray<int32>& InOutStock, const 
 	{
 		MarkChanged();
 	}
+}
+
+// ---------------------------------------------------------------- セーブ・ロード
+
+void UKakurenboGridSubsystem::ExportLayout(TArray<FKakurenboSavedColumn>& OutColumns) const
+{
+	OutColumns.Reset();
+	for (int32 Index = 0; Index < Columns.Num(); ++Index)
+	{
+		const FKakurenboBlockColumn& Column = Columns[Index];
+		if (Column.Design.Num() == 0 && Column.Blocks.Num() == 0)
+		{
+			continue;
+		}
+		FKakurenboSavedColumn& Saved = OutColumns.AddDefaulted_GetRef();
+		Saved.Cell = FIntPoint(Index % SizeX, Index / SizeX);
+		Saved.Design = Column.Design;
+		for (const APlaceableBlock* Block : Column.Blocks)
+		{
+			if (Block)
+			{
+				Saved.Live.Add(Block->WallTypeIndex);
+			}
+		}
+	}
+}
+
+void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& SavedColumns, const TArray<FWallTypeDef>& WallTypes)
+{
+	ClearAllBlocks();
+	for (const FKakurenboSavedColumn& Saved : SavedColumns)
+	{
+		if (!IsInside(Saved.Cell))
+		{
+			continue;
+		}
+		FKakurenboBlockColumn& Column = Columns[ToIndex(Saved.Cell)];
+		Column.Design = Saved.Design;
+		for (const int32 Type : Saved.Live)
+		{
+			if (!WallTypes.IsValidIndex(Type) || Column.Blocks.Num() >= MaxStackHeight)
+			{
+				continue; // 壁の種類が CSV から消えていたら作らない
+			}
+			const FWallTypeDef& Def = WallTypes[Type];
+			if (APlaceableBlock* Block = SpawnBlockActor(Saved.Cell, Column.Blocks.Num(), Type, Def.MaxHP, Def.Color))
+			{
+				Column.Blocks.Add(Block);
+			}
+		}
+	}
+	MarkChanged();
 }
 
 // ---------------------------------------------------------------- 経路探索・出現位置

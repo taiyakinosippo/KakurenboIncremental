@@ -135,6 +135,10 @@ void AOniCharacter::StartChase()
 	LostSightTimer = 0.f;
 	ChaseRepathTimer = 0.f;
 	bHasGoal = false;
+	if (Target)
+	{
+		LastKnownTargetLocation = Target->GetActorLocation();
+	}
 }
 
 void AOniCharacter::ReturnToWander(bool bWithSightCooldown)
@@ -178,6 +182,10 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	{
 		SenseTimer = 0.f;
 		bTargetInSight = CanSeeTarget();
+		if (bTargetInSight && Target)
+		{
+			LastKnownTargetLocation = Target->GetActorLocation();
+		}
 		if (GetIntent() == EOniState::Chase)
 		{
 			LostSightTimer = bTargetInSight ? 0.f : LostSightTimer + SenseInterval;
@@ -268,8 +276,10 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 		return;
 	}
 
-	// 相手は動くので、相手のいるマスへの経路をこまめに作り直す
-	const FIntPoint TargetCell = ClampToGrid(Grid()->WorldToCell(Target->GetActorLocation()));
+	// 見えている間は相手の今の位置、見えなくなったら最後に見えた場所へ向かう。
+	// 相手は動くので、経路はこまめに作り直す
+	const FVector ChaseLocation = bTargetInSight ? Target->GetActorLocation() : LastKnownTargetLocation;
+	const FIntPoint TargetCell = ClampToGrid(Grid()->WorldToCell(ChaseLocation));
 	ChaseRepathTimer -= DeltaSeconds;
 	if (!bHasGoal || TargetCell != GoalCell || ChaseRepathTimer <= 0.f)
 	{
@@ -280,15 +290,15 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 		}
 	}
 
-	const FVector ToTarget = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	const FVector ToTarget = (ChaseLocation - GetActorLocation()).GetSafeNormal2D();
 	if (!bHasGoal)
 	{
 		AddMovementInput(ToTarget);
 		return;
 	}
 
-	// 同じマスまで来たら、まっすぐ相手に向かう（ぶつかれば発見）
-	if (FollowPath(DeltaSeconds, true) == EFollowResult::Arrived)
+	// 同じマスまで来たら、まっすぐ相手（最後に見えた場所）に向かう（ぶつかれば発見）
+	if (FollowPath(DeltaSeconds, true) == EFollowResult::Arrived && FVector::Dist2D(ChaseLocation, GetActorLocation()) > 30.f)
 	{
 		AddMovementInput(ToTarget);
 	}
@@ -500,7 +510,8 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds, bool 
 			return EFollowResult::Attacking;
 		}
 	}
-	else if (Dist2D <= ReachDistance)
+	// 速いほど 1 フレームで進む距離が大きいので、「着いた」とみなす距離も広げる（行き過ぎて往復しないように）
+	else if (Dist2D <= FMath::Max(ReachDistance, GetCharacterMovement()->MaxWalkSpeed * DeltaSeconds * 2.f))
 	{
 		++PathIndex;
 		return PathIndex >= Path.Num() ? EFollowResult::Arrived : EFollowResult::Moving;

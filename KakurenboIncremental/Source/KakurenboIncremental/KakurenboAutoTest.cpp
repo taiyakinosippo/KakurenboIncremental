@@ -14,6 +14,8 @@
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboPlayerController.h"
+#include "KakurenboSaveGame.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
 #include "OniCharacter.h"
 #include "TimerManager.h"
@@ -326,7 +328,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 
 		Steps.Add({ 3.5f, [=, this]
 		{
-			Check(FString::Printf(TEXT("two onis spawned (%d)"), GM->GetOnis().Num()), GM->GetOnis().Num() == 2);
+			Check(FString::Printf(TEXT("onis spawned as the stage table says (%d / %d)"), GM->GetOnis().Num(), GM->GetNumOnis()), GM->GetOnis().Num() == GM->GetNumOnis() && GM->GetNumOnis() >= 2);
+			Check(FString::Printf(TEXT("oni chase speed is about twice the player's (%.0f / %.0f)"), OniA()->ChaseSpeed, GetHider()->GetCharacterMovement()->MaxWalkSpeed),
+				OniA()->ChaseSpeed >= GetHider()->GetCharacterMovement()->MaxWalkSpeed * 1.9f);
 			AOniCharacter* A = OniA();
 			if (GM->GetOnis().Num() > 1)
 			{
@@ -358,21 +362,24 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("still hiding"), GS()->Phase == EKakurenboPhase::Hide);
 			Log(TEXT("after losing sight"));
 
-			// 追跡の時間切れ：見えたまま追わせて、1 秒で諦めるか
-			A->ChaseMaxDuration = 1.f;
-			TeleportPlayer(A->GetActorLocation() + A->GetActorForwardVector() * 700.f);
+			// 追跡の時間切れ：見えたまま追わせて、0.6 秒で諦めるか（鬼は速いので、追いつかれない距離から始める）
+			// うろうろ中は向きが変わるので、ここからは視界を全方向にし、舞台の中心へ向かう方向に立つ（舞台の外に出ないように）
+			A->ChaseMaxDuration = 0.6f;
+			A->SightHalfAngle = 180.f;
+			const FVector ToCenter = (Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2)) - A->GetActorLocation()).GetSafeNormal2D();
+			TeleportPlayer(A->GetActorLocation() + ToCenter * 850.f);
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
 			Check(FString::Printf(TEXT("seen again -> chases (intent=%s)"), *UEnum::GetValueAsString(OniA()->GetIntent())), OniA()->GetIntent() == EOniState::Chase);
 		} });
-		Steps.Add({ 1.1f, [=, this]
+		Steps.Add({ 0.5f, [=, this]
 		{
 			AOniCharacter* A = OniA();
 			Check(FString::Printf(TEXT("chase time limit -> back to wander (intent=%s)"), *UEnum::GetValueAsString(A->GetIntent())), A->GetIntent() == EOniState::Wander);
 			Check(TEXT("still hiding after the chase"), GS()->Phase == EKakurenboPhase::Hide);
 		} });
-		Steps.Add({ 0.5f, [=, this]
+		Steps.Add({ 0.3f, [=, this]
 		{
 			// 時間切れで諦めた直後は、見えていてもすぐには追いかけ直さない
 			AOniCharacter* A = OniA();
@@ -447,7 +454,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			const TArray<TObjectPtr<ATreasureActor>>& Treasures = GM->GetTreasures();
-			Check(FString::Printf(TEXT("treasures spawned at hide start (%d)"), Treasures.Num()), Treasures.Num() == GM->NumTreasures);
+			Check(FString::Printf(TEXT("treasures spawned at hide start (%d)"), Treasures.Num()), Treasures.Num() == GM->GetNumTreasures());
 			for (const ATreasureActor* T : Treasures)
 			{
 				const FIntPoint Cell = Grid()->WorldToCell(T->GetActorLocation());
@@ -509,8 +516,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				SameCount += FirstRoundCells->Contains(C) ? 1 : 0;
 			}
 			Check(FString::Printf(TEXT("new treasures appear at new random places (%d spawned, %d same as last round)"), Cells.Num(), SameCount),
-				Cells.Num() == GM->NumTreasures && SameCount < Cells.Num());
-			Check(FString::Printf(TEXT("treasure value grows with stage (%.1f)"), GM->GetTreasureValue()), GM->GetTreasureValue() > GM->ClearRewardBase * GM->TreasureRewardRatio);
+				Cells.Num() == GM->GetNumTreasures() && SameCount < Cells.Num());
+			Check(FString::Printf(TEXT("treasure value grows with stage (%.1f)"), GM->GetTreasureValue()), GM->GetTreasureValue() > GM->GetStageSettingsFor(1).ClearReward * GM->TreasureRewardRatio);
 		} });
 	}
 	// ================================================================ Build
@@ -599,6 +606,144 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("build_04_repaired"));
 		} });
 	}
+	// ================================================================ SaveRun1 / SaveRun2（再起動をまたぐセーブ。Tools/RunSaveRestartTest.ps1 から使う）
+	else if (Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase))
+	{
+		// 1 回目の起動：遊んで、保存された状態で終了する
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("1st launch starts fresh (stage %d, blocks %d)"), GS()->Stage, Grid()->GetBlockCount()),
+				GS()->Stage == 1 && GS()->Phase == EKakurenboPhase::Hide && Grid()->GetBlockCount() == 0);
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(500.0);
+			KakuBuy(3); KakuBuy(3); // 木の壁 ×2
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			KakuPlaceWall(Me.X + 2, Me.Y, 0);
+			KakuPlaceWall(Me.X - 2, Me.Y, 0);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ（開始時に保存される）
+			Log(TEXT("saved for restart"));
+			Check(TEXT("saved before quitting"), UGameplayStatics::DoesSaveGameExist(GM->SaveSlotName, 0));
+		} });
+	}
+	else if (Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase))
+	{
+		// 2 回目の起動：続きから（設置パート）始まっているか
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const AKakurenboGameState* S = GS();
+			Log(TEXT("2nd launch"));
+			Check(FString::Printf(TEXT("2nd launch resumes in the build phase (phase=%s)"), *UEnum::GetValueAsString(S->Phase)), S->Phase == EKakurenboPhase::Build);
+			Check(FString::Printf(TEXT("stage and coins carried over (stage %d, coins %.2f, expected 2 / ~580)"), S->Stage, S->Coins),
+				S->Stage == 2 && FMath::Abs(S->Coins - 580.0) < 1.0);
+			Check(FString::Printf(TEXT("placed walls carried over (blocks %d, wood stock %d)"), Grid()->GetBlockCount(), S->WallStock.IsValidIndex(0) ? S->WallStock[0] : -1),
+				Grid()->GetBlockCount() == 2 && S->WallStock.IsValidIndex(0) && S->WallStock[0] == 0);
+			Check(TEXT("resume notice is shown"), !S->NoticeText.IsEmpty() && GetWorld()->GetTimeSeconds() < S->NoticeUntilTime);
+			Shot(TEXT("saverun2_resumed"));
+		} });
+	}
+	// ================================================================ Save
+	else if (Scenario.Equals(TEXT("Save"), ESearchCase::IgnoreCase))
+	{
+		// テスト用のスロットに保存 → メモリ上の状態を消す → 読み込み、で元に戻るか（ユーザーのセーブには触らない）
+		struct FSnapshot
+		{
+			double Coins = 0.0;
+			int32 Stage = 0;
+			int32 MashLevel = 0;
+			TArray<int32> Stock;
+			TArray<FKakurenboSavedColumn> Layout;
+			FVector PlayerLocation = FVector::ZeroVector;
+		};
+		TSharedRef<FSnapshot> Expected = MakeShared<FSnapshot>();
+
+		Steps.Add({ 0.5f, [=, this]
+		{
+			GM->SaveSlotName = TEXT("KakuAutoTest");
+			GM->bSaveEnabled = true;
+			UGameplayStatics::DeleteGameInSlot(GM->SaveSlotName, 0);
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(1000.0);
+			KakuBuy(1);                         // 連打強化
+			KakuBuy(3); KakuBuy(3); KakuBuy(3); // 木の壁 ×3
+			KakuBuy(4);                         // 石の壁 ×1
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			UKakurenboGridSubsystem* G = Grid();
+			const FIntPoint Me = G->WorldToCell(GetPawn()->GetActorLocation());
+			KakuPlaceWall(Me.X + 2, Me.Y, 0);
+			KakuPlaceWall(Me.X + 2, Me.Y, 1); // 積む
+			KakuPlaceWall(Me.X - 2, Me.Y + 1, 0);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ（開始時に保存される）
+			const AKakurenboGameState* S = GS();
+			Expected->Coins = S->Coins;
+			Expected->Stage = S->Stage;
+			Expected->MashLevel = S->MashIncomeLevel;
+			Expected->Stock = S->WallStock;
+			Grid()->ExportLayout(Expected->Layout);
+			Expected->PlayerLocation = GetPawn()->GetActorLocation();
+			Check(TEXT("save file exists after starting the round"), UGameplayStatics::DoesSaveGameExist(GM->SaveSlotName, 0));
+			Log(TEXT("saved"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 「再起動」の代わりに、メモリ上の状態を消してから読み込む
+			AKakurenboGameState* S = GS();
+			Grid()->ClearAllBlocks();
+			S->Coins = 0.0;
+			S->Stage = 1;
+			S->MashIncomeLevel = 0;
+			S->WallStock.Init(0, S->WallStock.Num());
+			TeleportPlayer(FVector::ZeroVector);
+
+			const bool bLoaded = GM->LoadProgress();
+			TArray<FKakurenboSavedColumn> Layout;
+			Grid()->ExportLayout(Layout);
+			bool bSameLayout = Layout.Num() == Expected->Layout.Num();
+			for (int32 i = 0; bSameLayout && i < Layout.Num(); ++i)
+			{
+				bSameLayout = Layout[i].Cell == Expected->Layout[i].Cell && Layout[i].Design == Expected->Layout[i].Design && Layout[i].Live == Expected->Layout[i].Live;
+			}
+			Check(TEXT("save loads"), bLoaded);
+			Check(FString::Printf(TEXT("coins / stage / upgrade restored (%.1f, %d, Lv%d)"), S->Coins, S->Stage, S->MashIncomeLevel),
+				FMath::IsNearlyEqual(S->Coins, Expected->Coins, 0.01) && S->Stage == Expected->Stage && S->MashIncomeLevel == Expected->MashLevel);
+			Check(FString::Printf(TEXT("wall stock restored (%s)"), *FString::JoinBy(S->WallStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->WallStock == Expected->Stock);
+			Check(FString::Printf(TEXT("wall layout restored (%d columns, %d blocks)"), Layout.Num(), Grid()->GetBlockCount()), bSameLayout && Grid()->GetBlockCount() == 3);
+			Check(FString::Printf(TEXT("player position restored (%.0f cm off)"), FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation)),
+				FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation) < 5.f);
+			Log(TEXT("loaded"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 最初からやり直す
+			GM->ResetProgress();
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("reset -> stage 1, no coins, no walls (stage %d, coins %.1f, blocks %d)"), S->Stage, S->Coins, Grid()->GetBlockCount()),
+				S->Stage == 1 && S->Coins < 0.01 && Grid()->GetBlockCount() == 0 && S->Phase == EKakurenboPhase::Hide);
+			UGameplayStatics::DeleteGameInSlot(GM->SaveSlotName, 0);
+			GM->bSaveEnabled = false;
+			Shot(TEXT("save_01_after_reset"));
+		} });
+	}
 	// ================================================================ Loop
 	else
 	{
@@ -606,7 +751,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 1.f, [=, this]
 		{
 			Log(TEXT("start"));
-			Check(FString::Printf(TEXT("treasures spawned (%d)"), GM->GetTreasures().Num()), GM->GetTreasures().Num() == GM->NumTreasures);
+			Check(FString::Printf(TEXT("treasures spawned (%d)"), GM->GetTreasures().Num()), GM->GetTreasures().Num() == GM->GetNumTreasures());
 			Shot(TEXT("loop_01_hide_countdown"));
 		} });
 		Steps.Add({ 1.f, [=, this] { KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("loop_02_hide_mashing")); } });

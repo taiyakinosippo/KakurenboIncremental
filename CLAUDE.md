@@ -22,12 +22,15 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・三人称カメラ） / 鬼（Wander/Investigate/Chase/Attack。ぶつかったらアウト） |
 | `TreasureActor` | お宝（距離で取得） |
 | `KakurenboLayout` | 設計図からの修復計画（純粋ロジック・単体テストあり） |
+| `KakurenboBalance` | ステージ設定の解決（表より後は伸ばす）と CSV → DataTable の読み込み |
+| `KakurenboSaveGame` | セーブデータ（GameMode の SaveProgress / LoadProgress / ResetProgress） |
 | `GridPathfinder` | ワールドに依存しない A*。壁マスに「壊すコスト」を持たせる |
 | `KakurenboGridSubsystem` | グリッドとブロック配置（積み上げ・範囲ダメージ・落下） |
 | `KakurenboArena` | 床・外周の壁・外側の地面・ライト・ポストプロセス（露出の下限、モーションブラーなし）を C++ で生成（レベルアセット不要） |
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
+- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - レベルアセットは無い。既定マップは `/Engine/Maps/Entry`、既定 GameMode は `KakurenboGameMode`（DefaultEngine.ini）
 - 見た目はエンジン付属の BasicShapes と `BasicShapeMaterial`（"Color" パラメータ）で仮組み
 
@@ -36,7 +39,8 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
-powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Senses / Touch / Treasure / Build
+powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Senses / Touch / Treasure / Build / Save
+powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
@@ -56,6 +60,7 @@ powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera 
   マウス視点は `RotationInput` に直接足している
 - マウスの移動量はビューポートがマウスをキャプチャしているときしか届かない（カーソル表示中は届かない）
 - 自動テスト中は実際のキーボード・マウス入力を無視する（ViewportClient->SetIgnoreInput。疑似入力だけが届く）
+- RunAutoTest は `-KakuNoSave` 付きで起動するので、ユーザーのセーブ（Saved/SaveGames/Kakurenbo.sav）は読み書きしない。Save 系テストは専用スロットを使う
 - エディタが起動中で Live Coding が有効だと、外部ビルドが失敗することがある
 - 実行時のログ: `KakurenboIncremental/Saved/Logs/KakurenboIncremental.log`
 

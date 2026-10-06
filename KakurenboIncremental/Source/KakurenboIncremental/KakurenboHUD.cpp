@@ -66,6 +66,14 @@ void AKakurenboHUD::DrawHUD()
 	case EKakurenboPhase::Hide:   DrawHide(State, GM); break;
 	case EKakurenboPhase::Result: DrawResult(State, GM); break;
 	}
+
+	// 画面上部のお知らせ（一番上に重ねて描く）
+	if (!State->NoticeText.IsEmpty() && GetWorld()->GetTimeSeconds() < State->NoticeUntilTime)
+	{
+		const float CanvasW = Canvas->ClipX / UIScale;
+		Panel(CanvasW * 0.5f - 330, 116, 660, 44, FLinearColor(0.05f, 0.25f, 0.1f, 0.8f));
+		Text(State->NoticeText.ToString(), 0, 122, 22, FLinearColor::White, true);
+	}
 }
 
 // ---------------------------------------------------------------- 描画の補助

@@ -86,6 +86,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 LastUnrepairedWalls = 0;
 
+	// ---- 画面上部のお知らせ（「セーブデータから再開しました」など） ----
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	FText NoticeText;
+
+	/** このワールド時刻（秒）まで表示する */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	float NoticeUntilTime = 0.f;
+
 	UPROPERTY(BlueprintAssignable, Category = "Kakurenbo")
 	FOnKakurenboPhaseChanged OnPhaseChanged;
 

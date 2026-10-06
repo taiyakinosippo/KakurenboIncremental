@@ -493,3 +493,11 @@ void AKakurenboPlayerController::KakuSens(float Sensitivity)
 {
 	MouseSensitivity = FMath::Max(0.001f, Sensitivity);
 }
+
+void AKakurenboPlayerController::KakuResetSave()
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->ResetProgress();
+	}
+}

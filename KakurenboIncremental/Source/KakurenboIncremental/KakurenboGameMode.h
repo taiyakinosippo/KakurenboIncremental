@@ -1,6 +1,8 @@
 ﻿// ゲームのルールと進行を管理するクラス。
-// パートの切り替え・コインの計算・購入処理・鬼とお宝の出現はすべてここに集める。
-// 数値はすべて UPROPERTY なので、BP の派生クラスやエディタの詳細パネルで調整できる。
+// パートの切り替え・コインの計算・購入処理・鬼とお宝の出現・セーブとロードはすべてここに集める。
+//
+// 数値（ステージ・強化・壁）は <プロジェクト>/Data/*.csv から読み込む（Data/README.md 参照）。
+// CSV が読めないときは、このクラスに書いてある既定値を使う。
 
 #pragma once
 
@@ -14,6 +16,7 @@ class AKakurenboGameState;
 class AOniCharacter;
 class APlaceableBlock;
 class ATreasureActor;
+class UDataTable;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
@@ -23,21 +26,50 @@ class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
 public:
 	AKakurenboGameMode();
 
+	// ===== バランスデータ =====
+
+	/**
+	 * ステージごとの設定（行の順番＝ステージ番号）。起動時に Data/Stages.csv から読み込む。
+	 * ここに DataTable アセットを設定すると CSV より優先される（行の型: KakurenboStageRow）
+	 */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> StageTable;
+
+	/** 強化の数値。Data/Upgrades.csv の代わりに使う DataTable（行の型: KakurenboUpgradeRow。行名 Mash / Time） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> UpgradeTable;
+
+	/** 壁の種類。Data/Walls.csv の代わりに使う DataTable（行の型: WallTypeDef） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> WallTable;
+
+	/** 読み込んだステージの表（CSV・DataTable が無ければ空 → ステージ 1 の既定値から伸ばす） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
+	TArray<FKakurenboStageRow> StageRows;
+
+	/** 表より後のステージで、1 ステージごとに伸ばす量 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	float StageHideDurationGrowth = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	double StageClearRewardGrowth = 4.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	double StageOniDamageGrowth = 1.6;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	float StageOniHearingGrowth = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	float StageOniSpeedGrowth = 15.f;
+
 	// ===== かくれんぼのルール =====
-
-	/** ステージ 1 の制限時間（秒） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rules")
-	float HideDurationBase = 30.f;
-
-	/** ステージが 1 上がるごとに延びる制限時間（秒） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rules")
-	float HideDurationPerStage = 5.f;
 
 	/** かくれんぼ開始から鬼が出てくるまでの猶予（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rules")
 	float HideStartDelay = 3.f;
 
-	// ===== 収入 =====
+	// ===== 強化（Upgrades.csv で上書きされる） =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double MashIncomeBase = 1.0;
@@ -51,16 +83,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double TimeIncomeGrowth = 1.5;
 
-	/** 逃げ切り報酬（ステージ 1） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double ClearRewardBase = 100.0;
-
-	/** 逃げ切り報酬のステージごとの倍率 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double ClearRewardGrowth = 4.0;
-
-	// ===== 強化の価格 =====
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double MashUpgradeBaseCost = 15.0;
 
@@ -73,72 +95,54 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double TimeUpgradeCostGrowth = 1.7;
 
-	// ===== お宝 =====
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	FText MashUpgradeName;
 
-	/** 1 ラウンドに出現するお宝の数 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
-	int32 NumTreasures = 3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	FText TimeUpgradeName;
+
+	// ===== お宝 =====
 
 	/** お宝 1 個の価値（そのステージの逃げ切り報酬に対する割合） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	double TreasureRewardRatio = 0.3;
 
-	/** お宝はプレイヤー・鬼・他のお宝からこのマス数以上離して置く */
+	/** お宝はプレイヤー・他のお宝からこのマス数以上離して置く */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	float TreasureMinDistanceCells = 4.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	TSubclassOf<ATreasureActor> TreasureClass;
 
-	// ===== 壁 =====
+	// ===== 壁（Walls.csv で上書きされる） =====
 
 	/** 購入できる壁の種類（ショップの並び順） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	TArray<FWallTypeDef> WallTypes;
 
-	// ===== 鬼（ステージが上がるほど強くなる） =====
+	// ===== 鬼 =====
 
 	/** スポーンする鬼のクラス（BP の派生クラスで見た目を変えてよい） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	TSubclassOf<AOniCharacter> OniClass;
 
-	/** 鬼の数 */
+	/** うろうろするときの速さ（プレイヤーは 420） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	int32 NumOnis = 2;
+	float OniWanderSpeedBase = 420.f;
 
+	/** 音を調べに行くときの速さ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniWanderSpeedBase = 200.f;
+	float OniInvestigateSpeedBase = 700.f;
 
+	/** 追いかけるときの速さ（プレイヤーの 2 倍）。見つかったら走って逃げ切るのは難しく、壁の陰に隠れて見失わせる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniInvestigateSpeedBase = 340.f;
-
-	/** 追いかけるときの速さ。プレイヤー（420）より少し遅いので、うまく逃げれば振り切れる */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniChaseSpeedBase = 400.f;
-
-	/** ステージごとの移動速度の増加（cm/秒） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniSpeedPerStage = 15.f;
+	float OniChaseSpeedBase = 840.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniSightRadius = 900.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	float OniSightHalfAngle = 40.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniHearingRadiusBase = 1200.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	float OniHearingRadiusPerStage = 100.f;
-
-	/** 鬼の攻撃力（ステージ 1）。壁の耐久値と比べる */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	double OniAttackDamageBase = 1.0;
-
-	/** 攻撃力のステージごとの倍率 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
-	double OniAttackDamageGrowth = 1.6;
 
 	/** 連打したとき、音の届く範囲を床に表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -167,7 +171,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
 	int32 MaxStackHeight = 3;
 
+	// ===== セーブ =====
+
+	/** パートが変わるたびに自動で保存し、起動時に読み込む（起動オプション -KakuNoSave で無効） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	bool bSaveEnabled = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FString SaveSlotName = TEXT("Kakurenbo");
+
 	// ===== 計算 =====
+
+	/** 今のステージの設定 */
+	FKakurenboStageRow GetStageSettings() const;
+	/** 指定したステージの設定（表より後は伸ばした値） */
+	FKakurenboStageRow GetStageSettingsFor(int32 Stage) const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetMashIncome() const;
@@ -195,6 +213,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetOniHearingRadius() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	int32 GetNumOnis() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	int32 GetNumTreasures() const;
 
 	/** 今いる鬼（かくれんぼ中・リザルト中のみ） */
 	const TArray<TObjectPtr<AOniCharacter>>& GetOnis() const { return Onis; }
@@ -269,6 +293,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	AKakurenboArena* GetArena() const { return Arena; }
 
+	// ===== セーブ・ロード =====
+
+	/** 今の状態を保存する（bSaveEnabled のときだけ） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool SaveProgress();
+
+	/** 保存した状態を読み込んで反映する。セーブが無ければ false */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool LoadProgress();
+
+	/** セーブを消して、最初（ステージ 1・何もない状態）からやり直す */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	void ResetProgress();
+
+	/** 画面上部に一時的なお知らせを出す */
+	void ShowNotice(const FText& Text, float Seconds = 5.f);
+
 	/** デバッグ用：コインを増やす */
 	void DebugAddCoins(double Amount);
 
@@ -284,6 +325,9 @@ protected:
 	void SetPhase(EKakurenboPhase NewPhase);
 	AKakurenboGameState* GS() const;
 	ACharacter* GetPlayerCharacter() const;
+
+	/** CSV（または DataTable アセット）から数値を読み込んで反映する */
+	void LoadBalanceData();
 
 	void SpawnOnis();
 	void DespawnOnis();
@@ -307,6 +351,10 @@ protected:
 
 	UPROPERTY()
 	TArray<TObjectPtr<ATreasureActor>> Treasures;
+
+	/** CSV から作った一時的な DataTable（GC で消えないように持っておく） */
+	UPROPERTY()
+	TArray<TObjectPtr<UDataTable>> LoadedTables;
 
 	bool bOnisSpawnedThisRound = false;
 	FRandomStream TreasureRandom;

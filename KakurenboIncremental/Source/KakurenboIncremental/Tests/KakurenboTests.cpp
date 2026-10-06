@@ -1,8 +1,11 @@
 ﻿// 単体テスト（UE の Automation Test）。Tools/RunUnitTests.ps1 で実行する。
 // エディタの Tools → Session Frontend → Automation からも「Kakurenbo」で検索して実行できる。
 
+#include "Engine/DataTable.h"
 #include "GridPathfinder.h"
+#include "KakurenboBalance.h"
 #include "KakurenboLayout.h"
+#include "UObject/Package.h"
 #include "KakurenboLibrary.h"
 #include "Misc/AutomationTest.h"
 
@@ -163,6 +166,85 @@ bool FKakurenboRepairPlanTest::RunTest(const FString& Parameters)
 		PlanColumnRepair({ Stone, Wood }, { Stone, Wood }, Stock, Plan);
 		TestTrue(TEXT("all kept"), Plan[0].Step == ERepairStep::Keep && Plan[1].Step == ERepairStep::Keep);
 		TestEqual(TEXT("no stock used"), Stock[Wood] + Stock[Stone], 6);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboResolveStageTest, "Kakurenbo.Balance.ResolveStage", TestFlags)
+bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
+{
+	KakurenboBalance::FStageGrowth Growth; // 既定: +5 秒 / ×4 / ×1.6 / +100 / +15
+
+	TArray<FKakurenboStageRow> Rows;
+	Rows.AddDefaulted(2);
+	Rows[1].HideDuration = 35.f;
+	Rows[1].ClearReward = 400.0;
+	Rows[1].OniDamage = 1.6;
+	Rows[1].OniHearingRadius = 1300.f;
+	Rows[1].OniSpeedBonus = 15.f;
+	Rows[1].NumOnis = 3;
+
+	// 表の中はその行
+	TestEqual(TEXT("stage 1 from table"), KakurenboBalance::ResolveStage(Rows, 1, Growth).HideDuration, 30.f);
+	TestEqual(TEXT("stage 2 from table"), KakurenboBalance::ResolveStage(Rows, 2, Growth).NumOnis, 3);
+
+	// 表より後は最後の行から伸ばす（ステージ 4 = 2 ステージぶん）
+	const FKakurenboStageRow S4 = KakurenboBalance::ResolveStage(Rows, 4, Growth);
+	TestEqual(TEXT("stage 4 hide duration"), S4.HideDuration, 45.f);
+	TestTrue(TEXT("stage 4 reward"), FMath::IsNearlyEqual(S4.ClearReward, 6400.0));
+	TestTrue(TEXT("stage 4 damage"), FMath::IsNearlyEqual(S4.OniDamage, 4.096, 0.0001));
+	TestEqual(TEXT("stage 4 hearing"), S4.OniHearingRadius, 1500.f);
+	TestEqual(TEXT("stage 4 speed bonus"), S4.OniSpeedBonus, 45.f);
+	TestEqual(TEXT("stage 4 keeps last row's oni count"), S4.NumOnis, 3);
+
+	// 表が空ならステージ 1 の既定値から伸ばす
+	const FKakurenboStageRow S3 = KakurenboBalance::ResolveStage({}, 3, Growth);
+	TestEqual(TEXT("empty table stage 3 duration"), S3.HideDuration, 40.f);
+	TestTrue(TEXT("empty table stage 3 reward"), FMath::IsNearlyEqual(S3.ClearReward, 1600.0));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboCsvFilesTest, "Kakurenbo.Balance.CsvFiles", TestFlags)
+bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
+{
+	// Data/*.csv が壊れていないか（列名の間違い・カンマの付け忘れなど）
+	auto Load = [this](UScriptStruct* RowStruct, const TCHAR* FileName) -> UDataTable*
+	{
+		TArray<FString> Problems;
+		UDataTable* Table = KakurenboBalance::LoadCsvAsDataTable(GetTransientPackage(), RowStruct, KakurenboBalance::GetDataFilePath(FileName), Problems);
+		for (const FString& Problem : Problems)
+		{
+			AddError(FString::Printf(TEXT("%s: %s"), FileName, *Problem));
+		}
+		TestNotNull(FString::Printf(TEXT("%s loads"), FileName), Table);
+		return Table;
+	};
+
+	if (UDataTable* Stages = Load(FKakurenboStageRow::StaticStruct(), TEXT("Stages.csv")))
+	{
+		TArray<FKakurenboStageRow*> Rows;
+		Stages->GetAllRows<FKakurenboStageRow>(TEXT("Test"), Rows);
+		TestTrue(TEXT("stages has rows"), Rows.Num() >= 1);
+		if (Rows.Num() > 0)
+		{
+			TestTrue(TEXT("stage 1 has onis and time"), Rows[0]->NumOnis >= 1 && Rows[0]->HideDuration > 0.f);
+		}
+	}
+	if (UDataTable* Upgrades = Load(FKakurenboUpgradeRow::StaticStruct(), TEXT("Upgrades.csv")))
+	{
+		TestNotNull(TEXT("Mash row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Mash"), TEXT("Test")));
+		TestNotNull(TEXT("Time row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Time"), TEXT("Test")));
+	}
+	if (UDataTable* Walls = Load(FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
+	{
+		TArray<FWallTypeDef*> Rows;
+		Walls->GetAllRows<FWallTypeDef>(TEXT("Test"), Rows);
+		TestTrue(TEXT("walls has rows"), Rows.Num() >= 1);
+		if (Rows.Num() > 0)
+		{
+			TestTrue(TEXT("wall 1 has HP, cost and a color"), Rows[0]->MaxHP > 0.0 && Rows[0]->Cost > 0.0 && Rows[0]->Color.R > 0.f);
+			TestFalse(TEXT("wall 1 has a name"), Rows[0]->DisplayName.IsEmpty());
+		}
 	}
 	return true;
 }

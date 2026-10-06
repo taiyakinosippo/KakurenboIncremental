@@ -1,16 +1,21 @@
 ﻿#include "KakurenboGameMode.h"
 
 #include "DrawDebugHelpers.h"
+#include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerStart.h"
 #include "HiderCharacter.h"
 #include "KakurenboArena.h"
+#include "KakurenboBalance.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboPlayerController.h"
+#include "KakurenboSaveGame.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
 #include "TreasureActor.h"
@@ -29,8 +34,10 @@ AKakurenboGameMode::AKakurenboGameMode()
 	OniClass = AOniCharacter::StaticClass();
 	TreasureClass = ATreasureActor::StaticClass();
 
-	// 壁の初期設定。鬼の攻撃力はステージごとに 1.6 倍になるので、
-	// 木は常に一撃、石はステージ 4 から一撃、鉄はステージ 7 から一撃で壊れる
+	MashUpgradeName = NSLOCTEXT("Kakurenbo", "ShopMash", "連打コイン強化");
+	TimeUpgradeName = NSLOCTEXT("Kakurenbo", "ShopTime", "時間コイン強化");
+
+	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）
 	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color)
 	{
 		FWallTypeDef& Def = WallTypes.AddDefaulted_GetRef();
@@ -60,6 +67,20 @@ void AKakurenboGameMode::BeginPlay()
 	Super::BeginPlay();
 
 	TreasureRandom.GenerateNewSeed();
+	LoadBalanceData();
+
+	// 自動テストなどでセーブを読み書きしたくないときは、起動オプション -KakuNoSave を付ける。
+	// -KakuSaveSlot=名前 を付けると、そのスロットを使う（再起動をまたぐテスト用。-KakuNoSave より優先）
+	if (FParse::Param(FCommandLine::Get(), TEXT("KakuNoSave")))
+	{
+		bSaveEnabled = false;
+	}
+	FString SlotOverride;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KakuSaveSlot="), SlotOverride) && !SlotOverride.IsEmpty())
+	{
+		SaveSlotName = SlotOverride;
+		bSaveEnabled = true;
+	}
 
 	// レベルに舞台が置かれていなければ自動で作る
 	for (TActorIterator<AKakurenboArena> It(GetWorld()); It; ++It)
@@ -88,8 +109,16 @@ void AKakurenboGameMode::BeginPlay()
 		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, BlockHeight, MaxStackHeight);
 	}
 
-	// 最初のラウンドは「何もない空間で連打」から始まる
-	StartHidePhase();
+	// セーブがあれば続きから（設置パートで再開）。無ければ「何もない空間で連打」から始める
+	if (LoadProgress())
+	{
+		ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeLoaded", "セーブデータから再開しました（ステージ {0}）"), GS()->Stage));
+		StartBuildPhase();
+	}
+	else
+	{
+		StartHidePhase();
+	}
 }
 
 void AKakurenboGameMode::RestartPlayer(AController* NewPlayer)
@@ -143,6 +172,101 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 	}
 }
 
+// ---------------------------------------------------------------- バランスデータ
+
+void AKakurenboGameMode::LoadBalanceData()
+{
+	// アセットが設定されていればそれを、無ければ Data/ の CSV から一時的な DataTable を作って使う
+	auto GetTable = [this](UDataTable* Asset, UScriptStruct* RowStruct, const TCHAR* FileName) -> UDataTable*
+	{
+		if (Asset)
+		{
+			return Asset;
+		}
+		TArray<FString> Problems;
+		UDataTable* Table = KakurenboBalance::LoadCsvAsDataTable(this, RowStruct, KakurenboBalance::GetDataFilePath(FileName), Problems);
+		for (const FString& Problem : Problems)
+		{
+			UE_LOG(LogKakurenbo, Warning, TEXT("%s: %s"), FileName, *Problem);
+		}
+		if (Table)
+		{
+			LoadedTables.Add(Table);
+		}
+		else
+		{
+			UE_LOG(LogKakurenbo, Warning, TEXT("%s を読めなかったので既定値を使います"), FileName);
+		}
+		return Table;
+	};
+
+	if (UDataTable* Table = GetTable(StageTable, FKakurenboStageRow::StaticStruct(), TEXT("Stages.csv")))
+	{
+		// 行の順番＝ステージ番号
+		TArray<FKakurenboStageRow*> Rows;
+		Table->GetAllRows<FKakurenboStageRow>(TEXT("Stages"), Rows);
+		StageRows.Reset();
+		for (const FKakurenboStageRow* Row : Rows)
+		{
+			StageRows.Add(*Row);
+		}
+	}
+
+	if (UDataTable* Table = GetTable(UpgradeTable, FKakurenboUpgradeRow::StaticStruct(), TEXT("Upgrades.csv")))
+	{
+		if (const FKakurenboUpgradeRow* Mash = Table->FindRow<FKakurenboUpgradeRow>(TEXT("Mash"), TEXT("Upgrades")))
+		{
+			MashUpgradeName = Mash->DisplayName;
+			MashUpgradeBaseCost = Mash->BaseCost;
+			MashUpgradeCostGrowth = Mash->CostGrowth;
+			MashIncomeBase = Mash->BaseValue;
+			MashIncomeGrowth = Mash->ValueGrowth;
+		}
+		if (const FKakurenboUpgradeRow* Time = Table->FindRow<FKakurenboUpgradeRow>(TEXT("Time"), TEXT("Upgrades")))
+		{
+			TimeUpgradeName = Time->DisplayName;
+			TimeUpgradeBaseCost = Time->BaseCost;
+			TimeUpgradeCostGrowth = Time->CostGrowth;
+			TimeIncomeBase = Time->BaseValue;
+			TimeIncomeGrowth = Time->ValueGrowth;
+		}
+	}
+
+	if (UDataTable* Table = GetTable(WallTable, FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
+	{
+		TArray<FWallTypeDef*> Rows;
+		Table->GetAllRows<FWallTypeDef>(TEXT("Walls"), Rows);
+		if (Rows.Num() > 0)
+		{
+			WallTypes.Reset();
+			for (const FWallTypeDef* Row : Rows)
+			{
+				WallTypes.Add(*Row);
+			}
+		}
+	}
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, mash %.2f x%.2f (cost %.1f x%.2f)"),
+		StageRows.Num(), WallTypes.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
+}
+
+FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
+{
+	KakurenboBalance::FStageGrowth Growth;
+	Growth.HideDurationPerStage = StageHideDurationGrowth;
+	Growth.ClearRewardGrowth = StageClearRewardGrowth;
+	Growth.OniDamageGrowth = StageOniDamageGrowth;
+	Growth.OniHearingRadiusPerStage = StageOniHearingGrowth;
+	Growth.OniSpeedBonusPerStage = StageOniSpeedGrowth;
+	return KakurenboBalance::ResolveStage(StageRows, Stage, Growth);
+}
+
+FKakurenboStageRow AKakurenboGameMode::GetStageSettings() const
+{
+	const AKakurenboGameState* State = GS();
+	return GetStageSettingsFor(State ? State->Stage : 1);
+}
+
 // ---------------------------------------------------------------- 計算
 
 double AKakurenboGameMode::GetMashIncome() const
@@ -171,8 +295,7 @@ double AKakurenboGameMode::GetTimeUpgradeCost() const
 
 double AKakurenboGameMode::GetClearReward() const
 {
-	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(ClearRewardBase, ClearRewardGrowth, State ? State->Stage - 1 : 0);
+	return GetStageSettings().ClearReward;
 }
 
 double AKakurenboGameMode::GetTreasureValue() const
@@ -182,20 +305,27 @@ double AKakurenboGameMode::GetTreasureValue() const
 
 float AKakurenboGameMode::GetHideDuration() const
 {
-	const AKakurenboGameState* State = GS();
-	return HideDurationBase + HideDurationPerStage * ((State ? State->Stage : 1) - 1);
+	return GetStageSettings().HideDuration;
 }
 
 double AKakurenboGameMode::GetOniAttackDamage() const
 {
-	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(OniAttackDamageBase, OniAttackDamageGrowth, State ? State->Stage - 1 : 0);
+	return GetStageSettings().OniDamage;
 }
 
 float AKakurenboGameMode::GetOniHearingRadius() const
 {
-	const AKakurenboGameState* State = GS();
-	return OniHearingRadiusBase + OniHearingRadiusPerStage * ((State ? State->Stage : 1) - 1);
+	return GetStageSettings().OniHearingRadius;
+}
+
+int32 AKakurenboGameMode::GetNumOnis() const
+{
+	return FMath::Max(0, GetStageSettings().NumOnis);
+}
+
+int32 AKakurenboGameMode::GetNumTreasures() const
+{
+	return FMath::Max(0, GetStageSettings().NumTreasures);
 }
 
 EKakurenboPhase AKakurenboGameMode::GetPhase() const
@@ -227,7 +357,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 
 	{
 		FShopItemView& Item = Items.AddDefaulted_GetRef();
-		Item.DisplayName = NSLOCTEXT("Kakurenbo", "ShopMash", "連打コイン強化");
+		Item.DisplayName = MashUpgradeName;
 		Item.Cost = GetMashUpgradeCost();
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopMashDesc", "1回 {0} → {1} コイン"),
 			Fmt(GetMashIncome()), Fmt(UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, State->MashIncomeLevel + 1)));
@@ -235,7 +365,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 	}
 	{
 		FShopItemView& Item = Items.AddDefaulted_GetRef();
-		Item.DisplayName = NSLOCTEXT("Kakurenbo", "ShopTime", "時間コイン強化");
+		Item.DisplayName = TimeUpgradeName;
 		Item.Cost = GetTimeUpgradeCost();
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopTimeDesc", "毎秒 {0} → {1} コイン"),
 			Fmt(GetTimeIncomePerSecond()), Fmt(UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State->TimeIncomeLevel + 1)));
@@ -480,7 +610,7 @@ void AKakurenboGameMode::SpawnTreasures()
 	}
 
 	// 毎回ランダムな空きマス。プレイヤーのすぐ近くと、お宝どうしは離す
-	const TArray<FIntPoint> Cells = Grid->FindRandomFreeCells(NumTreasures, { Player->GetActorLocation() }, TreasureMinDistanceCells, TreasureRandom);
+	const TArray<FIntPoint> Cells = Grid->FindRandomFreeCells(GetNumTreasures(), { Player->GetActorLocation() }, TreasureMinDistanceCells, TreasureRandom);
 	for (const FIntPoint& Cell : Cells)
 	{
 		ATreasureActor* Treasure = GetWorld()->SpawnActorDeferred<ATreasureActor>(TreasureClass, FTransform(Grid->CellFloorCenter(Cell)));
@@ -525,8 +655,8 @@ void AKakurenboGameMode::SpawnOnis()
 	}
 
 	// プレイヤーからも、鬼どうしでも、なるべく遠い空きマスに出現させる
-	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, NumOnis);
-	const int32 Stage = GS()->Stage;
+	const FKakurenboStageRow Settings = GetStageSettings();
+	const TArray<FIntPoint> Cells = Grid->FindSpreadFreeCells({ Hider->GetActorLocation() }, GetNumOnis());
 	for (const FIntPoint& Cell : Cells)
 	{
 		const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
@@ -537,13 +667,13 @@ void AKakurenboGameMode::SpawnOnis()
 		{
 			continue;
 		}
-		Oni->WanderSpeed = OniWanderSpeedBase + OniSpeedPerStage * (Stage - 1);
-		Oni->InvestigateSpeed = OniInvestigateSpeedBase + OniSpeedPerStage * (Stage - 1);
-		Oni->ChaseSpeed = OniChaseSpeedBase + OniSpeedPerStage * (Stage - 1);
+		Oni->WanderSpeed = OniWanderSpeedBase + Settings.OniSpeedBonus;
+		Oni->InvestigateSpeed = OniInvestigateSpeedBase + Settings.OniSpeedBonus;
+		Oni->ChaseSpeed = OniChaseSpeedBase + Settings.OniSpeedBonus;
 		Oni->SightRadius = OniSightRadius;
 		Oni->SightHalfAngle = OniSightHalfAngle;
-		Oni->HearingRadius = GetOniHearingRadius();
-		Oni->AttackDamage = GetOniAttackDamage();
+		Oni->HearingRadius = Settings.OniHearingRadius;
+		Oni->AttackDamage = Settings.OniDamage;
 		Oni->bDrawDebug = bDebugOni;
 		Oni->FinishSpawning(FTransform(Facing, Location));
 
@@ -553,7 +683,7 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->Activate(Hider);
 		Onis.Add(Oni);
 
-		UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f"), Cell.X, Cell.Y, Oni->AttackDamage);
+		UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f, chase speed %.0f"), Cell.X, Cell.Y, Oni->AttackDamage, Oni->ChaseSpeed);
 	}
 }
 
@@ -596,6 +726,12 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 	UE_LOG(LogKakurenbo, Log, TEXT("Phase -> %s (Stage %d, Coins %s)"),
 		*UEnum::GetValueAsString(NewPhase), State->Stage, *UKakurenboLibrary::FormatBigNumber(State->Coins));
 	State->OnPhaseChanged.Broadcast(NewPhase);
+
+	// かくれんぼ以外のパートに入るたびに自動で保存する（かくれんぼの途中で終わっても、直前の状態から再開できる）
+	if (NewPhase != EKakurenboPhase::Hide)
+	{
+		SaveProgress();
+	}
 }
 
 void AKakurenboGameMode::StartShopPhase()
@@ -619,6 +755,9 @@ void AKakurenboGameMode::StartHidePhase()
 	{
 		return;
 	}
+	// 設置パートで置いた壁を保存してから始める
+	SaveProgress();
+
 	State->CoinsEarnedThisRound = 0.0;
 	State->MashCountThisRound = 0;
 	State->LastRoundWallsDestroyed = 0;
@@ -682,6 +821,119 @@ void AKakurenboGameMode::AdvancePhase()
 	case EKakurenboPhase::Shop:   StartBuildPhase(); break;
 	case EKakurenboPhase::Build:  StartHidePhase(); break;
 	case EKakurenboPhase::Hide:   break; // かくれんぼ中は進められない
+	}
+}
+
+// ---------------------------------------------------------------- セーブ・ロード
+
+bool AKakurenboGameMode::SaveProgress()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!bSaveEnabled || !State || !Grid)
+	{
+		return false;
+	}
+
+	UKakurenboSaveGame* Save = Cast<UKakurenboSaveGame>(UGameplayStatics::CreateSaveGameObject(UKakurenboSaveGame::StaticClass()));
+	Save->Coins = State->Coins;
+	Save->Stage = State->Stage;
+	Save->MashIncomeLevel = State->MashIncomeLevel;
+	Save->TimeIncomeLevel = State->TimeIncomeLevel;
+	Save->WallStock = State->WallStock;
+	Grid->ExportLayout(Save->Columns);
+	if (const ACharacter* Player = GetPlayerCharacter())
+	{
+		Save->bHasPlayerLocation = true;
+		Save->PlayerLocation = Player->GetActorLocation();
+	}
+
+	const bool bSaved = UGameplayStatics::SaveGameToSlot(Save, SaveSlotName, 0);
+	if (!bSaved)
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Failed to save to slot '%s'"), *SaveSlotName);
+	}
+	return bSaved;
+}
+
+bool AKakurenboGameMode::LoadProgress()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!bSaveEnabled || !State || !Grid || !UGameplayStatics::DoesSaveGameExist(SaveSlotName, 0))
+	{
+		return false;
+	}
+	const UKakurenboSaveGame* Save = Cast<UKakurenboSaveGame>(UGameplayStatics::LoadGameFromSlot(SaveSlotName, 0));
+	if (!Save)
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Save slot '%s' could not be read"), *SaveSlotName);
+		return false;
+	}
+
+	State->Coins = Save->Coins;
+	State->Stage = FMath::Max(1, Save->Stage);
+	State->MashIncomeLevel = Save->MashIncomeLevel;
+	State->TimeIncomeLevel = Save->TimeIncomeLevel;
+	State->WallStock = Save->WallStock;
+	State->WallStock.SetNum(WallTypes.Num()); // CSV で壁の種類が増減していても合わせる
+	Grid->ImportLayout(Save->Columns, WallTypes);
+
+	if (Save->bHasPlayerLocation)
+	{
+		if (ACharacter* Player = GetPlayerCharacter())
+		{
+			Player->SetActorLocation(Save->PlayerLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	}
+	UE_LOG(LogKakurenbo, Log, TEXT("Loaded save '%s': stage %d, coins %s, %d wall columns"),
+		*SaveSlotName, State->Stage, *UKakurenboLibrary::FormatBigNumber(State->Coins), Save->Columns.Num());
+	return true;
+}
+
+void AKakurenboGameMode::ResetProgress()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid)
+	{
+		return;
+	}
+	if (bSaveEnabled)
+	{
+		UGameplayStatics::DeleteGameInSlot(SaveSlotName, 0);
+	}
+
+	DespawnOnis();
+	ClearTreasures();
+	Grid->ClearAllBlocks();
+
+	State->Coins = 0.0;
+	State->Stage = 1;
+	State->MashIncomeLevel = 0;
+	State->TimeIncomeLevel = 0;
+	State->WallStock.Init(0, WallTypes.Num());
+	State->LastRepairedWalls = 0;
+	State->LastUnrepairedWalls = 0;
+
+	if (ACharacter* Player = GetPlayerCharacter())
+	{
+		Player->SetActorLocation(FVector(CellSize * 0.5f, CellSize * 0.5f, 120.f), false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	UE_LOG(LogKakurenbo, Log, TEXT("Progress reset"));
+	ShowNotice(NSLOCTEXT("Kakurenbo", "NoticeReset", "最初からやり直します"));
+
+	// かくれんぼ中に呼ばれても、いったんリザルト扱いにせずそのまま最初のラウンドを始める
+	State->Phase = EKakurenboPhase::Result;
+	StartHidePhase();
+}
+
+void AKakurenboGameMode::ShowNotice(const FText& Text, float Seconds)
+{
+	if (AKakurenboGameState* State = GS())
+	{
+		State->NoticeText = Text;
+		State->NoticeUntilTime = GetWorld()->GetTimeSeconds() + Seconds;
 	}
 }
 

@@ -103,6 +103,14 @@ public:
 	void RepairFromDesign(TArray<int32>& InOutStock, const TArray<FWallTypeDef>& WallTypes,
 		TFunctionRef<bool(const FIntPoint& Cell, int32 Level)> CanSpawnAt, int32& OutRepaired, int32& OutMissing);
 
+	// ===== セーブ・ロード =====
+
+	/** 壁のあるマス（設計図か今ある壁のどちらかがある）を書き出す */
+	void ExportLayout(TArray<struct FKakurenboSavedColumn>& OutColumns) const;
+
+	/** 書き出した配置を復元する（今ある壁はすべて消してから作り直す。耐久は満タン） */
+	void ImportLayout(const TArray<struct FKakurenboSavedColumn>& Columns, const TArray<FWallTypeDef>& WallTypes);
+
 	// ===== 鬼の経路探索・出現位置 =====
 
 	/**

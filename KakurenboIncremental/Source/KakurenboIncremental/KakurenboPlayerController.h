@@ -115,6 +115,10 @@ public:
 	UFUNCTION(Exec)
 	void KakuSens(float Sensitivity);
 
+	/** セーブを消して最初からやり直す */
+	UFUNCTION(Exec)
+	void KakuResetSave();
+
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
 	 * Scenario: Loop（基本ループ） / Senses（鬼の追跡・見失い） / Touch（ぶつかったら発見）

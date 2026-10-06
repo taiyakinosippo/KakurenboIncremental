@@ -50,13 +50,14 @@ public:
 	// ===== 移動（GameMode がステージに応じて設定する） =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
-	float WanderSpeed = 200.f;
+	float WanderSpeed = 420.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
-	float InvestigateSpeed = 340.f;
+	float InvestigateSpeed = 700.f;
 
+	/** 追いかけるときの速さ（プレイヤー 420 の 2 倍） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
-	float ChaseSpeed = 400.f;
+	float ChaseSpeed = 840.f;
 
 	// ===== 感覚 =====
 
@@ -212,6 +213,9 @@ private:
 	float SightCooldown = 0.f;
 	bool bTargetInSight = false;
 	float ChaseRepathTimer = 0.f;
+
+	/** 最後にプレイヤーが見えた場所（見えない間はここへ向かう） */
+	FVector LastKnownTargetLocation = FVector::ZeroVector;
 
 	/** 音を聞いて向かっている先（Investigate 中） */
 	FIntPoint NoiseCell = FIntPoint::ZeroValue;
