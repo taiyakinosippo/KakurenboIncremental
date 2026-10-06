@@ -10,7 +10,9 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
+#include "KakurenboSoundSubsystem.h"
 #include "PlaceableBlock.h"
+#include "TrapActor.h"
 
 AKakurenboPlayerController::AKakurenboPlayerController()
 {
@@ -278,18 +280,35 @@ bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 
 // ---------------------------------------------------------------- 設置パート
 
+bool AKakurenboPlayerController::IsTrapSlotSelected() const
+{
+	const AKakurenboGameMode* GM = GetKakurenboGameMode();
+	return GM && SelectedBuildSlot >= GM->WallTypes.Num();
+}
+
+int32 AKakurenboPlayerController::GetSelectedWallType() const
+{
+	return IsTrapSlotSelected() ? INDEX_NONE : SelectedBuildSlot;
+}
+
+int32 AKakurenboPlayerController::GetSelectedTrapType() const
+{
+	const AKakurenboGameMode* GM = GetKakurenboGameMode();
+	return (GM && IsTrapSlotSelected()) ? SelectedBuildSlot - GM->WallTypes.Num() : INDEX_NONE;
+}
+
 void AKakurenboPlayerController::HandleBuildInput()
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
 
 	HandleCharacterMovement();
 
-	// 壁の種類を選ぶ
-	const int32 NumTypes = GM->WallTypes.Num();
+	// 置く物を選ぶ（壁の種類 → 罠の種類の順に番号が付く）
+	const int32 NumSlots = GM->WallTypes.Num() + GM->TrapTypes.Num();
 	const int32 Number = GetPressedNumberKey();
-	if (Number >= 1 && Number <= NumTypes)
+	if (Number >= 1 && Number <= NumSlots)
 	{
-		SelectedWallType = Number - 1;
+		SelectedBuildSlot = Number - 1;
 	}
 
 	// カーソルの先の置き場所
@@ -305,12 +324,27 @@ void AKakurenboPlayerController::HandleBuildInput()
 
 	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) && bCanPlaceAtTarget)
 	{
-		GM->PlaceWall(BuildTargetCell, SelectedWallType);
+		if (IsTrapSlotSelected())
+		{
+			GM->PlaceTrap(BuildTargetCell, GetSelectedTrapType());
+		}
+		else
+		{
+			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
+		}
 	}
-	if (WasInputKeyJustPressed(EKeys::RightMouseButton) && PickUpTarget)
+	if (WasInputKeyJustPressed(EKeys::RightMouseButton))
 	{
-		GM->PickUpWall(PickUpTarget);
-		PickUpTarget = nullptr;
+		if (PickUpTarget)
+		{
+			GM->PickUpWall(PickUpTarget);
+			PickUpTarget = nullptr;
+		}
+		else if (bHasTrapPickUpTarget)
+		{
+			GM->PickUpTrap(TrapPickUpCell);
+			bHasTrapPickUpTarget = false;
+		}
 	}
 }
 
@@ -320,6 +354,7 @@ void AKakurenboPlayerController::ClearBuildTarget()
 	bCanPlaceAtTarget = false;
 	BuildTargetReason = FText::GetEmpty();
 	PickUpTarget = nullptr;
+	bHasTrapPickUpTarget = false;
 }
 
 void AKakurenboPlayerController::UpdateBuildTargetAt(const FVector2D& ScreenPosition)
@@ -357,7 +392,16 @@ void AKakurenboPlayerController::UpdateBuildTargetAt(const FVector2D& ScreenPosi
 		return;
 	}
 	bHasBuildTarget = true;
-	bCanPlaceAtTarget = GM->CanPlaceWall(BuildTargetCell, SelectedWallType, &BuildTargetReason);
+	bCanPlaceAtTarget = IsTrapSlotSelected()
+		? GM->CanPlaceTrap(BuildTargetCell, GetSelectedTrapType(), &BuildTargetReason)
+		: GM->CanPlaceWall(BuildTargetCell, GetSelectedWallType(), &BuildTargetReason);
+
+	// 罠には当たり判定が無いので、指しているマスに罠（か消えた罠の設計図）があればそれを回収の対象にする
+	if (!PickUpTarget && Grid->HasTrap(BuildTargetCell))
+	{
+		bHasTrapPickUpTarget = true;
+		TrapPickUpCell = BuildTargetCell;
+	}
 }
 
 void AKakurenboPlayerController::DrawBuildPreview() const
@@ -384,7 +428,11 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 		DrawDebugLine(GetWorld(), Origin + FVector(0, Y * Cell, 0), Origin + FVector(LenX, Y * Cell, 0), LineColor, false, 0.f, 0, 1.f);
 	}
 
-	// 壊れたまま直せていない壁（設計図にはある）を赤い枠で示す
+	// 罠用の平たい枠（床の上 8cm）
+	const FVector TrapExtent(Cell * 0.45f, Cell * 0.45f, 4.f);
+	auto TrapBoxCenter = [Grid](const FIntPoint& C) { return Grid->CellFloorCenter(C) + FVector(0.f, 0.f, 4.f); };
+
+	// 壊れたまま直せていない壁・在庫が無くて置き直せていない罠（設計図にはある）を赤い枠で示す
 	for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
 	{
 		for (int32 X = 0; X < Grid->GetSizeX(); ++X)
@@ -396,19 +444,35 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 			{
 				DrawDebugBox(GetWorld(), Grid->CellToWorld(C, Level), BlockExtent * 0.95f, FColor(255, 60, 60), false, 0.f, 0, 2.f);
 			}
+			if (Grid->GetTrapDesign(C) != INDEX_NONE && !Grid->GetTrap(C))
+			{
+				DrawDebugBox(GetWorld(), TrapBoxCenter(C), TrapExtent, FColor(255, 60, 60), false, 0.f, 0, 2.f);
+			}
 		}
 	}
 
 	// 置き場所のプレビュー（緑: 置ける / 赤: 置けない）
 	if (bHasBuildTarget)
 	{
-		const FVector Center = Grid->CellToWorld(BuildTargetCell, Grid->GetColumnHeight(BuildTargetCell));
-		DrawDebugBox(GetWorld(), Center, BlockExtent, bCanPlaceAtTarget ? FColor(80, 255, 80) : FColor(255, 70, 70), false, 0.f, 0, 3.f);
+		const FColor Color = bCanPlaceAtTarget ? FColor(80, 255, 80) : FColor(255, 70, 70);
+		if (IsTrapSlotSelected())
+		{
+			DrawDebugBox(GetWorld(), TrapBoxCenter(BuildTargetCell), TrapExtent, Color, false, 0.f, 0, 3.f);
+		}
+		else
+		{
+			const FVector Center = Grid->CellToWorld(BuildTargetCell, Grid->GetColumnHeight(BuildTargetCell));
+			DrawDebugBox(GetWorld(), Center, BlockExtent, Color, false, 0.f, 0, 3.f);
+		}
 	}
-	// 回収できる壁を黄色で囲む
+	// 回収できる壁・罠を黄色で囲む
 	if (PickUpTarget)
 	{
 		DrawDebugBox(GetWorld(), PickUpTarget->GetActorLocation(), BlockExtent * 1.04f, FColor(255, 220, 60), false, 0.f, 0, 2.f);
+	}
+	else if (bHasTrapPickUpTarget)
+	{
+		DrawDebugBox(GetWorld(), TrapBoxCenter(TrapPickUpCell), TrapExtent * FVector(1.08f, 1.08f, 1.5f), FColor(255, 220, 60), false, 0.f, 0, 2.f);
 	}
 }
 
@@ -486,6 +550,26 @@ void AKakurenboPlayerController::KakuPlaceWall(int32 X, int32 Y, int32 WallType)
 			UE_LOG(LogTemp, Warning, TEXT("KakuPlaceWall (%d,%d) type %d failed: %s (pawn at %s)"),
 				X, Y, WallType, *Reason.ToString(), GetPawn() ? *GetPawn()->GetActorLocation().ToString() : TEXT("none"));
 		}
+	}
+}
+
+void AKakurenboPlayerController::KakuPlaceTrap(int32 X, int32 Y, int32 TrapType)
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		FText Reason;
+		if (!GM->CanPlaceTrap(FIntPoint(X, Y), TrapType, &Reason) || !GM->PlaceTrap(FIntPoint(X, Y), TrapType))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("KakuPlaceTrap (%d,%d) type %d failed: %s"), X, Y, TrapType, *Reason.ToString());
+		}
+	}
+}
+
+void AKakurenboPlayerController::KakuVolume(float Volume)
+{
+	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
+	{
+		Sound->MasterVolume = FMath::Clamp(Volume, 0.f, 1.f);
 	}
 }
 

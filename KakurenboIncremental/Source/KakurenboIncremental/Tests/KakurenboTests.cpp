@@ -5,6 +5,7 @@
 #include "GridPathfinder.h"
 #include "KakurenboBalance.h"
 #include "KakurenboLayout.h"
+#include "KakurenboSynth.h"
 #include "UObject/Package.h"
 #include "KakurenboLibrary.h"
 #include "Misc/AutomationTest.h"
@@ -27,6 +28,14 @@ bool FKakurenboFormatBigNumberTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("1e18"), UKakurenboLibrary::FormatBigNumber(1e18), TEXT("1.00Qi"));
 	TestEqual(TEXT("1e21"), UKakurenboLibrary::FormatBigNumber(1e21), TEXT("1.00e21"));
 	TestEqual(TEXT("-2500"), UKakurenboLibrary::FormatBigNumber(-2500.0), TEXT("-2.50K"));
+
+	// 小さな値は小数第 1 位まで出す（強化の 1 → 1.5 が「1 → 1」に見えないように）
+	TestEqual(TEXT("stat 1.5"), UKakurenboLibrary::FormatStatNumber(1.5), TEXT("1.5"));
+	TestEqual(TEXT("stat 2"), UKakurenboLibrary::FormatStatNumber(2.0), TEXT("2"));
+	TestEqual(TEXT("stat 2.56"), UKakurenboLibrary::FormatStatNumber(2.56), TEXT("2.6"));
+	TestEqual(TEXT("stat 0.04"), UKakurenboLibrary::FormatStatNumber(0.04), TEXT("0"));
+	TestEqual(TEXT("stat 2.25"), UKakurenboLibrary::FormatStatNumber(2.25), TEXT("2.3"));
+	TestEqual(TEXT("stat 1234"), UKakurenboLibrary::FormatStatNumber(1234.0), TEXT("1.23K"));
 	return true;
 }
 
@@ -234,6 +243,36 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 	{
 		TestNotNull(TEXT("Mash row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Mash"), TEXT("Test")));
 		TestNotNull(TEXT("Time row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Time"), TEXT("Test")));
+		const FKakurenboUpgradeRow* Wall = Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Test"));
+		TestNotNull(TEXT("Wall row"), Wall);
+		if (Wall)
+		{
+			TestTrue(TEXT("wall reinforcement makes walls harder"), Wall->ValueGrowth > 1.0 && Wall->BaseCost > 0.0);
+		}
+	}
+	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
+	{
+		TArray<FKakurenboTrapRow*> Rows;
+		Traps->GetAllRows<FKakurenboTrapRow>(TEXT("Test"), Rows);
+		TestTrue(TEXT("traps has rows"), Rows.Num() >= 2);
+		bool bHasSticky = false, bHasDecoy = false;
+		for (const FKakurenboTrapRow* Row : Rows)
+		{
+			TestFalse(TEXT("trap has a name"), Row->DisplayName.IsEmpty());
+			TestTrue(TEXT("trap has a price that grows"), Row->Cost > 0.0 && Row->CostGrowth >= 1.0);
+			TestTrue(TEXT("trap has a trigger radius"), Row->TriggerRadius > 0.f);
+			if (Row->Kind == ETrapKind::Sticky)
+			{
+				bHasSticky = true;
+				TestTrue(TEXT("sticky trap stuns"), Row->StunSeconds > 0.f);
+			}
+			else if (Row->Kind == ETrapKind::Decoy)
+			{
+				bHasDecoy = true;
+				TestTrue(TEXT("decoy makes noise"), Row->NoiseInterval > 0.f && Row->NoiseLoudness > 0.f);
+			}
+		}
+		TestTrue(TEXT("Kind column parsed (Sticky and Decoy present)"), bHasSticky && bHasDecoy);
 	}
 	if (UDataTable* Walls = Load(FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
 	{
@@ -267,6 +306,35 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		Stages->GetAllRows<FKakurenboStageRow>(TEXT("Test"), Rows);
 		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 0 && Rows[0]->OniTypes.Num() >= 2);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboSynthTest, "Kakurenbo.Sound.Synth", TestFlags)
+bool FKakurenboSynthTest::RunTest(const FString& Parameters)
+{
+	// すべての効果音が、ちゃんと聞こえる大きさ・決めた長さで作れるか
+	for (int32 i = 0; i < static_cast<int32>(EKakurenboSfx::Count); ++i)
+	{
+		const EKakurenboSfx Sfx = static_cast<EKakurenboSfx>(i);
+		const FString Name = UEnum::GetValueAsString(Sfx);
+		const TArray<int16> Samples = KakurenboSynth::RenderSfx(Sfx);
+		const float Seconds = static_cast<float>(Samples.Num()) / KakurenboSynth::DefaultSampleRate;
+		const float Expected = KakurenboSynth::GetDuration(Sfx);
+
+		int32 Peak = 0;
+		for (const int16 S : Samples)
+		{
+			Peak = FMath::Max(Peak, FMath::Abs(static_cast<int32>(S)));
+		}
+		TestTrue(FString::Printf(TEXT("%s has a recipe"), *Name), Expected > 0.f && Expected < 2.f);
+		TestTrue(FString::Printf(TEXT("%s length %.3f s (recipe %.3f s)"), *Name, Seconds, Expected), Seconds >= Expected && Seconds <= Expected + 0.02f);
+		TestTrue(FString::Printf(TEXT("%s is audible (peak %d)"), *Name, Peak), Peak > 3000);
+		TestTrue(FString::Printf(TEXT("%s ends silent"), *Name), Samples.Num() > 0 && FMath::Abs(static_cast<int32>(Samples.Last())) < 50);
+		// 毎回同じ波形になる（テストや見直しで差が出ないように）
+		TestTrue(FString::Printf(TEXT("%s is deterministic"), *Name), KakurenboSynth::RenderSfx(Sfx) == Samples);
+	}
+	// 高さを変えても長さは変わらない
+	TestEqual(TEXT("pitch keeps the length"), KakurenboSynth::RenderSfx(EKakurenboSfx::Mash, 1.5f).Num(), KakurenboSynth::RenderSfx(EKakurenboSfx::Mash).Num());
 	return true;
 }
 

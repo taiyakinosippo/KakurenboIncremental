@@ -46,6 +46,38 @@ enum class EOniType : uint8
 	Careful  UMETA(DisplayName = "Careful"),  // 慎重：近くから隅々まで調べる。調べた場所を仲間の慎重鬼と共有。壁は 1 個ずつ壊す
 };
 
+/** 罠の種類（Data/Traps.csv の Kind 列） */
+UENUM(BlueprintType)
+enum class ETrapKind : uint8
+{
+	Sticky UMETA(DisplayName = "Sticky"), // トリモチ：踏んだ鬼をしばらく動けなくする（1 回使うと消える）
+	Decoy  UMETA(DisplayName = "Decoy"),  // おとり：一定の間隔で音を出して鬼を呼び寄せる（鬼が触れると壊れる）
+};
+
+/** 効果音の種類（音のファイルが無くても、プログラムで波形を作って鳴らす） */
+UENUM(BlueprintType)
+enum class EKakurenboSfx : uint8
+{
+	Mash          UMETA(DisplayName = "Mash"),          // 連打
+	Treasure      UMETA(DisplayName = "Treasure"),      // お宝を取った
+	Alert         UMETA(DisplayName = "Alert"),         // 鬼に見つかって追いかけられ始めた
+	BlockHit      UMETA(DisplayName = "BlockHit"),      // 壁が攻撃された（壊れていない）
+	BlockBreak    UMETA(DisplayName = "BlockBreak"),    // 壁が壊れた
+	Caught        UMETA(DisplayName = "Caught"),        // 見つかった（アウト）
+	Clear         UMETA(DisplayName = "Clear"),         // 逃げ切った
+	TrapSticky    UMETA(DisplayName = "TrapSticky"),    // トリモチにかかった
+	DecoyPing     UMETA(DisplayName = "DecoyPing"),     // おとりが音を出した
+	DecoyBreak    UMETA(DisplayName = "DecoyBreak"),    // おとりが壊された
+	CountdownBeep UMETA(DisplayName = "CountdownBeep"), // 開始前のカウントダウン
+	RoundStart    UMETA(DisplayName = "RoundStart"),    // 鬼が出てきた
+	TimeTick      UMETA(DisplayName = "TimeTick"),      // 残り 5 秒からの秒読み
+	Buy           UMETA(DisplayName = "Buy"),           // 購入できた
+	BuyFail       UMETA(DisplayName = "BuyFail"),       // コインが足りない
+	Place         UMETA(DisplayName = "Place"),         // 壁・罠を置いた
+	PickUp        UMETA(DisplayName = "PickUp"),        // 壁・罠を回収した
+	Count         UMETA(Hidden)
+};
+
 /** 購入パートの商品 1 つ分の表示用データ */
 USTRUCT(BlueprintType)
 struct FShopItemView
@@ -202,4 +234,45 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	/** 見た目の太さの倍率 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float BodyScale = 1.f;
+};
+
+/** 罠 1 種類の数値。Data/Traps.csv の 1 行（行の並び順が購入パート・設置パートでの並び順） */
+USTRUCT(BlueprintType)
+struct FKakurenboTrapRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	FText DisplayName;
+
+	/** 罠の働き（Sticky = トリモチ / Decoy = おとり） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	ETrapKind Kind = ETrapKind::Sticky;
+
+	/** 1 個目の価格 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	double Cost = 60.0;
+
+	/** 持っている数（在庫＋置いてある数）が 1 増えるごとの価格の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	double CostGrowth = 1.3;
+
+	/** トリモチ：鬼を動けなくする時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float StunSeconds = 4.f;
+
+	/** おとり：音を出す間隔（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float NoiseInterval = 2.5f;
+
+	/** おとり：音の大きさ（1 なら連打の音と同じ距離まで届く） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float NoiseLoudness = 1.f;
+
+	/** 鬼の体の中心がこの距離（cm）まで来たら発動する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float TriggerRadius = 45.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	FLinearColor Color = FLinearColor(1.f, 0.9f, 0.2f);
 };

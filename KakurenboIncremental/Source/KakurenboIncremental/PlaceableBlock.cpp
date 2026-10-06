@@ -40,6 +40,13 @@ bool APlaceableBlock::ApplyBlockDamage(double Damage)
 	return false;
 }
 
+void APlaceableBlock::ScaleHP(double Factor)
+{
+	MaxHP = FMath::Max(MaxHP * Factor, 0.0001);
+	HP *= Factor;
+	UpdateColor();
+}
+
 void APlaceableBlock::UpdateColor()
 {
 	// 傷ついた壁は暗く・赤っぽくする

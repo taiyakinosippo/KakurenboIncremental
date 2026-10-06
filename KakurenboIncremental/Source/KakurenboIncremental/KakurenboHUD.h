@@ -28,6 +28,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
 	bool bShowTreasureIndicator = true;
 
+	/** 画面全体を一瞬その色で光らせる（Color.A が最初の濃さ。Duration 秒で消える） */
+	void Flash(const FLinearColor& Color, float Duration);
+
+	/** 画面中央の上に大きな文字を浮かべる（「お宝 +30」「トリモチにかかった！」など） */
+	void AddPopup(const FString& Text, const FLinearColor& Color);
+
+	/** 今の点滅の濃さ（テスト用） */
+	float GetFlashAlpha() const;
+
+	/** 表示中の大きな文字の数（テスト用） */
+	int32 GetPopupCount() const { return Popups.Num(); }
+
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM);
@@ -43,6 +55,9 @@ protected:
 
 	/** 連打したときに「+〇」を画面中央の下に浮かべる（カメラを揺らさない手応え） */
 	void DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM);
+
+	/** 大きな文字と画面の点滅（一番上に重ねる） */
+	void DrawPopupsAndFlash();
 
 	// ---- 描画の補助（X/Y は 1080p 基準の座標。Px が付くものは実際のピクセル座標） ----
 
@@ -68,4 +83,17 @@ private:
 	};
 	TArray<FMashPopup> MashPopups;
 	int32 LastSeenMashCount = 0;
+
+	struct FBigPopup
+	{
+		FString Text;
+		FLinearColor Color;
+		float Age = 0.f;
+	};
+	TArray<FBigPopup> Popups;
+
+	FLinearColor FlashColor = FLinearColor::Transparent;
+	float FlashDuration = 0.f;
+	/** 点滅が始まったワールド時刻 */
+	float FlashStartTime = -100.f;
 };

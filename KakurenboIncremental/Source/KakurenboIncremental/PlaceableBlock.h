@@ -1,5 +1,5 @@
 ﻿// グリッドに置けるブロック（壁）。耐久値を持ち、鬼の攻撃で壊れる。
-// 罠などは将来このクラスを継承して作る。
+// 罠は別のクラス（ATrapActor）。
 
 #pragma once
 
@@ -43,6 +43,11 @@ public:
 	bool ApplyBlockDamage(double Damage);
 
 	bool IsDamaged() const { return HP < MaxHP; }
+
+	/** 耐久を Factor 倍にする（壁の補強を買ったとき。傷の割合はそのまま） */
+	void ScaleHP(double Factor);
+
+	const FLinearColor& GetBaseColor() const { return BaseColor; }
 
 private:
 	void UpdateColor();

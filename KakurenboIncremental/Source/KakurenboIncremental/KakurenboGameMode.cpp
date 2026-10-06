@@ -8,6 +8,7 @@
 #include "HiderCharacter.h"
 #include "KakurenboArena.h"
 #include "KakurenboBalance.h"
+#include "KakurenboFx.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
@@ -15,13 +16,38 @@
 #include "KakurenboOniBlackboard.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
+#include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
+#include "TrapActor.h"
 #include "TreasureActor.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogKakurenbo, Log, All);
+
+namespace
+{
+	/** 演出の色 */
+	const FLinearColor NoiseRingColor(1.f, 0.85f, 0.3f);
+	const FLinearColor TreasureColor(1.f, 0.78f, 0.1f);
+
+	/** 効果音（画面全体 / その場所から） */
+	void Sfx2D(const UObject* Context, EKakurenboSfx Sfx, float Volume = 1.f, float Pitch = 1.f)
+	{
+		UKakurenboSoundSubsystem::Play2D(Context, Sfx, Volume, Pitch);
+	}
+
+	void Sfx3D(const UObject* Context, EKakurenboSfx Sfx, const FVector& Location, float Volume = 1.f, float Pitch = 1.f)
+	{
+		UKakurenboSoundSubsystem::Play3D(Context, Sfx, Location, Volume, Pitch);
+	}
+
+	UKakurenboFxSubsystem* Fx(const UObject* Context)
+	{
+		return Context->GetWorld()->GetSubsystem<UKakurenboFxSubsystem>();
+	}
+}
 
 AKakurenboGameMode::AKakurenboGameMode()
 {
@@ -37,6 +63,24 @@ AKakurenboGameMode::AKakurenboGameMode()
 
 	MashUpgradeName = NSLOCTEXT("Kakurenbo", "ShopMash", "連打コイン強化");
 	TimeUpgradeName = NSLOCTEXT("Kakurenbo", "ShopTime", "時間コイン強化");
+	WallUpgradeName = NSLOCTEXT("Kakurenbo", "ShopWallUpgrade", "壁の補強");
+
+	// 罠の既定値（Data/Traps.csv が読めなかったときに使う）
+	auto AddTrap = [this](const TCHAR* Name, ETrapKind Kind, double Cost, double Growth, float Stun, float Interval, float Loudness, float Radius, FLinearColor Color)
+	{
+		FKakurenboTrapRow& Def = TrapTypes.AddDefaulted_GetRef();
+		Def.DisplayName = FText::FromString(Name);
+		Def.Kind = Kind;
+		Def.Cost = Cost;
+		Def.CostGrowth = Growth;
+		Def.StunSeconds = Stun;
+		Def.NoiseInterval = Interval;
+		Def.NoiseLoudness = Loudness;
+		Def.TriggerRadius = Radius;
+		Def.Color = Color;
+	};
+	AddTrap(TEXT("トリモチ"), ETrapKind::Sticky, 60.0, 1.3, 4.f, 0.f, 0.f, 45.f, FLinearColor(1.f, 0.85f, 0.15f));
+	AddTrap(TEXT("おとり"), ETrapKind::Decoy, 100.0, 1.35, 0.f, 2.5f, 1.2f, 70.f, FLinearColor(0.65f, 0.3f, 1.f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）
 	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, FLinearColor Color)
@@ -125,12 +169,14 @@ void AKakurenboGameMode::BeginPlay()
 	if (AKakurenboGameState* State = GS())
 	{
 		State->WallStock.SetNum(WallTypes.Num());
+		State->TrapStock.SetNum(TrapTypes.Num());
 	}
 
 	// グリッド（ブロック配置・鬼の経路探索）を舞台に合わせて初期化
 	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
 		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, BlockHeight, MaxStackHeight);
+		Grid->OnBlockHit.AddUObject(this, &AKakurenboGameMode::HandleBlockHit);
 	}
 
 	// セーブがあれば続きから（設置パートで再開）。無ければ「何もない空間で連打」から始める
@@ -177,22 +223,50 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 	if (State->HideStartCountdown > 0.f)
 	{
 		State->HideStartCountdown = FMath::Max(0.f, State->HideStartCountdown - DeltaSeconds);
+		TickCountdownSounds();
 		return;
 	}
 	if (!bOnisSpawnedThisRound)
 	{
 		bOnisSpawnedThisRound = true;
 		SpawnOnis();
+		Sfx2D(this, EKakurenboSfx::RoundStart);
 	}
 
 	// 時間収入（毎フレーム、経過時間ぶんだけ加算）
 	State->AddCoins(GetTimeIncomePerSecond() * DeltaSeconds, true);
 
 	State->HideTimeRemaining -= DeltaSeconds;
+	TickCountdownSounds();
 	if (State->HideTimeRemaining <= 0.f)
 	{
 		State->HideTimeRemaining = 0.f;
 		EndHidePhase(true);
+	}
+}
+
+void AKakurenboGameMode::TickCountdownSounds()
+{
+	const AKakurenboGameState* State = GS();
+
+	// 開始前: 3, 2, 1 で 1 回ずつ
+	if (State->HideStartCountdown > 0.f)
+	{
+		const int32 Second = FMath::CeilToInt(State->HideStartCountdown);
+		if (Second != LastCountdownSecond)
+		{
+			LastCountdownSecond = Second;
+			Sfx2D(this, EKakurenboSfx::CountdownBeep);
+		}
+		return;
+	}
+
+	// 残り 5 秒から 1 秒ごとに
+	const int32 Second = FMath::CeilToInt(State->HideTimeRemaining);
+	if (Second <= 5 && Second >= 1 && Second != LastTimeTickSecond)
+	{
+		LastTimeTickSecond = Second;
+		Sfx2D(this, EKakurenboSfx::TimeTick);
 	}
 }
 
@@ -254,6 +328,14 @@ void AKakurenboGameMode::LoadBalanceData()
 			TimeIncomeBase = Time->BaseValue;
 			TimeIncomeGrowth = Time->ValueGrowth;
 		}
+		if (const FKakurenboUpgradeRow* Wall = Table->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Upgrades")))
+		{
+			WallUpgradeName = Wall->DisplayName;
+			WallUpgradeBaseCost = Wall->BaseCost;
+			WallUpgradeCostGrowth = Wall->CostGrowth;
+			WallHPBase = Wall->BaseValue;
+			WallHPGrowth = Wall->ValueGrowth;
+		}
 	}
 
 	if (UDataTable* Table = GetTable(WallTable, FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
@@ -286,8 +368,22 @@ void AKakurenboGameMode::LoadBalanceData()
 		}
 	}
 
-	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, %d oni types, mash %.2f x%.2f (cost %.1f x%.2f)"),
-		StageRows.Num(), WallTypes.Num(), OniTypeRows.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
+	if (UDataTable* Table = GetTable(TrapTable, FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
+	{
+		TArray<FKakurenboTrapRow*> Rows;
+		Table->GetAllRows<FKakurenboTrapRow>(TEXT("Traps"), Rows);
+		if (Rows.Num() > 0)
+		{
+			TrapTypes.Reset();
+			for (const FKakurenboTrapRow* Row : Rows)
+			{
+				TrapTypes.Add(*Row);
+			}
+		}
+	}
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, %d oni types, %d trap types, mash %.2f x%.2f (cost %.1f x%.2f)"),
+		StageRows.Num(), WallTypes.Num(), OniTypeRows.Num(), TrapTypes.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
 }
 
 FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
@@ -331,6 +427,47 @@ double AKakurenboGameMode::GetTimeUpgradeCost() const
 {
 	const AKakurenboGameState* State = GS();
 	return UKakurenboLibrary::ExpCurve(TimeUpgradeBaseCost, TimeUpgradeCostGrowth, State ? State->TimeIncomeLevel : 0);
+}
+
+double AKakurenboGameMode::GetWallUpgradeCost() const
+{
+	const AKakurenboGameState* State = GS();
+	return UKakurenboLibrary::ExpCurve(WallUpgradeBaseCost, WallUpgradeCostGrowth, State ? State->WallReinforceLevel : 0);
+}
+
+double AKakurenboGameMode::GetWallHPMultiplier() const
+{
+	const AKakurenboGameState* State = GS();
+	return UKakurenboLibrary::ExpCurve(WallHPBase, WallHPGrowth, State ? State->WallReinforceLevel : 0);
+}
+
+TArray<FWallTypeDef> AKakurenboGameMode::GetEffectiveWallTypes() const
+{
+	TArray<FWallTypeDef> Types = WallTypes;
+	const double Multiplier = GetWallHPMultiplier();
+	for (FWallTypeDef& Def : Types)
+	{
+		Def.MaxHP *= Multiplier;
+	}
+	return Types;
+}
+
+int32 AKakurenboGameMode::GetOwnedTrapCount(int32 TrapTypeIndex) const
+{
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const int32 Stock = (State && State->TrapStock.IsValidIndex(TrapTypeIndex)) ? State->TrapStock[TrapTypeIndex] : 0;
+	return Stock + (Grid ? Grid->GetLiveTrapCount(TrapTypeIndex) : 0);
+}
+
+double AKakurenboGameMode::GetTrapCost(int32 TrapTypeIndex) const
+{
+	if (!TrapTypes.IsValidIndex(TrapTypeIndex))
+	{
+		return 0.0;
+	}
+	const FKakurenboTrapRow& Def = TrapTypes[TrapTypeIndex];
+	return UKakurenboLibrary::ExpCurve(Def.Cost, Def.CostGrowth, GetOwnedTrapCount(TrapTypeIndex));
 }
 
 double AKakurenboGameMode::GetClearReward() const
@@ -385,12 +522,23 @@ EKakurenboPhase AKakurenboGameMode::GetPhase() const
 
 // ---------------------------------------------------------------- 購入
 
-// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2〜] 壁
+// 商品の並び: [0] 連打強化, [1] 時間収入強化, [2] 壁の補強, [3〜] 壁, その後に罠
 namespace KakurenboShop
 {
 	constexpr int32 MashUpgrade = 0;
 	constexpr int32 TimeUpgrade = 1;
-	constexpr int32 NumUpgrades = 2;
+	constexpr int32 WallUpgrade = 2;
+	constexpr int32 NumUpgrades = 3;
+}
+
+int32 AKakurenboGameMode::GetShopIndexOfWall(int32 WallTypeIndex) const
+{
+	return KakurenboShop::NumUpgrades + WallTypeIndex;
+}
+
+int32 AKakurenboGameMode::GetShopIndexOfTrap(int32 TrapTypeIndex) const
+{
+	return KakurenboShop::NumUpgrades + WallTypes.Num() + TrapTypeIndex;
 }
 
 TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
@@ -402,7 +550,10 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 		return Items;
 	}
 
-	auto Fmt = [](double V) { return FText::FromString(UKakurenboLibrary::FormatBigNumber(V)); };
+	// 収入・耐久は小数に意味があるので、小さな値は小数第 1 位まで出す（1 → 1.5 が「1 → 1」に見えないように）
+	auto Fmt = [](double V) { return FText::FromString(UKakurenboLibrary::FormatStatNumber(V)); };
+	// 今のステージの鬼の攻撃何回で壊れるか
+	auto Hits = [this](double HP) { return FMath::Max(1, FMath::CeilToInt(HP / FMath::Max(GetOniAttackDamage(), 0.0001))); };
 
 	{
 		FShopItemView& Item = Items.AddDefaulted_GetRef();
@@ -420,29 +571,107 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 			Fmt(GetTimeIncomePerSecond()), Fmt(UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State->TimeIncomeLevel + 1)));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->TimeIncomeLevel);
 	}
-	for (int32 i = 0; i < WallTypes.Num(); ++i)
 	{
-		const FWallTypeDef& Def = WallTypes[i];
+		FShopItemView& Item = Items.AddDefaulted_GetRef();
+		Item.DisplayName = WallUpgradeName;
+		Item.Cost = GetWallUpgradeCost();
+		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallUpgradeDesc", "すべての壁の耐久 ×{0} → ×{1}（置いてある壁も）"),
+			Fmt(GetWallHPMultiplier()), Fmt(UKakurenboLibrary::ExpCurve(WallHPBase, WallHPGrowth, State->WallReinforceLevel + 1)));
+		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->WallReinforceLevel);
+	}
+	const TArray<FWallTypeDef> Walls = GetEffectiveWallTypes();
+	for (int32 i = 0; i < Walls.Num(); ++i)
+	{
+		const FWallTypeDef& Def = Walls[i];
 		FShopItemView& Item = Items.AddDefaulted_GetRef();
 		Item.DisplayName = Def.DisplayName;
 		Item.Cost = Def.Cost;
-		// 今のステージの鬼に何発耐えるか
-		const int32 Hits = FMath::Max(1, FMath::CeilToInt(Def.MaxHP / GetOniAttackDamage()));
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopWallDesc", "耐久 {0}（今の鬼の攻撃 {1} 回で壊れる）"),
-			Fmt(Def.MaxHP), Hits);
+			Fmt(Def.MaxHP), Hits(Def.MaxHP));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopStock", "在庫 {0}"), State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0);
+	}
+	for (int32 i = 0; i < TrapTypes.Num(); ++i)
+	{
+		const FKakurenboTrapRow& Def = TrapTypes[i];
+		FShopItemView& Item = Items.AddDefaulted_GetRef();
+		Item.DisplayName = Def.DisplayName;
+		Item.Cost = GetTrapCost(i);
+		Item.Description = Def.Kind == ETrapKind::Sticky
+			? FText::Format(NSLOCTEXT("Kakurenbo", "ShopStickyDesc", "踏んだ鬼が {0} 秒動けない（その間は捕まらない）。1 回で消える"), FText::AsNumber(Def.StunSeconds))
+			: FText::Format(NSLOCTEXT("Kakurenbo", "ShopDecoyDesc", "{0} 秒ごとに音を出して鬼を呼ぶ。鬼が触れると壊れる"), FText::AsNumber(Def.NoiseInterval));
+		const int32 Stock = State->TrapStock.IsValidIndex(i) ? State->TrapStock[i] : 0;
+		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopTrapStock", "在庫 {0}（置いてある {1}）"), Stock, GetOwnedTrapCount(i) - Stock);
 	}
 	return Items;
 }
 
 bool AKakurenboGameMode::TryBuyShopItem(int32 Index)
 {
-	switch (Index)
+	bool bBought = false;
+	if (Index == KakurenboShop::MashUpgrade)
 	{
-	case KakurenboShop::MashUpgrade: return TryBuyMashUpgrade();
-	case KakurenboShop::TimeUpgrade: return TryBuyTimeUpgrade();
-	default: return TryBuyWall(Index - KakurenboShop::NumUpgrades);
+		bBought = TryBuyMashUpgrade();
 	}
+	else if (Index == KakurenboShop::TimeUpgrade)
+	{
+		bBought = TryBuyTimeUpgrade();
+	}
+	else if (Index == KakurenboShop::WallUpgrade)
+	{
+		bBought = TryBuyWallUpgrade();
+	}
+	else if (Index - KakurenboShop::NumUpgrades < WallTypes.Num())
+	{
+		bBought = TryBuyWall(Index - KakurenboShop::NumUpgrades);
+	}
+	else
+	{
+		bBought = TryBuyTrap(Index - KakurenboShop::NumUpgrades - WallTypes.Num());
+	}
+
+	if (GetPhase() == EKakurenboPhase::Shop && Index >= 0 && Index < GetShopItems().Num())
+	{
+		Sfx2D(this, bBought ? EKakurenboSfx::Buy : EKakurenboSfx::BuyFail);
+	}
+	return bBought;
+}
+
+bool AKakurenboGameMode::TryBuyWallUpgrade()
+{
+	AKakurenboGameState* State = GS();
+	const double Cost = GetWallUpgradeCost();
+	if (!State || State->Phase != EKakurenboPhase::Shop || State->Coins < Cost)
+	{
+		return false;
+	}
+	const double OldMultiplier = GetWallHPMultiplier();
+	State->Coins -= Cost;
+	State->WallReinforceLevel++;
+
+	// 置いてある壁もすぐに硬くする
+	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	{
+		Grid->ScaleAllBlockHP(GetWallHPMultiplier() / FMath::Max(OldMultiplier, 0.0001));
+	}
+	return true;
+}
+
+bool AKakurenboGameMode::TryBuyTrap(int32 TrapTypeIndex)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Shop || !TrapTypes.IsValidIndex(TrapTypeIndex))
+	{
+		return false;
+	}
+	const double Cost = GetTrapCost(TrapTypeIndex);
+	if (State->Coins < Cost)
+	{
+		return false;
+	}
+	State->Coins -= Cost;
+	State->TrapStock.SetNum(TrapTypes.Num());
+	State->TrapStock[TrapTypeIndex]++;
+	return true;
 }
 
 bool AKakurenboGameMode::TryBuyMashUpgrade()
@@ -549,11 +778,13 @@ bool AKakurenboGameMode::PlaceWall(FIntPoint Cell, int32 WallTypeIndex)
 	}
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
 	const FWallTypeDef& Def = WallTypes[WallTypeIndex];
-	if (!Grid->PlaceBlock(Cell, WallTypeIndex, Def.MaxHP, Def.Color))
+	APlaceableBlock* Block = Grid->PlaceBlock(Cell, WallTypeIndex, Def.MaxHP * GetWallHPMultiplier(), Def.Color);
+	if (!Block)
 	{
 		return false;
 	}
 	GS()->WallStock[WallTypeIndex]--;
+	Sfx3D(this, EKakurenboSfx::Place, Block->GetActorLocation());
 	return true;
 }
 
@@ -566,6 +797,7 @@ bool AKakurenboGameMode::PickUpWall(APlaceableBlock* Block)
 		return false;
 	}
 	const int32 TypeIndex = Block->WallTypeIndex;
+	const FVector Location = Block->GetActorLocation();
 	if (!Grid->PickUpBlock(Block))
 	{
 		return false;
@@ -575,7 +807,83 @@ bool AKakurenboGameMode::PickUpWall(APlaceableBlock* Block)
 	{
 		State->WallStock[TypeIndex]++;
 	}
+	Sfx3D(this, EKakurenboSfx::PickUp, Location);
 	return true;
+}
+
+bool AKakurenboGameMode::CanPlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, FText* OutReason) const
+{
+	const AKakurenboGameState* State = GS();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || State->Phase != EKakurenboPhase::Build)
+	{
+		return false;
+	}
+	if (!State->TrapStock.IsValidIndex(TrapTypeIndex) || State->TrapStock[TrapTypeIndex] <= 0)
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceNoTrapStock", "在庫がありません（購入パートで買えます）");
+		return false;
+	}
+	return Grid->CanPlaceTrap(Cell, OutReason);
+}
+
+bool AKakurenboGameMode::PlaceTrap(FIntPoint Cell, int32 TrapTypeIndex)
+{
+	if (!CanPlaceTrap(Cell, TrapTypeIndex))
+	{
+		return false;
+	}
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	ATrapActor* Trap = Grid->PlaceTrap(Cell, TrapTypeIndex, TrapTypes[TrapTypeIndex]);
+	if (!Trap)
+	{
+		return false;
+	}
+	GS()->TrapStock[TrapTypeIndex]--;
+	Sfx3D(this, EKakurenboSfx::Place, Trap->GetActorLocation(), 0.8f, 1.4f);
+	return true;
+}
+
+bool AKakurenboGameMode::PickUpTrap(FIntPoint Cell)
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || State->Phase != EKakurenboPhase::Build)
+	{
+		return false;
+	}
+	int32 ReturnedType = INDEX_NONE;
+	if (!Grid->PickUpTrap(Cell, ReturnedType))
+	{
+		return false;
+	}
+	// 残っていた罠は在庫に戻る（発動して消えていた罠は設計図から消えるだけ）
+	if (State->TrapStock.IsValidIndex(ReturnedType))
+	{
+		State->TrapStock[ReturnedType]++;
+	}
+	Sfx3D(this, EKakurenboSfx::PickUp, Grid->CellFloorCenter(Cell));
+	return true;
+}
+
+void AKakurenboGameMode::RefillTraps()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid)
+	{
+		return;
+	}
+	State->TrapStock.SetNum(TrapTypes.Num());
+	int32 Refilled = 0;
+	int32 Missing = 0;
+	Grid->RefillTrapsFromDesign(State->TrapStock, TrapTypes, Refilled, Missing);
+	State->LastRefilledTraps = Refilled;
+	State->LastUnrefilledTraps = Missing;
+	if (Refilled > 0 || Missing > 0)
+	{
+		UE_LOG(LogKakurenbo, Log, TEXT("Traps refilled: %d, not refilled: %d"), Refilled, Missing);
+	}
 }
 
 void AKakurenboGameMode::RepairWalls()
@@ -591,7 +899,7 @@ void AKakurenboGameMode::RepairWalls()
 	int32 Repaired = 0;
 	int32 Missing = 0;
 	// プレイヤーが立っている（上に乗っている）列は、閉じ込めないよう直さない
-	Grid->RepairFromDesign(State->WallStock, WallTypes,
+	Grid->RepairFromDesign(State->WallStock, GetEffectiveWallTypes(),
 		[this](const FIntPoint& Cell, int32 Level) { return !IsPlayerInCellColumn(Cell); },
 		Repaired, Missing);
 
@@ -616,18 +924,27 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->MashCountThisRound++;
 
 	// 連打の音が鬼に届く
+	EmitNoise(NoiseLocation, 1.f);
+	Sfx2D(this, EKakurenboSfx::Mash, 0.6f, FMath::FRandRange(0.92f, 1.08f));
+	if (bShowNoiseRing)
+	{
+		// 音の届く範囲を床に輪で表示する
+		if (UKakurenboFxSubsystem* F = Fx(this))
+		{
+			const float Radius = GetOniHearingRadius();
+			F->Ring(NoiseLocation, Radius * 0.85f, Radius, 0.3f, NoiseRingColor, 14.f);
+		}
+	}
+}
+
+void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness)
+{
 	for (AOniCharacter* Oni : Onis)
 	{
 		if (Oni)
 		{
-			Oni->HearNoise(NoiseLocation);
+			Oni->HearNoise(Location, Loudness);
 		}
-	}
-	if (bShowNoiseRing)
-	{
-		// 音の届く範囲を床に円で表示（開発用の描画機能を流用した仮の演出）
-		const FVector Floor(NoiseLocation.X, NoiseLocation.Y, 3.f);
-		DrawDebugCircle(GetWorld(), Floor, GetOniHearingRadius(), 64, FColor(255, 220, 80), false, 0.15f, 0, 4.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
 	}
 }
 
@@ -643,8 +960,142 @@ void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
 	State->TreasureCoinsThisRound += Treasure->Value;
 	UE_LOG(LogKakurenbo, Log, TEXT("Treasure collected (+%s)"), *UKakurenboLibrary::FormatBigNumber(Treasure->Value));
 
+	// きらきらを飛ばして、音と大きな文字で知らせる
+	const FVector Location = Treasure->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		FKakurenboBurstParams Params;
+		Params.Color = TreasureColor;
+		Params.Count = 16;
+		Params.Size = 10.f;
+		Params.Speed = 380.f;
+		Params.UpBias = 0.85f;
+		Params.Gravity = 600.f;
+		Params.Lifetime = 0.8f;
+		F->Burst(Location, Params);
+		F->Ring(Location, 20.f, 160.f, 0.35f, TreasureColor, 6.f);
+	}
+	Sfx2D(this, EKakurenboSfx::Treasure);
+	ShowPopup(FString::Printf(TEXT("お宝 +%s"), *UKakurenboLibrary::FormatBigNumber(Treasure->Value)), TreasureColor);
+
 	Treasures.Remove(Treasure);
 	Treasure->Destroy();
+}
+
+void AKakurenboGameMode::HandleTrapTriggered(ATrapActor* Trap, AOniCharacter* Oni)
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || !Trap || State->Phase != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	State->TrapsTriggeredThisRound++;
+	const FVector Location = Trap->GetActorLocation() + FVector(0.f, 0.f, 20.f);
+	const FKakurenboTrapRow Def = Trap->Def;
+
+	FKakurenboBurstParams Params;
+	Params.Color = Def.Color;
+	Params.Count = 14;
+	Params.Size = 11.f;
+	Params.Speed = 320.f;
+	Params.UpBias = 0.8f;
+	Params.Lifetime = 0.7f;
+	Params.bSpheres = true;
+
+	if (Def.Kind == ETrapKind::Sticky)
+	{
+		// 鬼をしばらく動けなくする
+		if (Oni)
+		{
+			Oni->Stun(Def.StunSeconds);
+		}
+		Sfx3D(this, EKakurenboSfx::TrapSticky, Location);
+		ShowPopup(FString::Printf(TEXT("%s にかかった！"), *Def.DisplayName.ToString()), Def.Color);
+	}
+	else
+	{
+		// おとりが壊された
+		Sfx3D(this, EKakurenboSfx::DecoyBreak, Location);
+		Params.bSpheres = false;
+	}
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		F->Burst(Location, Params);
+	}
+	UE_LOG(LogKakurenbo, Log, TEXT("Trap %s at (%d,%d) triggered by %s"),
+		*Def.DisplayName.ToString(), Trap->Cell.X, Trap->Cell.Y, Oni ? *Oni->GetName() : TEXT("none"));
+
+	// 罠は消える（設計図は残るので、次の設置パートで在庫から置き直される）
+	Grid->ConsumeTrap(Trap);
+}
+
+void AKakurenboGameMode::HandleDecoyPing(ATrapActor* Trap)
+{
+	if (!Trap || GetPhase() != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	const FVector Location = Trap->GetActorLocation();
+	EmitNoise(Location, Trap->Def.NoiseLoudness);
+	Sfx3D(this, EKakurenboSfx::DecoyPing, Location + FVector(0.f, 0.f, 40.f));
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		// 音の届く範囲（標準の聞こえる距離 × 大きさ）まで輪を広げる
+		F->Ring(Location, 40.f, GetOniHearingRadius() * Trap->Def.NoiseLoudness, 0.6f, Trap->Def.Color, 10.f);
+	}
+}
+
+void AKakurenboGameMode::HandleBlockHit(const FVector& Location, const FLinearColor& Color, bool bDestroyed)
+{
+	UKakurenboFxSubsystem* F = Fx(this);
+	FKakurenboBurstParams Params;
+	Params.Color = Color;
+	if (bDestroyed)
+	{
+		// 壊れた：大きな破片がたくさん飛び散る
+		Params.Count = 10;
+		Params.Size = 22.f;
+		Params.Speed = 380.f;
+		Params.UpBias = 0.5f;
+		Params.Lifetime = 1.f;
+		Sfx3D(this, EKakurenboSfx::BlockBreak, Location, 1.f, FMath::FRandRange(0.9f, 1.1f));
+	}
+	else
+	{
+		// 傷ついただけ：小さな欠片が少し
+		Params.Count = 4;
+		Params.Size = 12.f;
+		Params.Speed = 250.f;
+		Params.Lifetime = 0.5f;
+		Sfx3D(this, EKakurenboSfx::BlockHit, Location, 1.f, FMath::FRandRange(0.9f, 1.1f));
+	}
+	if (F)
+	{
+		F->Burst(Location, Params);
+	}
+}
+
+void AKakurenboGameMode::FlashScreen(const FLinearColor& Color, float Duration) const
+{
+	if (const APlayerController* PC = GetWorld()->GetFirstPlayerController())
+	{
+		if (AKakurenboHUD* HUD = PC->GetHUD<AKakurenboHUD>())
+		{
+			HUD->Flash(Color, Duration);
+		}
+	}
+}
+
+void AKakurenboGameMode::ShowPopup(const FString& Text, const FLinearColor& Color) const
+{
+	if (const APlayerController* PC = GetWorld()->GetFirstPlayerController())
+	{
+		if (AKakurenboHUD* HUD = PC->GetHUD<AKakurenboHUD>())
+		{
+			HUD->AddPopup(Text, Color);
+		}
+	}
 }
 
 void AKakurenboGameMode::SpawnTreasures()
@@ -801,8 +1252,9 @@ void AKakurenboGameMode::StartShopPhase()
 
 void AKakurenboGameMode::StartBuildPhase()
 {
-	// 購入パートで買い足した在庫も使って、壊れた壁を設計図どおりに直す
+	// 購入パートで買い足した在庫も使って、壊れた壁と使った罠を設計図どおりに直す
 	RepairWalls();
+	RefillTraps();
 	SetPhase(EKakurenboPhase::Build);
 }
 
@@ -819,12 +1271,15 @@ void AKakurenboGameMode::StartHidePhase()
 	State->CoinsEarnedThisRound = 0.0;
 	State->MashCountThisRound = 0;
 	State->LastRoundWallsDestroyed = 0;
+	State->TrapsTriggeredThisRound = 0;
 	State->TreasuresCollectedThisRound = 0;
 	State->TreasureCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
 	State->HideTimeRemaining = State->HideTimeLimit;
 	State->HideStartCountdown = HideStartDelay;
 	bOnisSpawnedThisRound = false;
+	LastCountdownSecond = 0;
+	LastTimeTickSecond = 0;
 
 	// お宝は最初から置いておく（鬼が来る前に取りに行ける）
 	SpawnTreasures();
@@ -847,8 +1302,35 @@ void AKakurenboGameMode::EndHidePhase(bool bCleared)
 		State->LastClearReward = GetClearReward();
 		State->AddCoins(State->LastClearReward, true);
 		State->Stage++;
+
+		// 金色に光らせて、紙吹雪を飛ばす
+		Sfx2D(this, EKakurenboSfx::Clear);
+		FlashScreen(FLinearColor(1.f, 0.85f, 0.3f, 0.45f), 0.8f);
+		if (const ACharacter* Player = GetPlayerCharacter())
+		{
+			if (UKakurenboFxSubsystem* F = Fx(this))
+			{
+				for (const FLinearColor& Color : { FLinearColor(1.f, 0.3f, 0.3f), FLinearColor(0.3f, 0.8f, 1.f), FLinearColor(1.f, 0.85f, 0.2f) })
+				{
+					FKakurenboBurstParams Params;
+					Params.Color = Color;
+					Params.Count = 10;
+					Params.Size = 9.f;
+					Params.Speed = 520.f;
+					Params.UpBias = 0.9f;
+					Params.Gravity = 500.f;
+					Params.Lifetime = 1.4f;
+					F->Burst(Player->GetActorLocation() + FVector(0.f, 0.f, 80.f), Params);
+				}
+			}
+		}
 	}
-	// 見つかった場合もペナルティなし（稼いだコインはそのまま）
+	else
+	{
+		// 見つかった場合もペナルティなし（稼いだコインはそのまま）
+		Sfx2D(this, EKakurenboSfx::Caught);
+		FlashScreen(FLinearColor(1.f, 0.1f, 0.05f, 0.55f), 0.7f);
+	}
 
 	// 見つかったときは鬼の姿を少しの間見せたいので、リザルト画面を抜けるときに消す
 	if (bCleared)
@@ -898,7 +1380,9 @@ bool AKakurenboGameMode::SaveProgress()
 	Save->Stage = State->Stage;
 	Save->MashIncomeLevel = State->MashIncomeLevel;
 	Save->TimeIncomeLevel = State->TimeIncomeLevel;
+	Save->WallReinforceLevel = State->WallReinforceLevel;
 	Save->WallStock = State->WallStock;
+	Save->TrapStock = State->TrapStock;
 	Grid->ExportLayout(Save->Columns);
 	if (const ACharacter* Player = GetPlayerCharacter())
 	{
@@ -933,9 +1417,12 @@ bool AKakurenboGameMode::LoadProgress()
 	State->Stage = FMath::Max(1, Save->Stage);
 	State->MashIncomeLevel = Save->MashIncomeLevel;
 	State->TimeIncomeLevel = Save->TimeIncomeLevel;
+	State->WallReinforceLevel = Save->WallReinforceLevel; // 補強のレベルは壁を作り直す前に戻す（耐久の倍率に使う）
 	State->WallStock = Save->WallStock;
 	State->WallStock.SetNum(WallTypes.Num()); // CSV で壁の種類が増減していても合わせる
-	Grid->ImportLayout(Save->Columns, WallTypes);
+	State->TrapStock = Save->TrapStock;
+	State->TrapStock.SetNum(TrapTypes.Num());
+	Grid->ImportLayout(Save->Columns, GetEffectiveWallTypes(), TrapTypes);
 
 	if (Save->bHasPlayerLocation)
 	{
@@ -970,9 +1457,13 @@ void AKakurenboGameMode::ResetProgress()
 	State->Stage = 1;
 	State->MashIncomeLevel = 0;
 	State->TimeIncomeLevel = 0;
+	State->WallReinforceLevel = 0;
 	State->WallStock.Init(0, WallTypes.Num());
+	State->TrapStock.Init(0, TrapTypes.Num());
 	State->LastRepairedWalls = 0;
 	State->LastUnrepairedWalls = 0;
+	State->LastRefilledTraps = 0;
+	State->LastUnrefilledTraps = 0;
 
 	if (ACharacter* Player = GetPlayerCharacter())
 	{

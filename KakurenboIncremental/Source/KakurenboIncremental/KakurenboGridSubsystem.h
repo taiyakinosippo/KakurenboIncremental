@@ -9,6 +9,10 @@
 // 設計図:
 //   プレイヤーが置いた（回収した）ときの列の状態を「設計図」として覚えておく。
 //   鬼に壊されても設計図は変わらないので、在庫があれば RepairFromDesign で元に戻せる。
+//
+// 罠:
+//   壁の無い床のマスに 1 個だけ置ける（壁とは同じマスに置けない）。通るのは邪魔しない。
+//   発動して消えても設計図は残り、RefillTrapsFromDesign で在庫から置き直せる。
 
 #pragma once
 
@@ -19,6 +23,7 @@
 #include "KakurenboGridSubsystem.generated.h"
 
 class APlaceableBlock;
+class ATrapActor;
 
 USTRUCT()
 struct FKakurenboBlockColumn
@@ -32,9 +37,19 @@ struct FKakurenboBlockColumn
 	/** 設計図：プレイヤーが置いた壁の種類（下の段から順） */
 	UPROPERTY()
 	TArray<int32> Design;
+
+	/** 設計図：置いた罠の種類（無ければ INDEX_NONE） */
+	UPROPERTY()
+	int32 TrapDesign = INDEX_NONE;
+
+	/** 今ある罠（発動して消えたら null。設計図は残る） */
+	UPROPERTY()
+	TObjectPtr<ATrapActor> Trap;
 };
 
 DECLARE_MULTICAST_DELEGATE(FOnKakurenboGridChanged);
+/** 壁が攻撃されたとき（ブロックの中心・色・壊れたか） */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnKakurenboBlockHit, const FVector& /*Location*/, const FLinearColor& /*Color*/, bool /*bDestroyed*/);
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API UKakurenboGridSubsystem : public UWorldSubsystem
@@ -88,8 +103,53 @@ public:
 	 */
 	int32 DamageBottomBlock(const FIntPoint& Cell, double Damage);
 
-	/** すべてのブロックと設計図を消す */
+	/** すべてのブロック・罠と設計図を消す */
 	void ClearAllBlocks();
+
+	/** 置いてある壁の耐久をすべて Factor 倍にする（壁の補強を買ったとき） */
+	void ScaleAllBlockHP(double Factor);
+
+	/** 壁が攻撃されたとき（演出と音に使う） */
+	FOnKakurenboBlockHit OnBlockHit;
+
+	// ===== 罠 =====
+
+	/** そのマスに今ある罠（発動して消えていれば null） */
+	ATrapActor* GetTrap(const FIntPoint& Cell) const;
+
+	/** そのマスの罠の設計図（無ければ INDEX_NONE） */
+	int32 GetTrapDesign(const FIntPoint& Cell) const;
+
+	/** 罠か罠の設計図があるマスか */
+	bool HasTrap(const FIntPoint& Cell) const;
+
+	/** 罠を置けるか（壁も壁の設計図も罠も無い床のマス）。置けない理由を返す */
+	bool CanPlaceTrap(const FIntPoint& Cell, FText* OutReason = nullptr) const;
+
+	/** プレイヤーが置く：罠を置いて設計図にも書く */
+	ATrapActor* PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
+
+	/**
+	 * プレイヤーが回収する：罠と設計図を消す。
+	 * @param OutReturnedType 今あった罠の種類（在庫に戻す分）。発動済みで設計図だけだったら INDEX_NONE
+	 * @return 罠か設計図があって消したら true
+	 */
+	bool PickUpTrap(const FIntPoint& Cell, int32& OutReturnedType);
+
+	/** 罠が発動して消える（設計図は残る） */
+	void ConsumeTrap(ATrapActor* Trap);
+
+	/** 今ある罠の数（種類ごと） */
+	int32 GetLiveTrapCount(int32 TrapTypeIndex) const;
+
+	/** 設計図にあるのに発動して消えている罠の数 */
+	int32 GetMissingTrapCount() const;
+
+	/** 今ある罠すべて */
+	TArray<ATrapActor*> GetAllTraps() const;
+
+	/** 消えた罠を設計図どおりに在庫から置き直す */
+	void RefillTrapsFromDesign(TArray<int32>& InOutStock, const TArray<FKakurenboTrapRow>& TrapTypes, int32& OutRefilled, int32& OutMissing);
 
 	// ===== 設計図と修復 =====
 
@@ -111,11 +171,11 @@ public:
 
 	// ===== セーブ・ロード =====
 
-	/** 壁のあるマス（設計図か今ある壁のどちらかがある）を書き出す */
+	/** 壁か罠のあるマス（設計図か今あるもののどちらかがある）を書き出す */
 	void ExportLayout(TArray<struct FKakurenboSavedColumn>& OutColumns) const;
 
-	/** 書き出した配置を復元する（今ある壁はすべて消してから作り直す。耐久は満タン） */
-	void ImportLayout(const TArray<struct FKakurenboSavedColumn>& Columns, const TArray<FWallTypeDef>& WallTypes);
+	/** 書き出した配置を復元する（今ある壁・罠はすべて消してから作り直す。耐久は満タン） */
+	void ImportLayout(const TArray<struct FKakurenboSavedColumn>& Columns, const TArray<FWallTypeDef>& WallTypes, const TArray<FKakurenboTrapRow>& TrapTypes);
 
 	// ===== 鬼の経路探索・出現位置 =====
 
@@ -138,13 +198,13 @@ public:
 
 	/**
 	 * 空きマスを Count 個選ぶ。AvoidPoints と、選んだマスどうしから、なるべく遠いマスを順に選ぶ（鬼の出現位置用）。
-	 * 壁に囲まれた空洞の中は選ばない（一番大きな空き地の中だけ）
+	 * 壁に囲まれた空洞の中と、罠のあるマスは選ばない（一番大きな空き地の中だけ）
 	 */
 	TArray<FIntPoint> FindSpreadFreeCells(const TArray<FVector>& AvoidPoints, int32 Count) const;
 
 	/**
 	 * ランダムな空きマスを Count 個選ぶ。AvoidPoints から MinDistanceCells マス以上、選んだマスどうしも離す（お宝用）。
-	 * 壁に囲まれた空洞の中は選ばない（一番大きな空き地の中だけ）
+	 * 壁に囲まれた空洞の中と、罠のあるマスは選ばない（一番大きな空き地の中だけ）
 	 */
 	TArray<FIntPoint> FindRandomFreeCells(int32 Count, const TArray<FVector>& AvoidPoints, float MinDistanceCells, FRandomStream& Stream) const;
 
@@ -156,6 +216,7 @@ private:
 	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
 	TArray<bool> BuildMainAreaMask() const;
 	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color);
+	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);
 	void SyncDesignToBlocks(const FIntPoint& Cell);

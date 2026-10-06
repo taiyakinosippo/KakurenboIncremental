@@ -8,9 +8,11 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GridPathfinder.h"
 #include "HiderCharacter.h"
+#include "KakurenboFx.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboOniBlackboard.h"
+#include "KakurenboSoundSubsystem.h"
 #include "PlaceableBlock.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -64,6 +66,30 @@ AOniCharacter::AOniCharacter()
 	Flashlight->SetIntensity(20000.f);
 	Flashlight->SetLightColor(FLinearColor(1.f, 0.85f, 0.6f));
 	Flashlight->SetCastShadows(true);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	for (int32 i = 0; i < 3; ++i)
+	{
+		UStaticMeshComponent* Star = CreateDefaultSubobject<UStaticMeshComponent>(*FString::Printf(TEXT("StunStar%d"), i));
+		Star->SetupAttachment(RootComponent);
+		Star->SetStaticMesh(SphereFinder.Object);
+		Star->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Star->SetCastShadow(false);
+		Star->SetRelativeScale3D(FVector(0.16f));
+		Star->SetHiddenInGame(true);
+		StunStars.Add(Star);
+	}
+}
+
+void AOniCharacter::SetStunStarsVisible(bool bVisible)
+{
+	for (UStaticMeshComponent* Star : StunStars)
+	{
+		if (Star)
+		{
+			Star->SetHiddenInGame(!bVisible);
+		}
+	}
 }
 
 UKakurenboGridSubsystem* AOniCharacter::Grid() const
@@ -97,6 +123,10 @@ void AOniCharacter::BeginPlay()
 	ResetBodyScale();
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	UKakurenboLibrary::ApplyColor(FaceMesh, FLinearColor(0.02f, 0.02f, 0.02f));
+	for (UStaticMeshComponent* Star : StunStars)
+	{
+		UKakurenboLibrary::ApplyColor(Star, FLinearColor(1.f, 0.9f, 0.2f));
+	}
 }
 
 void AOniCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -137,6 +167,7 @@ void AOniCharacter::Deactivate()
 	bActive = false;
 	GetCharacterMovement()->StopMovementImmediately();
 	ResetBodyScale();
+	SetStunStarsVisible(false);
 }
 
 // ---------------------------------------------------------------- 状態
@@ -184,6 +215,8 @@ void AOniCharacter::StartChase()
 	{
 		LastKnownTargetLocation = Target->GetActorLocation();
 	}
+	// 見つかったことを音で知らせる（方向は画面の「！」で分かるので、画面全体で鳴らす）
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Alert, 0.9f);
 }
 
 void AOniCharacter::StartInspect(const FIntPoint& Cell)
@@ -229,6 +262,11 @@ void AOniCharacter::Stun(float Seconds)
 	StateBeforeAttack = EOniState::Wander;
 	bHasGoal = false;
 	StunTimer = Seconds;
+	SetStunStarsVisible(true);
+	if (UKakurenboOniBlackboard* BB = Blackboard())
+	{
+		BB->ClearReservedTarget(this);
+	}
 }
 
 void AOniCharacter::BeginLookAround()
@@ -263,6 +301,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		TickStunned(DeltaSeconds);
 		return;
 	}
+	StunImmunityTimer = FMath::Max(0.f, StunImmunityTimer - DeltaSeconds);
 
 	// ぶつかったら（体が触れたら）発見。一瞬の接触も逃さないよう毎フレーム調べる
 	if (IsTouchingTarget())
@@ -495,12 +534,20 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 
 void AOniCharacter::TickStunned(float DeltaSeconds)
 {
-	// ぷるぷる震えて、動けないことを見せる
+	// ぷるぷる震えて、頭の上で星が回る（動けないことを見せる）
 	StunTimer -= DeltaSeconds;
-	const float Wobble = 1.f + 0.06f * FMath::Sin(GetWorld()->GetTimeSeconds() * 30.f);
+	const float Now = GetWorld()->GetTimeSeconds();
+	const float Wobble = 1.f + 0.06f * FMath::Sin(Now * 30.f);
 	BodyMesh->SetRelativeScale3D(FVector(BaseBodyScale.X * Wobble, BaseBodyScale.Y * Wobble, BaseBodyScale.Z / Wobble));
+	for (int32 i = 0; i < StunStars.Num(); ++i)
+	{
+		const float Angle = Now * 5.f + i * 2.f * UE_PI / StunStars.Num();
+		StunStars[i]->SetRelativeLocation(FVector(FMath::Cos(Angle) * 38.f, FMath::Sin(Angle) * 38.f, 120.f));
+	}
 	if (StunTimer <= 0.f)
 	{
+		SetStunStarsVisible(false);
+		StunImmunityTimer = StunImmunitySeconds;
 		ReturnToWander(false);
 	}
 }
@@ -978,16 +1025,24 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 	{
 		bAttackFired = true;
 		int32 Destroyed = 0;
+		UKakurenboFxSubsystem* Fx = GetWorld()->GetSubsystem<UKakurenboFxSubsystem>();
 		if (bSingleTargetAttack)
 		{
-			// 目の前の壁 1 個だけ
+			// 目の前の壁 1 個だけ（壁の破片と音はグリッドからの通知で GameMode が出す）
 			Destroyed = G->DamageBottomBlock(AttackCell, AttackDamage);
-			DrawDebugBox(GetWorld(), G->CellToWorld(AttackCell, 0), FVector(G->GetCellSize() * 0.5f, G->GetCellSize() * 0.5f, G->GetBlockHeight() * 0.5f), FColor(255, 80, 40), false, 0.25f, 0, 3.f);
+			if (Fx)
+			{
+				Fx->Ring(G->CellFloorCenter(AttackCell), 20.f, G->GetCellSize() * 0.6f, 0.2f, FLinearColor(1.f, 0.35f, 0.15f), 8.f);
+			}
 		}
 		else
 		{
+			// 範囲攻撃：足元から衝撃波が広がる
 			Destroyed = G->DamageBlocksInRadius(GetActorLocation(), AttackRadius, AttackDamage);
-			DrawDebugSphere(GetWorld(), GetActorLocation(), AttackRadius, 16, FColor(255, 80, 40), false, 0.25f, 0, 3.f);
+			if (Fx)
+			{
+				Fx->Ring(GetActorLocation(), 30.f, AttackRadius, 0.25f, FLinearColor(1.f, 0.35f, 0.15f), 12.f);
+			}
 		}
 		if (Destroyed > 0)
 		{

@@ -15,6 +15,8 @@
 namespace
 {
 	FString Big(double V) { return UKakurenboLibrary::FormatBigNumber(V); }
+	/** 収入・耐久など、小数に意味がある値 */
+	FString Stat(double V) { return UKakurenboLibrary::FormatStatNumber(V); }
 
 	const FLinearColor Gold(1.f, 0.85f, 0.2f);
 	const FLinearColor Gray(0.6f, 0.6f, 0.6f);
@@ -81,6 +83,68 @@ void AKakurenboHUD::DrawHUD()
 		const float CanvasW = Canvas->ClipX / UIScale;
 		Panel(CanvasW * 0.5f - 330, 116, 660, 44, FLinearColor(0.05f, 0.25f, 0.1f, 0.8f));
 		Text(State->NoticeText.ToString(), 0, 122, 22, FLinearColor::White, true);
+	}
+
+	DrawPopupsAndFlash();
+}
+
+void AKakurenboHUD::Flash(const FLinearColor& Color, float Duration)
+{
+	FlashColor = Color;
+	FlashDuration = FMath::Max(0.05f, Duration);
+	FlashStartTime = GetWorld()->GetTimeSeconds();
+}
+
+float AKakurenboHUD::GetFlashAlpha() const
+{
+	const float T = (GetWorld()->GetTimeSeconds() - FlashStartTime) / FMath::Max(FlashDuration, 0.05f);
+	return (T >= 0.f && T < 1.f) ? FlashColor.A * (1.f - T) : 0.f;
+}
+
+void AKakurenboHUD::AddPopup(const FString& Text, const FLinearColor& Color)
+{
+	FBigPopup& Popup = Popups.AddDefaulted_GetRef();
+	Popup.Text = Text;
+	Popup.Color = Color;
+	if (Popups.Num() > 4)
+	{
+		Popups.RemoveAt(0);
+	}
+}
+
+void AKakurenboHUD::DrawPopupsAndFlash()
+{
+	// 大きな文字：ふわっと上がりながら消える。新しいものほど下に出す
+	constexpr float Lifetime = 1.4f;
+	for (int32 i = Popups.Num() - 1; i >= 0; --i)
+	{
+		FBigPopup& Popup = Popups[i];
+		Popup.Age += RenderDelta;
+		if (Popup.Age >= Lifetime)
+		{
+			Popups.RemoveAt(i);
+		}
+	}
+	for (int32 i = 0; i < Popups.Num(); ++i)
+	{
+		const FBigPopup& Popup = Popups[i];
+		const float T = Popup.Age / Lifetime;
+		const float Alpha = T < 0.7f ? 1.f : 1.f - (T - 0.7f) / 0.3f;
+		const float Y = 250.f + (Popups.Num() - 1 - i) * -46.f - 40.f * T;
+		FCanvasTextItem Item(FVector2D(Canvas->ClipX * 0.5f, Y * UIScale), FText::FromString(Popup.Text), MakeFont(36),
+			FLinearColor(Popup.Color.R, Popup.Color.G, Popup.Color.B, Alpha));
+		Item.bCentreX = true;
+		Item.EnableShadow(FLinearColor(0.f, 0.f, 0.f, 0.8f * Alpha));
+		Canvas->DrawItem(Item);
+	}
+
+	// 画面全体の点滅（見つかった: 赤 / 逃げ切った: 金）
+	const float FlashAlpha = GetFlashAlpha();
+	if (FlashAlpha > 0.f)
+	{
+		FCanvasTileItem Tile(FVector2D::ZeroVector, FVector2D(Canvas->ClipX, Canvas->ClipY), FLinearColor(FlashColor.R, FlashColor.G, FlashColor.B, FlashAlpha));
+		Tile.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(Tile);
 	}
 }
 
@@ -175,7 +239,7 @@ void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMo
 	Panel(20, 20, 380, 130);
 	Text(FString::Printf(TEXT("ステージ %d   [%s]"), State->Stage, PhaseNames[static_cast<int32>(State->Phase)]), 36, 30, 22);
 	Text(FString::Printf(TEXT("コイン  %s"), *Big(State->Coins)), 36, 64, 30, Gold);
-	Text(FString::Printf(TEXT("連打 +%s / 時間 +%s/秒"), *Big(GM->GetMashIncome()), *Big(GM->GetTimeIncomePerSecond())), 36, 108, 18, Gray);
+	Text(FString::Printf(TEXT("連打 +%s / 時間 +%s/秒"), *Stat(GM->GetMashIncome()), *Stat(GM->GetTimeIncomePerSecond())), 36, 108, 18, Gray);
 }
 
 // ---------------------------------------------------------------- 購入
@@ -184,21 +248,23 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 {
 	const TArray<FShopItemView> Items = GM->GetShopItems();
 
-	const float X = 560, Y = 160, W = 800;
-	Panel(X, Y, W, 110 + Items.Num() * 80);
-	Text(TEXT("購入パート"), 0, Y + 14, 34, FLinearColor::White, true);
+	// 商品が増えても画面に収まるよう、1 行の高さを詰める
+	const float X = 520, Y = 150, W = 880;
+	const float RowH = FMath::Min(80.f, 680.f / FMath::Max(1, Items.Num()));
+	Panel(X, Y, W, 100 + Items.Num() * RowH);
+	Text(TEXT("購入パート"), 0, Y + 12, 34, FLinearColor::White, true);
 
 	for (int32 i = 0; i < Items.Num(); ++i)
 	{
 		const FShopItemView& Item = Items[i];
 		const bool bAffordable = State->Coins >= Item.Cost;
-		const float RowY = Y + 80 + i * 80;
-		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 24, bAffordable ? FLinearColor::White : Gray);
-		Text(FString::Printf(TEXT("%s コイン"), *Big(Item.Cost)), X + 560, RowY, 24, bAffordable ? Gold : Gray);
-		Text(Item.Description.ToString(), X + 60, RowY + 38, 16, Gray);
+		const float RowY = Y + 72 + i * RowH;
+		Text(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 23, bAffordable ? FLinearColor::White : Gray);
+		Text(FString::Printf(TEXT("%s コイン"), *Big(Item.Cost)), X + 640, RowY, 23, bAffordable ? Gold : Gray);
+		Text(Item.Description.ToString(), X + 60, RowY + RowH * 0.45f, 16, Gray);
 	}
 
-	float BottomY = Y + 110 + Items.Num() * 80 + 16;
+	float BottomY = Y + 100 + Items.Num() * RowH + 16;
 	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
 		if (const int32 Missing = Grid->GetTotalMissing())
@@ -223,41 +289,62 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	Panel(20, 170, 480, 196);
 	Text(TEXT("WASD: 移動　Space: ジャンプ"), 36, 182, 18);
 	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, 210, 18);
-	Text(TEXT("数字キー: 壁の種類"), 36, 238, 18);
+	Text(TEXT("数字キー: 置く物（壁・罠）"), 36, 238, 18);
 	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, 266, 18);
 	Text(TEXT("ホイール: ズーム"), 36, 294, 18);
 	Text(TEXT("Enter: かくれんぼ開始"), 36, 326, 22, Gold);
 
-	// 壊れた壁の自動修復の結果
+	// 壊れた壁の自動修復・使った罠の置き直しの結果
 	float NoticeY = 24;
-	if (State->LastRepairedWalls > 0)
+	if (State->LastRepairedWalls > 0 || State->LastRefilledTraps > 0)
 	{
-		Text(FString::Printf(TEXT("壊れた壁を %d 個、在庫から自動で直しました"), State->LastRepairedWalls), 0, NoticeY, 22, Good, true);
+		Text(FString::Printf(TEXT("在庫から自動で直しました（壁 %d 個・罠 %d 個）"), State->LastRepairedWalls, State->LastRefilledTraps), 0, NoticeY, 22, Good, true);
 		NoticeY += 34;
 	}
 	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
 	{
-		if (const int32 Missing = Grid->GetTotalMissing())
+		const int32 MissingWalls = Grid->GetTotalMissing();
+		const int32 MissingTraps = Grid->GetMissingTrapCount();
+		if (MissingWalls > 0 || MissingTraps > 0)
 		{
-			Text(FString::Printf(TEXT("直せていない壁: %d 個（赤い枠。在庫を買うか、手で置き直してください）"), Missing), 0, NoticeY, 20, Bad, true);
+			Text(FString::Printf(TEXT("直せていない壁 %d 個・罠 %d 個（赤い枠。在庫を買うか、右クリックで設計図から消せます）"), MissingWalls, MissingTraps), 0, NoticeY, 20, Bad, true);
 		}
 	}
 
-	// 壁の在庫（下部中央に並べる）
-	const int32 Num = GM->WallTypes.Num();
-	const float SlotW = 220, SlotH = 70;
+	// 壁と罠の在庫（下部中央に並べる）
+	const TArray<FWallTypeDef> Walls = GM->GetEffectiveWallTypes();
+	const int32 NumWalls = Walls.Num();
+	const int32 Num = NumWalls + GM->TrapTypes.Num();
+	const float SlotW = FMath::Min(220.f, (CanvasW - 80.f) / FMath::Max(1, Num)), SlotH = 70;
 	const float StartX = (CanvasW - SlotW * Num) * 0.5f;
 	const float SlotY = CanvasH - 170;
 	for (int32 i = 0; i < Num; ++i)
 	{
-		const FWallTypeDef& Def = GM->WallTypes[i];
-		const bool bSelected = PC && PC->SelectedWallType == i;
-		const int32 Stock = State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0;
+		const bool bTrap = i >= NumWalls;
+		const bool bSelected = PC && PC->SelectedBuildSlot == i;
+		const int32 TrapIndex = i - NumWalls;
+		const int32 Stock = bTrap
+			? (State->TrapStock.IsValidIndex(TrapIndex) ? State->TrapStock[TrapIndex] : 0)
+			: (State->WallStock.IsValidIndex(i) ? State->WallStock[i] : 0);
+		const FText& Name = bTrap ? GM->TrapTypes[TrapIndex].DisplayName : Walls[i].DisplayName;
+		const FLinearColor& Color = bTrap ? GM->TrapTypes[TrapIndex].Color : Walls[i].Color;
+
 		const float X = StartX + i * SlotW;
 		Panel(X + 4, SlotY, SlotW - 8, SlotH, bSelected ? FLinearColor(0.9f, 0.75f, 0.2f, 0.6f) : FLinearColor(0.f, 0.f, 0.f, 0.55f));
-		Panel(X + 12, SlotY + 10, 14, SlotH - 20, Def.Color);
-		Text(FString::Printf(TEXT("[%d] %s"), i + 1, *Def.DisplayName.ToString()), X + 36, SlotY + 8, 20, Stock > 0 ? FLinearColor::White : Gray);
-		Text(FString::Printf(TEXT("在庫 %d　耐久 %s"), Stock, *Big(Def.MaxHP)), X + 36, SlotY + 38, 16, Gray);
+		// 壁は縦長の四角、罠は平たい四角で見分ける
+		if (bTrap)
+		{
+			Panel(X + 10, SlotY + 26, 20, 16, Color);
+		}
+		else
+		{
+			Panel(X + 12, SlotY + 10, 14, SlotH - 20, Color);
+		}
+		Text(FString::Printf(TEXT("[%d] %s"), i + 1, *Name.ToString()), X + 36, SlotY + 8, 20, Stock > 0 ? FLinearColor::White : Gray);
+		const FString Detail = bTrap
+			? FString::Printf(TEXT("在庫 %d"), Stock)
+			: FString::Printf(TEXT("在庫 %d　耐久 %s"), Stock, *Stat(Walls[i].MaxHP));
+		Text(Detail, X + 36, SlotY + 38, 16, Gray);
 	}
 
 	// 置けない理由をカーソルの下に出す
@@ -270,7 +357,19 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		}
 	}
 
-	Text(FString::Printf(TEXT("このステージの鬼の攻撃力: %s"), *Big(GM->GetOniAttackDamage())), 0, CanvasH - 60, 18, Gray, true);
+	// 鬼の種類ごとの攻撃力（このステージに出てくる種類だけ）
+	FString Damage;
+	TArray<EOniType> ShownTypes;
+	for (const EOniType Type : GM->GetStageSettings().OniTypes)
+	{
+		if (!ShownTypes.Contains(Type))
+		{
+			ShownTypes.Add(Type);
+			const FKakurenboOniTypeRow Row = GM->GetOniTypeRow(Type);
+			Damage += FString::Printf(TEXT("%s%s %s"), Damage.IsEmpty() ? TEXT("") : TEXT("　"), *Row.DisplayName.ToString(), *Stat(GM->GetOniAttackDamage() * Row.DamageScale));
+		}
+	}
+	Text(FString::Printf(TEXT("このステージの鬼の攻撃力: %s"), *Damage), 0, CanvasH - 60, 18, Gray, true);
 }
 
 // ---------------------------------------------------------------- かくれんぼ
@@ -350,8 +449,13 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 
 	// 操作説明（下部中央）
-	Text(FString::Printf(TEXT("WASD: 移動　Space: ジャンプ　左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Big(GM->GetMashIncome())), 0, CanvasH - 90, 22, FLinearColor::White, true);
-	Text(FString::Printf(TEXT("今回の獲得: %s コイン　連打 %d 回"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, CanvasH - 54, 18, Gray, true);
+	Text(FString::Printf(TEXT("WASD: 移動　Space: ジャンプ　左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome())), 0, CanvasH - 90, 22, FLinearColor::White, true);
+	FString Stats = FString::Printf(TEXT("今回の獲得: %s コイン　連打 %d 回"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound);
+	if (State->TrapsTriggeredThisRound > 0)
+	{
+		Stats += FString::Printf(TEXT("　罠の発動 %d 回"), State->TrapsTriggeredThisRound);
+	}
+	Text(Stats, 0, CanvasH - 54, 18, Gray, true);
 }
 
 void AKakurenboHUD::DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM)
@@ -369,7 +473,7 @@ void AKakurenboHUD::DrawMashPopups(const AKakurenboGameState* State, AKakurenboG
 	if (NewMashes > 0)
 	{
 		FMashPopup& Popup = MashPopups.AddDefaulted_GetRef();
-		Popup.Text = FString::Printf(TEXT("+%s"), *Big(GM->GetMashIncome() * NewMashes));
+		Popup.Text = FString::Printf(TEXT("+%s"), *Stat(GM->GetMashIncome() * NewMashes));
 		Popup.OffsetX = FMath::FRandRange(-70.f, 70.f);
 		LastSeenMashCount = State->MashCountThisRound;
 		if (MashPopups.Num() > MaxPopups)
@@ -421,9 +525,9 @@ void AKakurenboHUD::DrawResult(AKakurenboGameState* State, AKakurenboGameMode* G
 
 	Text(FString::Printf(TEXT("今回の獲得: %s コイン（連打 %d 回）"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, Y + 200, 22, FLinearColor::White, true);
 	Text(FString::Printf(TEXT("お宝: %d / %d 個（+%s コイン）"), State->TreasuresCollectedThisRound, State->TreasuresThisRound, *Big(State->TreasureCoinsThisRound)), 0, Y + 236, 22, Gold, true);
-	if (State->LastRoundWallsDestroyed > 0)
+	if (State->LastRoundWallsDestroyed > 0 || State->TrapsTriggeredThisRound > 0)
 	{
-		Text(FString::Printf(TEXT("壊された壁: %d 個（在庫があれば次の設置パートで自動で直ります）"), State->LastRoundWallsDestroyed), 0, Y + 272, 18, Bad, true);
+		Text(FString::Printf(TEXT("壊された壁: %d 個・使った罠: %d 個（在庫があれば次の設置パートで自動で直ります）"), State->LastRoundWallsDestroyed, State->TrapsTriggeredThisRound), 0, Y + 272, 18, Warn, true);
 	}
 	Text(TEXT("Enter: 購入パートへ"), 0, Y + 320, 24, Gold, true);
 	Text(TEXT("マウス・Q/E: カメラ回転　ホイール: ズーム"), 0, Y + 396, 16, Gray, true);

@@ -4,6 +4,7 @@
 #include "KakurenboLayout.h"
 #include "KakurenboSaveGame.h"
 #include "PlaceableBlock.h"
+#include "TrapActor.h"
 
 void UKakurenboGridSubsystem::Configure(const FVector& InOrigin, int32 InSizeX, int32 InSizeY, float InCellSize, float InBlockHeight, int32 InMaxStackHeight)
 {
@@ -77,6 +78,11 @@ bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutRea
 	if (!IsInside(Cell))
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOutside", "範囲外です");
+		return false;
+	}
+	if (HasTrap(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnTrap", "罠があります（右クリックで回収できます）");
 		return false;
 	}
 	if (GetColumnHeight(Cell) >= MaxStackHeight)
@@ -201,9 +207,12 @@ int32 UKakurenboGridSubsystem::DamageBlocksInRadius(const FVector& Center, float
 			TArray<int32> BrokenLevels;
 			for (int32 Level = 0; Level < Blocks.Num(); ++Level)
 			{
-				if (FVector::DistSquared(CellToWorld(Cell, Level), Center) <= RadiusSq)
+				const FVector BlockCenter = CellToWorld(Cell, Level);
+				if (Blocks[Level] && FVector::DistSquared(BlockCenter, Center) <= RadiusSq)
 				{
-					if (Blocks[Level] && Blocks[Level]->ApplyBlockDamage(Damage))
+					const bool bBroken = Blocks[Level]->ApplyBlockDamage(Damage);
+					OnBlockHit.Broadcast(BlockCenter, Blocks[Level]->GetBaseColor(), bBroken);
+					if (bBroken)
 					{
 						BrokenLevels.Add(Level);
 					}
@@ -232,7 +241,13 @@ int32 UKakurenboGridSubsystem::DamageBottomBlock(const FIntPoint& Cell, double D
 		return 0;
 	}
 	TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
-	if (Blocks.Num() == 0 || !Blocks[0] || !Blocks[0]->ApplyBlockDamage(Damage))
+	if (Blocks.Num() == 0 || !Blocks[0])
+	{
+		return 0;
+	}
+	const bool bBroken = Blocks[0]->ApplyBlockDamage(Damage);
+	OnBlockHit.Broadcast(CellToWorld(Cell, 0), Blocks[0]->GetBaseColor(), bBroken);
+	if (!bBroken)
 	{
 		return 0;
 	}
@@ -254,8 +269,191 @@ void UKakurenboGridSubsystem::ClearAllBlocks()
 		}
 		Column.Blocks.Reset();
 		Column.Design.Reset();
+		if (Column.Trap)
+		{
+			Column.Trap->Destroy();
+		}
+		Column.Trap = nullptr;
+		Column.TrapDesign = INDEX_NONE;
 	}
 	MarkChanged();
+}
+
+void UKakurenboGridSubsystem::ScaleAllBlockHP(double Factor)
+{
+	for (FKakurenboBlockColumn& Column : Columns)
+	{
+		for (APlaceableBlock* Block : Column.Blocks)
+		{
+			if (Block)
+			{
+				Block->ScaleHP(Factor);
+			}
+		}
+	}
+	MarkChanged(); // 壊すのに必要な回数が変わるので、鬼の経路を作り直させる
+}
+
+// ---------------------------------------------------------------- 罠
+
+ATrapActor* UKakurenboGridSubsystem::GetTrap(const FIntPoint& Cell) const
+{
+	return IsInside(Cell) ? Columns[ToIndex(Cell)].Trap.Get() : nullptr;
+}
+
+int32 UKakurenboGridSubsystem::GetTrapDesign(const FIntPoint& Cell) const
+{
+	return IsInside(Cell) ? Columns[ToIndex(Cell)].TrapDesign : INDEX_NONE;
+}
+
+bool UKakurenboGridSubsystem::HasTrap(const FIntPoint& Cell) const
+{
+	return IsInside(Cell) && (Columns[ToIndex(Cell)].TrapDesign != INDEX_NONE || Columns[ToIndex(Cell)].Trap != nullptr);
+}
+
+bool UKakurenboGridSubsystem::CanPlaceTrap(const FIntPoint& Cell, FText* OutReason) const
+{
+	if (!IsInside(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOutside", "範囲外です");
+		return false;
+	}
+	if (HasTrap(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "TrapExists", "もう罠があります");
+		return false;
+	}
+	const FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+	if (Column.Blocks.Num() > 0 || Column.Design.Num() > 0)
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "TrapOnWall", "罠は壁の無い床にだけ置けます");
+		return false;
+	}
+	return true;
+}
+
+ATrapActor* UKakurenboGridSubsystem::SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def)
+{
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ATrapActor* Trap = GetWorld()->SpawnActor<ATrapActor>(ATrapActor::StaticClass(), CellFloorCenter(Cell), FRotator::ZeroRotator, Params);
+	if (Trap)
+	{
+		Trap->InitTrap(TrapTypeIndex, Def);
+		Trap->Cell = Cell;
+	}
+	return Trap;
+}
+
+ATrapActor* UKakurenboGridSubsystem::PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def)
+{
+	if (!CanPlaceTrap(Cell))
+	{
+		return nullptr;
+	}
+	ATrapActor* Trap = SpawnTrapActor(Cell, TrapTypeIndex, Def);
+	if (Trap)
+	{
+		FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+		Column.Trap = Trap;
+		Column.TrapDesign = TrapTypeIndex;
+	}
+	return Trap;
+}
+
+bool UKakurenboGridSubsystem::PickUpTrap(const FIntPoint& Cell, int32& OutReturnedType)
+{
+	OutReturnedType = INDEX_NONE;
+	if (!HasTrap(Cell))
+	{
+		return false;
+	}
+	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+	if (Column.Trap)
+	{
+		OutReturnedType = Column.Trap->TrapTypeIndex;
+		Column.Trap->Destroy();
+	}
+	Column.Trap = nullptr;
+	Column.TrapDesign = INDEX_NONE;
+	return true;
+}
+
+void UKakurenboGridSubsystem::ConsumeTrap(ATrapActor* Trap)
+{
+	if (!Trap)
+	{
+		return;
+	}
+	if (IsInside(Trap->Cell) && Columns[ToIndex(Trap->Cell)].Trap == Trap)
+	{
+		Columns[ToIndex(Trap->Cell)].Trap = nullptr; // 設計図は残す（あとで置き直せるように）
+	}
+	Trap->Destroy();
+}
+
+int32 UKakurenboGridSubsystem::GetLiveTrapCount(int32 TrapTypeIndex) const
+{
+	int32 Count = 0;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		Count += (Column.Trap && Column.Trap->TrapTypeIndex == TrapTypeIndex) ? 1 : 0;
+	}
+	return Count;
+}
+
+int32 UKakurenboGridSubsystem::GetMissingTrapCount() const
+{
+	int32 Count = 0;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		Count += (Column.TrapDesign != INDEX_NONE && !Column.Trap) ? 1 : 0;
+	}
+	return Count;
+}
+
+TArray<ATrapActor*> UKakurenboGridSubsystem::GetAllTraps() const
+{
+	TArray<ATrapActor*> Traps;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		if (Column.Trap)
+		{
+			Traps.Add(Column.Trap);
+		}
+	}
+	return Traps;
+}
+
+void UKakurenboGridSubsystem::RefillTrapsFromDesign(TArray<int32>& InOutStock, const TArray<FKakurenboTrapRow>& TrapTypes, int32& OutRefilled, int32& OutMissing)
+{
+	OutRefilled = 0;
+	OutMissing = 0;
+	for (int32 Index = 0; Index < Columns.Num(); ++Index)
+	{
+		FKakurenboBlockColumn& Column = Columns[Index];
+		const int32 Type = Column.TrapDesign;
+		if (Type == INDEX_NONE || Column.Trap)
+		{
+			continue;
+		}
+		if (!TrapTypes.IsValidIndex(Type) || !InOutStock.IsValidIndex(Type) || InOutStock[Type] <= 0)
+		{
+			++OutMissing;
+			continue;
+		}
+		const FIntPoint Cell(Index % SizeX, Index / SizeX);
+		if (ATrapActor* Trap = SpawnTrapActor(Cell, Type, TrapTypes[Type]))
+		{
+			Column.Trap = Trap;
+			--InOutStock[Type];
+			++OutRefilled;
+		}
+		else
+		{
+			++OutMissing;
+		}
+	}
 }
 
 void UKakurenboGridSubsystem::MarkChanged()
@@ -378,7 +576,7 @@ void UKakurenboGridSubsystem::ExportLayout(TArray<FKakurenboSavedColumn>& OutCol
 	for (int32 Index = 0; Index < Columns.Num(); ++Index)
 	{
 		const FKakurenboBlockColumn& Column = Columns[Index];
-		if (Column.Design.Num() == 0 && Column.Blocks.Num() == 0)
+		if (Column.Design.Num() == 0 && Column.Blocks.Num() == 0 && Column.TrapDesign == INDEX_NONE && !Column.Trap)
 		{
 			continue;
 		}
@@ -392,10 +590,12 @@ void UKakurenboGridSubsystem::ExportLayout(TArray<FKakurenboSavedColumn>& OutCol
 				Saved.Live.Add(Block->WallTypeIndex);
 			}
 		}
+		Saved.TrapDesign = Column.TrapDesign;
+		Saved.bTrapLive = Column.Trap != nullptr;
 	}
 }
 
-void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& SavedColumns, const TArray<FWallTypeDef>& WallTypes)
+void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& SavedColumns, const TArray<FWallTypeDef>& WallTypes, const TArray<FKakurenboTrapRow>& TrapTypes)
 {
 	ClearAllBlocks();
 	for (const FKakurenboSavedColumn& Saved : SavedColumns)
@@ -406,6 +606,16 @@ void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& 
 		}
 		FKakurenboBlockColumn& Column = Columns[ToIndex(Saved.Cell)];
 		Column.Design = Saved.Design;
+
+		// 罠（種類が CSV から消えていたら設計図ごと捨てる）
+		if (TrapTypes.IsValidIndex(Saved.TrapDesign))
+		{
+			Column.TrapDesign = Saved.TrapDesign;
+			if (Saved.bTrapLive)
+			{
+				Column.Trap = SpawnTrapActor(Saved.Cell, Saved.TrapDesign, TrapTypes[Saved.TrapDesign]);
+			}
+		}
 		for (const int32 Type : Saved.Live)
 		{
 			if (!WallTypes.IsValidIndex(Type) || Column.Blocks.Num() >= MaxStackHeight)
@@ -501,7 +711,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::FindSpreadFreeCells(const TArray<FVec
 			for (int32 X = 0; X < SizeX; ++X)
 			{
 				const FIntPoint Cell(X, Y);
-				if (!MainArea[ToIndex(Cell)] || Result.Contains(Cell))
+				if (!MainArea[ToIndex(Cell)] || HasTrap(Cell) || Result.Contains(Cell))
 				{
 					continue;
 				}
@@ -540,7 +750,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::FindRandomFreeCells(int32 Count, cons
 		for (int32 X = 0; X < SizeX; ++X)
 		{
 			const FIntPoint Cell(X, Y);
-			if (!MainArea[ToIndex(Cell)])
+			if (!MainArea[ToIndex(Cell)] || HasTrap(Cell))
 			{
 				continue;
 			}

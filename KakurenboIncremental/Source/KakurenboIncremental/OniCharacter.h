@@ -51,6 +51,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<USpotLightComponent> Flashlight;
 
+	/** 罠で動けない間、頭の上を回る星 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TArray<TObjectPtr<UStaticMeshComponent>> StunStars;
+
 	// ===== 種類 =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Type")
@@ -135,6 +139,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CarefulMemorySeconds = 45.f;
 
+	/** 罠から抜け出した後、この時間は罠にかからない（秒。続けて踏んでも動けないままにならないように） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float StunImmunitySeconds = 3.f;
+
 	// ===== 攻撃 =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
@@ -180,6 +188,12 @@ public:
 
 	/** 罠などで動けなくする */
 	void Stun(float Seconds);
+
+	/** 今、罠にかかるか（動いていて、動けない最中でも抜け出した直後でもない） */
+	bool CanBeStunned() const { return bActive && State != EOniState::Stunned && StunImmunityTimer <= 0.f; }
+
+	/** 行動中か（出てきてから、ラウンドが終わるかプレイヤーを見つけるまで） */
+	bool IsActive() const { return bActive; }
 
 	EOniState GetOniState() const { return State; }
 
@@ -314,6 +328,9 @@ private:
 
 	/** Stunned 中 */
 	float StunTimer = 0.f;
+	/** 罠から抜け出した後、罠にかからない残り時間 */
+	float StunImmunityTimer = 0.f;
+	void SetStunStarsVisible(bool bVisible);
 
 	/** 引っかかり検出 */
 	FVector LastProgressLocation = FVector::ZeroVector;

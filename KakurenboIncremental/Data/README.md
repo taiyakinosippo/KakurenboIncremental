@@ -38,13 +38,16 @@
 
 ## Upgrades.csv（強化）
 
-行の名前（Mash = 連打、Time = 時間）はプログラムが使うので変えないでください。
+行の名前（Mash = 連打、Time = 時間、Wall = 壁の補強）はプログラムが使うので変えないでください。
 
 | 列 | 意味 |
 |---|---|
 | DisplayName | 購入パートでの表示名 |
 | BaseCost / CostGrowth | 価格 = BaseCost × CostGrowth ^ レベル |
-| BaseValue / ValueGrowth | 効果 = BaseValue × ValueGrowth ^ レベル（連打 1 回 / 毎秒のコイン） |
+| BaseValue / ValueGrowth | 効果 = BaseValue × ValueGrowth ^ レベル（Mash: 連打 1 回のコイン / Time: 毎秒のコイン / Wall: すべての壁の耐久の倍率） |
+
+壁の補強は、鬼の攻撃力がステージごとに ×1.6 で伸びても壁が役に立ち続けるようにするための強化です。
+買うと置いてある壁の耐久もすぐに上がります。
 
 ## Walls.csv（壁）
 
@@ -53,6 +56,23 @@
 | 列 | 意味 |
 |---|---|
 | DisplayName | 表示名 |
-| MaxHP | 耐久値 |
+| MaxHP | 耐久値（壁の補強の倍率をかける前の値） |
 | Cost | 価格 |
 | Color | 色（"(R=0〜1,G=0〜1,B=0〜1,A=1.0)" の形。カンマを含むので " で囲む） |
+
+## Traps.csv（罠）
+
+行の並び順が購入パート・設置パートでの並び順になります（壁の後ろに続く）。行を足すと罠の種類が増えます
+（例: Kind を Sticky にして StunSeconds を長くした「強力トリモチ」）。
+購入パートの数字キーは 1〜9 なので、強化 3 つ＋壁＋罠の合計が 9 個までに収まるようにしてください。
+
+| 列 | 意味 |
+|---|---|
+| DisplayName | 表示名 |
+| Kind | 働き。`Sticky`（トリモチ: 踏んだ鬼を動けなくする。1 回で消える）か `Decoy`（おとり: 音で鬼を呼ぶ。鬼が触れると壊れる） |
+| Cost / CostGrowth | 価格 = Cost × CostGrowth ^ 持っている数（在庫＋置いてある数。発動して消えた分は数えない） |
+| StunSeconds | トリモチ: 鬼が動けない時間（秒）。抜け出した後 3 秒は罠にかからない |
+| NoiseInterval | おとり: 音を出す間隔（秒） |
+| NoiseLoudness | おとり: 音の大きさ（1 なら連打の音と同じ距離まで届く） |
+| TriggerRadius | 鬼の体の中心がこの距離（cm）まで来たら発動する |
+| Color | 色 |

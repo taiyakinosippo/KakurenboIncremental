@@ -15,13 +15,17 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 
 | ファイル | 役割 |
 |---|---|
-| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁の設置・鬼のスポーン）。数値は UPROPERTY |
+| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁と罠の設置・鬼のスポーン・演出と効果音のきっかけ）。数値は UPROPERTY |
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル）。HUD はここを読む |
 | `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）、鬼の方向表示 |
 | `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・三人称カメラ） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う。ぶつかったらアウト） |
 | `KakurenboOniBlackboard` | 慎重鬼どうしで共有する「調べたマス」と「向かっているマス」（WorldSubsystem） |
 | `TreasureActor` | お宝（距離で取得） |
+| `TrapActor` | 罠（トリモチ: 踏んだ鬼を Stun / おとり: 一定間隔で EmitNoise）。当たり判定なし、距離で発動。配置と設計図はグリッドが持つ |
+| `KakurenboFx` | 仮の演出（破片 `AKakurenboBurstFx`・床の輪 `AKakurenboRingFx`）と窓口の `UKakurenboFxSubsystem`（輪は使い回す） |
+| `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / 3D）。GameMode の `SoundOverrides` に音アセットがあればそちら |
+| `KakurenboSynth` | 効果音の波形をプログラムで作る（純粋な計算・単体テストあり）。`USoundWaveProcedural` で再生し、長さぶん経ったら止める |
 | `KakurenboLayout` | 設計図からの修復計画（純粋ロジック・単体テストあり） |
 | `KakurenboBalance` | ステージ設定の解決（表より後は伸ばす）と CSV → DataTable の読み込み |
 | `KakurenboSaveGame` | セーブデータ（GameMode の SaveProgress / LoadProgress / ResetProgress） |
@@ -31,7 +35,10 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
-- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
+- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps）。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
+- 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ → 壁 → 罠）
+- 収入・耐久など小数に意味がある値の表示は `FormatStatNumber`（`FormatBigNumber` は 1000 未満を切り捨てるのでコイン専用）
+- 設置パートのグリッド線・プレビュー枠は DrawDebug 系（Shipping では出ない）。演出は `UKakurenboFxSubsystem` を使う
 - レベルアセットは無い。既定マップは `/Engine/Maps/Entry`、既定 GameMode は `KakurenboGameMode`（DefaultEngine.ini）
 - 見た目はエンジン付属の BasicShapes と `BasicShapeMaterial`（"Color" パラメータ）で仮組み
 
@@ -47,8 +54,11 @@ powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
   スクリーンショットを Read で確認して見た目も検証すること。最後に `CHECK: n passed, m failed` が出る
 - シナリオ: Camera / Loop / Senses / Touch / Treasure / Build / Save（基本）、
-  Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）。鬼の仕様を変えたら全部流す
+  Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）、Trap / Shop / Fx（M5）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する
+- 効果音は既定では `-NoSound` で起動するが、鳴らした回数（`GetPlayCount`）は数えるのできっかけは確かめられる。
+  `RunAutoTest.ps1 -Scenario Fx -Sound` で実際に再生まで確かめる（`-ExtraExec "KakuVolume 0.3,"` で小さめに）
+- スクリーンショットを撮るステップでプレイヤーを動かすと、動かした後の画面が写る。撮ってから次のステップで動かす
 - 入力が絡む変更は、`PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(...))` で疑似入力を流して検証する
   （`SetControlRotation` などで直接状態を書き換えるテストでは、入力の経路のバグを見逃す）
 - 疑似入力は次のフレームの入力処理で反映される。結果の確認は `GetWorldTimerManager().SetTimerForNextTick` で行う

@@ -1,7 +1,8 @@
 ﻿// ゲームのルールと進行を管理するクラス。
-// パートの切り替え・コインの計算・購入処理・鬼とお宝の出現・セーブとロードはすべてここに集める。
+// パートの切り替え・コインの計算・購入処理・鬼とお宝の出現・罠・セーブとロードはすべてここに集める。
+// 演出（破片・輪・画面の点滅）と効果音を鳴らすきっかけもここから出す。
 //
-// 数値（ステージ・強化・壁）は <プロジェクト>/Data/*.csv から読み込む（Data/README.md 参照）。
+// 数値（ステージ・強化・壁・鬼・罠）は <プロジェクト>/Data/*.csv から読み込む（Data/README.md 参照）。
 // CSV が読めないときは、このクラスに書いてある既定値を使う。
 
 #pragma once
@@ -15,8 +16,10 @@ class AKakurenboArena;
 class AKakurenboGameState;
 class AOniCharacter;
 class APlaceableBlock;
+class ATrapActor;
 class ATreasureActor;
 class UDataTable;
+class USoundBase;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
@@ -46,6 +49,10 @@ public:
 	/** 鬼の種類ごとの数値。Data/OniTypes.csv の代わりに使う DataTable（行の型: KakurenboOniTypeRow。行名 Balanced / Scout / Breaker / Careful） */
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> OniTypeTable;
+
+	/** 罠の種類。Data/Traps.csv の代わりに使う DataTable（行の型: KakurenboTrapRow） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> TrapTable;
 
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
@@ -109,6 +116,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	FText TimeUpgradeName;
 
+	/** 壁の補強（すべての壁の耐久を上げる）。Upgrades.csv の Wall 行で上書きされる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	FText WallUpgradeName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallUpgradeBaseCost = 200.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallUpgradeCostGrowth = 3.0;
+
+	/** 壁の耐久の倍率 = WallHPBase × WallHPGrowth^レベル */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallHPBase = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallHPGrowth = 1.5;
+
 	// ===== お宝 =====
 
 	/** お宝 1 個の価値（そのステージの逃げ切り報酬に対する割合） */
@@ -124,9 +148,21 @@ public:
 
 	// ===== 壁（Walls.csv で上書きされる） =====
 
-	/** 購入できる壁の種類（ショップの並び順） */
+	/** 購入できる壁の種類（ショップの並び順）。耐久は補強前の値（補強後は GetEffectiveWallTypes） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	TArray<FWallTypeDef> WallTypes;
+
+	// ===== 罠（Traps.csv で上書きされる） =====
+
+	/** 購入できる罠の種類（ショップ・設置パートの並び順） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	TArray<FKakurenboTrapRow> TrapTypes;
+
+	// ===== 音 =====
+
+	/** 効果音を音アセットに差し替える（設定していない音はプログラムで作った音を鳴らす） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
+	TMap<EKakurenboSfx, TObjectPtr<USoundBase>> SoundOverrides;
 
 	// ===== 鬼 =====
 
@@ -202,6 +238,24 @@ public:
 	double GetTimeUpgradeCost() const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetWallUpgradeCost() const;
+
+	/** 今の壁の耐久の倍率（壁の補強のレベルで決まる） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetWallHPMultiplier() const;
+
+	/** 補強を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
+	TArray<FWallTypeDef> GetEffectiveWallTypes() const;
+
+	/** 罠の今の価格（持っている数が増えるほど高くなる） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetTrapCost(int32 TrapTypeIndex) const;
+
+	/** 持っている罠の数（在庫＋置いてある数。発動して消えた分は数えない） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	int32 GetOwnedTrapCount(int32 TrapTypeIndex) const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetClearReward() const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -250,6 +304,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyWall(int32 WallTypeIndex);
 
+	/** 壁の補強を買う（置いてある壁の耐久もすぐに上がる） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool TryBuyWallUpgrade();
+
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool TryBuyTrap(int32 TrapTypeIndex);
+
+	/** 商品の番号（0 始まり）。並び: 強化（連打・時間・壁の補強）→ 壁 → 罠 */
+	int32 GetShopIndexOfWall(int32 WallTypeIndex) const;
+	int32 GetShopIndexOfTrap(int32 TrapTypeIndex) const;
+
 	// ===== 設置 =====
 
 	/** 設置パート：在庫の壁をマスの一番上に置けるか（置けない理由も返す） */
@@ -263,14 +328,34 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool PickUpWall(APlaceableBlock* Block);
 
+	/** 設置パート：在庫の罠を床のマスに置けるか（置けない理由も返す） */
+	bool CanPlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, FText* OutReason = nullptr) const;
+
+	/** 設置パート：在庫の罠を置く */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool PlaceTrap(FIntPoint Cell, int32 TrapTypeIndex);
+
+	/** 設置パート：罠を回収する（残っていれば在庫に戻す。発動済みなら設計図から消すだけ） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool PickUpTrap(FIntPoint Cell);
+
 	// ===== かくれんぼ =====
 
 	/** 連打 1 回分の処理（コイン獲得＋音を出す） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void HandleMash(const FVector& NoiseLocation);
 
+	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く） */
+	void EmitNoise(const FVector& Location, float Loudness);
+
 	/** お宝を取得する（お宝がプレイヤーに触れたときに呼ぶ） */
 	void CollectTreasure(ATreasureActor* Treasure);
+
+	/** 罠が発動した（トリモチ: 鬼が動けなくなる / おとり: 鬼に壊された）。罠はここで消える */
+	void HandleTrapTriggered(ATrapActor* Trap, AOniCharacter* Oni);
+
+	/** おとりが音を出した */
+	void HandleDecoyPing(ATrapActor* Trap);
 
 	// ===== パート遷移 =====
 
@@ -339,11 +424,24 @@ protected:
 	void HandleOniFoundHider();
 	void HandleOniDestroyedWalls(int32 Count);
 
+	/** 壁が攻撃された（破片を飛ばして音を鳴らす） */
+	void HandleBlockHit(const FVector& Location, const FLinearColor& Color, bool bDestroyed);
+
 	void SpawnTreasures();
 	void ClearTreasures();
 
 	/** 壊れた壁を設計図どおりに在庫から直す */
 	void RepairWalls();
+
+	/** 発動して消えた罠を設計図どおりに在庫から置き直す */
+	void RefillTraps();
+
+	/** 開始前のカウントダウン・残り時間の秒読みの音 */
+	void TickCountdownSounds();
+
+	/** 画面の点滅・大きな文字（HUD に頼む） */
+	void FlashScreen(const FLinearColor& Color, float Duration) const;
+	void ShowPopup(const FString& Text, const FLinearColor& Color) const;
 
 	/** プレイヤーの体がそのマスの範囲（縦方向は問わない）に入っているか */
 	bool IsPlayerInCellColumn(const FIntPoint& Cell) const;
@@ -363,4 +461,8 @@ protected:
 
 	bool bOnisSpawnedThisRound = false;
 	FRandomStream TreasureRandom;
+
+	/** 最後に音を鳴らしたカウントダウン・秒読みの秒数（同じ秒で何度も鳴らさないため） */
+	int32 LastCountdownSecond = 0;
+	int32 LastTimeTickSecond = 0;
 };

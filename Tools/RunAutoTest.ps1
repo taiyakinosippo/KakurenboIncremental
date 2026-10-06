@@ -1,7 +1,8 @@
 ﻿# ゲームを起動して KakuAutoTest を実行し、スクリーンショットとログを確認できるようにする
 #   スクリーンショット: KakurenboIncremental/Saved/AutoTest/*.png
 #   ログ:              KakurenboIncremental/Saved/Logs/KakurenboIncremental.log
-param([string]$Scenario = "Loop", [int]$TimeoutSec = 600, [string]$ExtraExec = "", [string]$SaveSlot = "")
+#   -Sound を付けると音を出して起動する（既定は -NoSound。効果音の再生まで確かめたいときに使う）
+param([string]$Scenario = "Loop", [int]$TimeoutSec = 600, [string]$ExtraExec = "", [string]$SaveSlot = "", [switch]$Sound)
 
 $Engine = "C:\Program Files\Epic Games\UE_5.8"
 $Project = Join-Path $PSScriptRoot "..\KakurenboIncremental\KakurenboIncremental.uproject" | Resolve-Path
@@ -10,7 +11,8 @@ $Saved = Join-Path (Split-Path $Project) "Saved"
 # このシナリオの古いスクリーンショットだけを消す（他のシナリオの分は残す）
 Get-ChildItem (Join-Path $Saved "AutoTest") -Filter "$($Scenario.ToLower())_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-NoSound", "-KakuNoSave", "-ExecCmds=`"$ExtraExec KakuAutoTest $Scenario`"", "-log")
+$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-KakuNoSave", "-ExecCmds=`"$ExtraExec KakuAutoTest $Scenario`"", "-log")
+if (-not $Sound) { $GameArgs += "-NoSound" }
 if ($SaveSlot -ne "") { $GameArgs += "-KakuSaveSlot=$SaveSlot" }
 $Proc = Start-Process -FilePath "$Engine\Engine\Binaries\Win64\UnrealEditor.exe" -ArgumentList $GameArgs -PassThru
 if (-not $Proc.WaitForExit($TimeoutSec * 1000)) {

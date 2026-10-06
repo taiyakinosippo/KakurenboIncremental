@@ -6,20 +6,27 @@
 // 疑似入力（SimulateKey / SimulateMouse）の結果は、次のフレームの入力処理で反映されるので NextTick で確かめる。
 
 #include "Camera/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/Engine.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerInput.h"
 #include "HiderCharacter.h"
 #include "InputKeyEventArgs.h"
+#include "KakurenboFx.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
+#include "KakurenboHUD.h"
 #include "KakurenboOniBlackboard.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
+#include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
 #include "OniCharacter.h"
+#include "PlaceableBlock.h"
 #include "TimerManager.h"
+#include "TrapActor.h"
 #include "TreasureActor.h"
 #include "UnrealClient.h"
 
@@ -175,15 +182,35 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		const FWallTypeDef& Def = GM->WallTypes[0];
 		Grid()->PlaceBlock(Cell, 0, Def.MaxHP, Def.Color);
 	};
-	// テスト用：このラウンドに出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ）
+	// テスト用：出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ。どのステージでも同じにする）
 	auto SetStageOniTypes = [GM](const TArray<EOniType>& Types)
 	{
 		if (GM->StageRows.Num() == 0)
 		{
 			GM->StageRows.AddDefaulted();
 		}
-		GM->StageRows[0].OniTypes = Types;
+		for (FKakurenboStageRow& Row : GM->StageRows)
+		{
+			Row.OniTypes = Types;
+		}
 	};
+	// 商品を番号キーと同じ経路（KakuBuy）で買う。商品の番号は並びが変わってもよいように GameMode に聞く
+	auto BuyWall = [this, GM](int32 WallType, int32 Count)
+	{
+		for (int32 i = 0; i < Count; ++i)
+		{
+			KakuBuy(GM->GetShopIndexOfWall(WallType) + 1);
+		}
+	};
+	auto BuyTrap = [this, GM](int32 TrapType, int32 Count)
+	{
+		for (int32 i = 0; i < Count; ++i)
+		{
+			KakuBuy(GM->GetShopIndexOfTrap(TrapType) + 1);
+		}
+	};
+	auto Sound = [this]() { return GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>(); };
+	auto FxSys = [this]() { return GetWorld()->GetSubsystem<UKakurenboFxSubsystem>(); };
 	// テスト用：目も耳も使わず、指定どおりに動く鬼にする
 	auto MakeBlindListener = [](AOniCharacter* Oni)
 	{
@@ -529,7 +556,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → 購入
 			KakuAddCoins(500.0);
-			KakuBuy(3); KakuBuy(3); KakuBuy(3); // 木の壁
+			BuyWall(0, 3); // 木の壁
 			*YawBefore = GetHider()->GetOverheadYaw();
 			*ZoomBefore = GetHider()->OverheadDistance;
 			SimulateKey(EKeys::Q, IE_Pressed);
@@ -813,7 +840,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → 購入
 			KakuAddCoins(3000.0);
-			for (int32 i = 0; i < 16; ++i) { KakuBuy(3); } // 木の壁（8 個で囲み、8 個は修復用）
+			BuyWall(0, 16); // 木の壁（8 個で囲み、8 個は修復用）
 			Log(TEXT("shop bought walls"));
 		} });
 		Steps.Add({ 1.f, [=, this]
@@ -888,6 +915,348 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("build_04_repaired"));
 		} });
 	}
+	// ================================================================ Trap
+	else if (Scenario.Equals(TEXT("Trap"), ESearchCase::IgnoreCase))
+	{
+		// 罠を買う → 置く → おとりに鬼が呼ばれて壊す・トリモチで鬼が止まる（その間は捕まらない）→ 次の設置パートで在庫から置き直す
+		struct FTrapTest
+		{
+			FIntPoint Me, StickyCell, DecoyCell, WallCell;
+		};
+		TSharedRef<FTrapTest> T = MakeShared<FTrapTest>();
+		constexpr int32 Sticky = 0;
+		constexpr int32 Decoy = 1;
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(5000.0);
+			const double FirstPrice = GM->GetTrapCost(Sticky);
+			BuyTrap(Sticky, 2);
+			BuyTrap(Decoy, 1);
+			BuyWall(0, 1);
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("traps bought into stock (sticky %d, decoy %d)"), S->TrapStock[Sticky], S->TrapStock[Decoy]), S->TrapStock[Sticky] == 2 && S->TrapStock[Decoy] == 1);
+			const double Expected = FirstPrice * FMath::Pow(GM->TrapTypes[Sticky].CostGrowth, 2.0);
+			Check(FString::Printf(TEXT("trap price grows with the number owned (%.1f -> %.1f, expected %.1f)"), FirstPrice, GM->GetTrapCost(Sticky), Expected),
+				FMath::IsNearlyEqual(GM->GetTrapCost(Sticky), Expected, 0.01));
+			Log(TEXT("bought traps"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			SetStageOniTypes({ EOniType::Balanced }); // 鬼は 1 体
+			UKakurenboGridSubsystem* G = Grid();
+			T->Me = G->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(G->CellFloorCenter(T->Me));
+			T->StickyCell = T->Me + FIntPoint(3, 0);
+			T->DecoyCell = FIntPoint(1, 1); // 隅
+			T->WallCell = T->Me + FIntPoint(0, 3);
+			KakuPlaceWall(T->WallCell.X, T->WallCell.Y, 0);
+			KakuPlaceTrap(T->StickyCell.X, T->StickyCell.Y, Sticky);
+			KakuPlaceTrap(T->DecoyCell.X, T->DecoyCell.Y, Decoy);
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("traps placed from stock (stock %d,%d)"), S->TrapStock[Sticky], S->TrapStock[Decoy]),
+				S->TrapStock[Sticky] == 1 && S->TrapStock[Decoy] == 0 && G->GetTrap(T->StickyCell) && G->GetTrap(T->DecoyCell));
+			Check(TEXT("a wall cannot go on a trap"), !G->CanPlaceBlock(T->StickyCell));
+			Check(TEXT("a trap cannot go on a wall or another trap"), !G->CanPlaceTrap(T->WallCell) && !G->CanPlaceTrap(T->StickyCell));
+			Check(TEXT("traps do not block the onis' path"), G->BuildWalkGrid().IsFree(T->StickyCell));
+			GetHider()->SetOverheadYaw(30.f);
+			ShotLater(TEXT("trap_01_build"));
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); Log(TEXT("hide start")); } }); // → かくれんぼ（3 秒後に鬼が出てくる）
+
+		// 鬼が出てきた直後に、目を使わず音だけで動く鬼にして、おとりの近くへ移す（おとりは鬼が出てきて 0.5 秒後に最初の音を出す）
+		Steps.Add({ 3.15f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(TEXT("an oni came out"), Oni != nullptr);
+			if (!Oni)
+			{
+				return;
+			}
+			MakeBlindListener(Oni);
+			Oni->SetActorLocation(Grid()->CellFloorCenter(T->DecoyCell + FIntPoint(5, 5)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Log(TEXT("oni moved near the decoy"));
+		} });
+		Steps.Add({ 0.7f, [=, this]
+		{
+			const ATrapActor* DecoyActor = Grid()->GetTrap(T->DecoyCell);
+			Check(FString::Printf(TEXT("decoy makes noise (pings %d)"), DecoyActor ? DecoyActor->GetPingCount() : -1), DecoyActor && DecoyActor->GetPingCount() >= 1);
+			Check(FString::Printf(TEXT("oni goes to the decoy (intent=%s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				TheOni()->GetIntent() == EOniState::Investigate || !Grid()->GetTrap(T->DecoyCell));
+			Shot(TEXT("trap_02_decoy"));
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			Check(FString::Printf(TEXT("oni broke the decoy (live=%d, design=%d, triggered=%d)"), G->GetTrap(T->DecoyCell) ? 1 : 0, G->GetTrapDesign(T->DecoyCell), GS()->TrapsTriggeredThisRound),
+				!G->GetTrap(T->DecoyCell) && G->GetTrapDesign(T->DecoyCell) == Decoy && GS()->TrapsTriggeredThisRound == 1);
+			// トリモチ：鬼をトリモチの上へ
+			TheOni()->SetActorLocation(G->CellFloorCenter(T->StickyCell) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("sticky trap stuns the oni (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() == EOniState::Stunned);
+			Check(TEXT("sticky trap is used up but stays in the layout"), !G->GetTrap(T->StickyCell) && G->GetTrapDesign(T->StickyCell) == Sticky && GS()->TrapsTriggeredThisRound == 2);
+			Check(TEXT("stun stars are shown"), Oni->StunStars.Num() > 0 && !Oni->StunStars[0]->bHiddenInGame);
+			// 動けない鬼に触れても捕まらない（体が重ならない「触れた」距離。普段ならこれで見つかる）
+			TeleportPlayer(Oni->GetActorLocation() + FVector(75.f, 0.f, 0.f));
+			LookAtOni();
+			ShotLater(TEXT("trap_03_stunned"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("touching a stunned oni is safe (phase=%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Hide);
+			// 抜け出したときに捕まらないよう遠くへ
+			TeleportPlayer(Grid()->CellFloorCenter(Grid()->FindSpreadFreeCells({ TheOni()->GetActorLocation() }, 1)[0]));
+		} });
+		Steps.Add({ 3.6f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("oni recovers after the stun (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Stunned);
+			Check(TEXT("right after recovering, the oni cannot be stunned again"), !Oni->CanBeStunned());
+		} });
+		Steps.Add({ 3.2f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Check(TEXT("a few seconds later it can be stunned again"), Oni->CanBeStunned());
+			Oni->Deactivate();
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("result counts the used traps (%d)"), GS()->TrapsTriggeredThisRound), GS()->Phase == EKakurenboPhase::Result && GS()->TrapsTriggeredThisRound == 2);
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置（ここで罠を置き直す）
+		Steps.Add({ 0.5f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("used traps are refilled from stock (refilled %d, missing %d, sticky stock %d)"), S->LastRefilledTraps, S->LastUnrefilledTraps, S->TrapStock[Sticky]),
+				S->LastRefilledTraps == 1 && S->LastUnrefilledTraps == 1 && S->TrapStock[Sticky] == 0 && G->GetTrap(T->StickyCell) && !G->GetTrap(T->DecoyCell));
+			GetHider()->SetOverheadYaw(30.f);
+			ShotLater(TEXT("trap_04_refilled"));
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			// 回収：残っている罠は在庫に戻る。消えた罠の設計図は消えるだけ
+			UKakurenboGridSubsystem* G = Grid();
+			const bool bPicked1 = GM->PickUpTrap(T->StickyCell);
+			const bool bPicked2 = GM->PickUpTrap(T->DecoyCell);
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("pick up traps (stock %d,%d)"), S->TrapStock[Sticky], S->TrapStock[Decoy]),
+				bPicked1 && bPicked2 && S->TrapStock[Sticky] == 1 && S->TrapStock[Decoy] == 0 && !G->HasTrap(T->StickyCell) && !G->HasTrap(T->DecoyCell));
+		} });
+	}
+	// ================================================================ Shop
+	else if (Scenario.Equals(TEXT("Shop"), ESearchCase::IgnoreCase))
+	{
+		// 商品の並び・壁の補強（置いてある壁にも効く）・罠の値段の上がり方・購入の音
+		TSharedRef<FIntPoint> WallCell = MakeShared<FIntPoint>(0, 0);
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(100000.0);
+			const TArray<FShopItemView> Items = GM->GetShopItems();
+			Check(FString::Printf(TEXT("shop lists upgrades, walls and traps within the number keys (%d items)"), Items.Num()),
+				Items.Num() == 3 + GM->WallTypes.Num() + GM->TrapTypes.Num() && Items.Num() <= 9);
+			Check(TEXT("item 3 is the wall upgrade, then walls, then traps"),
+				Items[2].DisplayName.EqualTo(GM->WallUpgradeName)
+				&& Items[GM->GetShopIndexOfWall(0)].DisplayName.EqualTo(GM->WallTypes[0].DisplayName)
+				&& Items[GM->GetShopIndexOfTrap(0)].DisplayName.EqualTo(GM->TrapTypes[0].DisplayName));
+			const int32 BuyBefore = Sound()->GetPlayCount(EKakurenboSfx::Buy);
+			BuyWall(0, 3);
+			Check(TEXT("buying plays the purchase sound"), Sound()->GetPlayCount(EKakurenboSfx::Buy) > BuyBefore);
+			Shot(TEXT("shop_01_items"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			*WallCell = Me + FIntPoint(2, 0);
+			KakuPlaceWall(WallCell->X, WallCell->Y, 0);
+			Check(TEXT("a wall is placed"), Grid()->GetColumnHeight(*WallCell) == 1);
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			APlaceableBlock* Block = Grid()->GetTopBlock(*WallCell);
+			const double HPBefore = Block ? Block->MaxHP : -1.0;
+			const double MultBefore = GM->GetWallHPMultiplier();
+			KakuBuy(GM->GetShopIndexOfWall(0)); // 壁の補強（壁の 1 つ前の商品）
+			Check(FString::Printf(TEXT("wall upgrade raises the HP multiplier (x%.2f -> x%.2f)"), MultBefore, GM->GetWallHPMultiplier()),
+				GS()->WallReinforceLevel == 1 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), MultBefore * GM->WallHPGrowth));
+			Check(FString::Printf(TEXT("the placed wall gets harder right away (%.2f -> %.2f)"), HPBefore, Block ? Block->MaxHP : -1.0),
+				Block && FMath::IsNearlyEqual(Block->MaxHP, HPBefore * GM->WallHPGrowth) && FMath::IsNearlyEqual(Block->HP, Block->MaxHP));
+			const double TrapPrice = GM->GetTrapCost(0);
+			BuyTrap(0, 1);
+			Check(FString::Printf(TEXT("trap price goes up after buying (%.1f -> %.1f)"), TrapPrice, GM->GetTrapCost(0)),
+				FMath::IsNearlyEqual(GM->GetTrapCost(0), TrapPrice * GM->TrapTypes[0].CostGrowth));
+			// コインが足りないと買えず、失敗の音
+			GS()->Coins = 0.0;
+			const int32 FailBefore = Sound()->GetPlayCount(EKakurenboSfx::BuyFail);
+			const int32 LevelBefore = GS()->MashIncomeLevel;
+			KakuBuy(1);
+			Check(TEXT("not enough coins -> nothing bought, fail sound"), GS()->MashIncomeLevel == LevelBefore && Sound()->GetPlayCount(EKakurenboSfx::BuyFail) == FailBefore + 1);
+			Shot(TEXT("shop_02_reinforced"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			// 新しく置く壁も補強済みの耐久
+			const FIntPoint Cell = *WallCell + FIntPoint(0, 2);
+			KakuPlaceWall(Cell.X, Cell.Y, 0);
+			const APlaceableBlock* Block = Grid()->GetTopBlock(Cell);
+			Check(FString::Printf(TEXT("new walls use the reinforced HP (%.2f)"), Block ? Block->MaxHP : -1.0),
+				Block && FMath::IsNearlyEqual(Block->MaxHP, GM->WallTypes[0].MaxHP * GM->WallHPGrowth));
+		} });
+	}
+	// ================================================================ Fx（演出と効果音）
+	else if (Scenario.Equals(TEXT("Fx"), ESearchCase::IgnoreCase))
+	{
+		// 効果音は -NoSound でも「鳴らした回数」を数えるので、きっかけが正しいかを確かめられる。
+		// RunAutoTest.ps1 -Sound を付けると実際に音を出して、再生が始まったかも確かめる
+		auto HUD = [this]() { return GetHUD<AKakurenboHUD>(); };
+		TSharedRef<int32> Count = MakeShared<int32>(0);
+		TSharedRef<FIntPoint> WallCell = MakeShared<FIntPoint>(0, 0);
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+
+		Steps.Add({ 3.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("countdown beeps 3, 2, 1 (%d)"), Sound()->GetPlayCount(EKakurenboSfx::CountdownBeep)), Sound()->GetPlayCount(EKakurenboSfx::CountdownBeep) == 3);
+			Check(TEXT("start sound when the onis come out"), Sound()->GetPlayCount(EKakurenboSfx::RoundStart) == 1);
+			// 鬼は 1 体だけ、しばらく何も見えず聞こえないようにしておく
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+			}
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 MashBefore = Sound()->GetPlayCount(EKakurenboSfx::Mash);
+			const int32 RingBefore = FxSys()->GetRingCount();
+			KakuMash(1);
+			Check(TEXT("mash: sound and noise ring"), Sound()->GetPlayCount(EKakurenboSfx::Mash) == MashBefore + 1 && FxSys()->GetRingCount() == RingBefore + 1);
+			SetControlRotation(FRotator(-55.f, 0.f, 0.f));
+			Shot(TEXT("fx_01_noise_ring"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			*Count = FxSys()->GetBurstCount();
+			if (GM->GetTreasures().Num() > 0)
+			{
+				TeleportPlayer(GM->GetTreasures()[0]->GetActorLocation());
+			}
+		} });
+		Steps.Add({ 0.25f, [=, this]
+		{
+			Check(FString::Printf(TEXT("treasure: sparkles, sound and popup (bursts %d -> %d, popups %d)"), *Count, FxSys()->GetBurstCount(), HUD() ? HUD()->GetPopupCount() : -1),
+				FxSys()->GetBurstCount() > *Count && Sound()->GetPlayCount(EKakurenboSfx::Treasure) == 1 && HUD() && HUD()->GetPopupCount() > 0);
+			Shot(TEXT("fx_02_treasure"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 壁を 1 個置いて壊す（積むと、落ちてきた上の段に破片が隠れて写らない）
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			*WallCell = FIntPoint(FMath::Clamp(Me.X + 3, 0, Grid()->GetSizeX() - 1), Me.Y);
+			if (*WallCell == Me)
+			{
+				*WallCell = FIntPoint(Me.X - 3, Me.Y);
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			PlaceTestWall(*WallCell);
+			// 壁が自分の体に隠れないよう、少し横から見る
+			SetControlRotation(FRotator(-20.f, (Grid()->CellFloorCenter(*WallCell) - GetPawn()->GetActorLocation()).Rotation().Yaw + 30.f, 0.f));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			*Count = FxSys()->GetBurstCount();
+			const int32 BreakBefore = Sound()->GetPlayCount(EKakurenboSfx::BlockBreak);
+			const int32 Broken = Grid()->DamageBlocksInRadius(Grid()->CellToWorld(*WallCell, 0), 100.f, 100.0);
+			Check(FString::Printf(TEXT("wall break: debris and crash sound (broken %d, bursts %d -> %d)"), Broken, *Count, FxSys()->GetBurstCount()),
+				Broken == 1 && FxSys()->GetBurstCount() == *Count + 1 && Sound()->GetPlayCount(EKakurenboSfx::BlockBreak) == BreakBefore + 1);
+			FTimerHandle Handle;
+			GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateLambda([Shot] { Shot(TEXT("fx_03_wall_break")); }), 0.1f, false);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			PlaceTestWall(*WallCell);
+			const int32 HitBefore = Sound()->GetPlayCount(EKakurenboSfx::BlockHit);
+			const int32 Broken = Grid()->DamageBlocksInRadius(Grid()->CellToWorld(*WallCell, 0), 100.f, 0.5);
+			Check(TEXT("wall hit (not broken): hit sound"), Broken == 0 && Grid()->GetColumnHeight(*WallCell) == 1 && Sound()->GetPlayCount(EKakurenboSfx::BlockHit) == HitBefore + 1);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 見つかって追いかけられる：「！」の音
+			AOniCharacter* Oni = TheOni();
+			*Count = Sound()->GetPlayCount(EKakurenboSfx::Alert);
+			Oni->SightRadius = 2000.f;
+			Oni->SightHalfAngle = 180.f;
+			const FVector ToCenter = (Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2)) - Oni->GetActorLocation()).GetSafeNormal2D();
+			TeleportPlayer(Oni->GetActorLocation() + ToCenter * 500.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("chase start: alert sound (intent=%s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				Sound()->GetPlayCount(EKakurenboSfx::Alert) == *Count + 1);
+			// ぶつかって見つかる
+			TeleportPlayer(TheOni()->GetActorLocation() + FVector(40.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("caught: sound and red flash (flash %.2f)"), HUD() ? HUD()->GetFlashAlpha() : -1.f),
+				GS()->Phase == EKakurenboPhase::Result && !GS()->bLastRoundCleared && Sound()->GetPlayCount(EKakurenboSfx::Caught) == 1 && HUD() && HUD()->GetFlashAlpha() > 0.f);
+			Shot(TEXT("fx_04_caught"));
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } });   // → 購入
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });  // → 設置
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });  // → かくれんぼ
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 残り 5.5 秒にする → 秒読みの音
+			*Count = Sound()->GetPlayCount(EKakurenboSfx::TimeTick);
+			GS()->HideStartCountdown = 0.f;
+			GS()->HideTimeRemaining = 5.5f;
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("last seconds tick (%d)"), Sound()->GetPlayCount(EKakurenboSfx::TimeTick) - *Count), Sound()->GetPlayCount(EKakurenboSfx::TimeTick) > *Count);
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				if (Oni)
+				{
+					Oni->Deactivate(); // 逃げ切りの確認の邪魔をしないように
+				}
+			}
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("clear: fanfare and gold flash (flash %.2f)"), HUD() ? HUD()->GetFlashAlpha() : -1.f),
+				GS()->Phase == EKakurenboPhase::Result && GS()->bLastRoundCleared && Sound()->GetPlayCount(EKakurenboSfx::Clear) == 1 && HUD() && HUD()->GetFlashAlpha() > 0.f);
+			Shot(TEXT("fx_05_clear"));
+			if (GEngine && GEngine->UseSound())
+			{
+				Check(FString::Printf(TEXT("sounds really started playing (%d)"), Sound()->GetStartedCount()), Sound()->GetStartedCount() > 10);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] sound is off (-NoSound): only the sound triggers were checked"));
+			}
+		} });
+	}
 	// ================================================================ SaveRun1 / SaveRun2（再起動をまたぐセーブ。Tools/RunSaveRestartTest.ps1 から使う）
 	else if (Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase))
 	{
@@ -902,7 +1271,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → 購入
 			KakuAddCoins(500.0);
-			KakuBuy(3); KakuBuy(3); // 木の壁 ×2
+			BuyWall(0, 2); // 木の壁 ×2
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
@@ -943,7 +1312,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			double Coins = 0.0;
 			int32 Stage = 0;
 			int32 MashLevel = 0;
+			int32 WallLevel = 0;
 			TArray<int32> Stock;
+			TArray<int32> TrapStock;
 			TArray<FKakurenboSavedColumn> Layout;
 			FVector PlayerLocation = FVector::ZeroVector;
 		};
@@ -960,9 +1331,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → 購入
 			KakuAddCoins(1000.0);
-			KakuBuy(1);                         // 連打強化
-			KakuBuy(3); KakuBuy(3); KakuBuy(3); // 木の壁 ×3
-			KakuBuy(4);                         // 石の壁 ×1
+			KakuBuy(1);     // 連打強化
+			KakuBuy(3);     // 壁の補強
+			BuyWall(0, 3);  // 木の壁 ×3
+			BuyWall(1, 1);  // 石の壁 ×1
+			BuyTrap(0, 2);  // トリモチ ×2
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
@@ -972,6 +1345,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuPlaceWall(Me.X + 2, Me.Y, 0);
 			KakuPlaceWall(Me.X + 2, Me.Y, 1); // 積む
 			KakuPlaceWall(Me.X - 2, Me.Y + 1, 0);
+			KakuPlaceTrap(Me.X, Me.Y + 2, 0);
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
@@ -980,10 +1354,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Expected->Coins = S->Coins;
 			Expected->Stage = S->Stage;
 			Expected->MashLevel = S->MashIncomeLevel;
+			Expected->WallLevel = S->WallReinforceLevel;
 			Expected->Stock = S->WallStock;
+			Expected->TrapStock = S->TrapStock;
 			Grid()->ExportLayout(Expected->Layout);
 			Expected->PlayerLocation = GetPawn()->GetActorLocation();
 			Check(TEXT("save file exists after starting the round"), UGameplayStatics::DoesSaveGameExist(GM->SaveSlotName, 0));
+			Check(FString::Printf(TEXT("test setup: reinforced once, 1 trap placed, 1 in stock (Lv%d, traps %d, stock %d)"), S->WallReinforceLevel, Grid()->GetAllTraps().Num(), S->TrapStock.IsValidIndex(0) ? S->TrapStock[0] : -1),
+				S->WallReinforceLevel == 1 && Grid()->GetAllTraps().Num() == 1 && S->TrapStock.IsValidIndex(0) && S->TrapStock[0] == 1);
 			Log(TEXT("saved"));
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -994,7 +1372,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			S->Coins = 0.0;
 			S->Stage = 1;
 			S->MashIncomeLevel = 0;
+			S->WallReinforceLevel = 0;
 			S->WallStock.Init(0, S->WallStock.Num());
+			S->TrapStock.Init(0, S->TrapStock.Num());
 			TeleportPlayer(FVector::ZeroVector);
 
 			const bool bLoaded = GM->LoadProgress();
@@ -1003,13 +1383,30 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			bool bSameLayout = Layout.Num() == Expected->Layout.Num();
 			for (int32 i = 0; bSameLayout && i < Layout.Num(); ++i)
 			{
-				bSameLayout = Layout[i].Cell == Expected->Layout[i].Cell && Layout[i].Design == Expected->Layout[i].Design && Layout[i].Live == Expected->Layout[i].Live;
+				bSameLayout = Layout[i].Cell == Expected->Layout[i].Cell && Layout[i].Design == Expected->Layout[i].Design && Layout[i].Live == Expected->Layout[i].Live
+					&& Layout[i].TrapDesign == Expected->Layout[i].TrapDesign && Layout[i].bTrapLive == Expected->Layout[i].bTrapLive;
+			}
+			// 補強済みの耐久で作り直されているか（木の壁 1 × 1.5）
+			double MinHP = TNumericLimits<double>::Max();
+			for (int32 Y = 0; Y < Grid()->GetSizeY(); ++Y)
+			{
+				for (int32 X = 0; X < Grid()->GetSizeX(); ++X)
+				{
+					if (const APlaceableBlock* Block = Grid()->GetTopBlock(FIntPoint(X, Y)))
+					{
+						MinHP = FMath::Min(MinHP, Block->MaxHP);
+					}
+				}
 			}
 			Check(TEXT("save loads"), bLoaded);
-			Check(FString::Printf(TEXT("coins / stage / upgrade restored (%.1f, %d, Lv%d)"), S->Coins, S->Stage, S->MashIncomeLevel),
-				FMath::IsNearlyEqual(S->Coins, Expected->Coins, 0.01) && S->Stage == Expected->Stage && S->MashIncomeLevel == Expected->MashLevel);
+			Check(FString::Printf(TEXT("coins / stage / upgrades restored (%.1f, %d, mash Lv%d, wall Lv%d)"), S->Coins, S->Stage, S->MashIncomeLevel, S->WallReinforceLevel),
+				FMath::IsNearlyEqual(S->Coins, Expected->Coins, 0.01) && S->Stage == Expected->Stage && S->MashIncomeLevel == Expected->MashLevel && S->WallReinforceLevel == Expected->WallLevel);
 			Check(FString::Printf(TEXT("wall stock restored (%s)"), *FString::JoinBy(S->WallStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->WallStock == Expected->Stock);
-			Check(FString::Printf(TEXT("wall layout restored (%d columns, %d blocks)"), Layout.Num(), Grid()->GetBlockCount()), bSameLayout && Grid()->GetBlockCount() == 3);
+			Check(FString::Printf(TEXT("trap stock restored (%s)"), *FString::JoinBy(S->TrapStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->TrapStock == Expected->TrapStock);
+			Check(FString::Printf(TEXT("wall and trap layout restored (%d columns, %d blocks, %d traps)"), Layout.Num(), Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
+				bSameLayout && Grid()->GetBlockCount() == 3 && Grid()->GetAllTraps().Num() == 1);
+			Check(FString::Printf(TEXT("restored walls keep the reinforced HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->WallHPGrowth),
+				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->WallHPGrowth, 0.001));
 			Check(FString::Printf(TEXT("player position restored (%.0f cm off)"), FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation)),
 				FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation) < 5.f);
 			Log(TEXT("loaded"));
@@ -1019,8 +1416,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			// 最初からやり直す
 			GM->ResetProgress();
 			const AKakurenboGameState* S = GS();
-			Check(FString::Printf(TEXT("reset -> stage 1, no coins, no walls (stage %d, coins %.1f, blocks %d)"), S->Stage, S->Coins, Grid()->GetBlockCount()),
-				S->Stage == 1 && S->Coins < 0.01 && Grid()->GetBlockCount() == 0 && S->Phase == EKakurenboPhase::Hide);
+			Check(FString::Printf(TEXT("reset -> stage 1, no coins, no walls, no traps (stage %d, coins %.1f, blocks %d, traps %d)"), S->Stage, S->Coins, Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
+				S->Stage == 1 && S->Coins < 0.01 && Grid()->GetBlockCount() == 0 && Grid()->GetAllTraps().Num() == 0 && S->WallReinforceLevel == 0 && S->Phase == EKakurenboPhase::Hide);
 			UGameplayStatics::DeleteGameInSlot(GM->SaveSlotName, 0);
 			GM->bSaveEnabled = false;
 			Shot(TEXT("save_01_after_reset"));

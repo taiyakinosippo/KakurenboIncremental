@@ -53,9 +53,17 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 TimeIncomeLevel = 0;
 
+	/** 壁の補強のレベル（すべての壁の耐久が上がる） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 WallReinforceLevel = 0;
+
 	/** 壁の在庫（インデックスは GameMode の WallTypes と対応） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	TArray<int32> WallStock;
+
+	/** 罠の在庫（インデックスは GameMode の TrapTypes と対応） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	TArray<int32> TrapStock;
 
 	// ---- リザルト ----
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
@@ -66,6 +74,10 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 LastRoundWallsDestroyed = 0;
+
+	/** このラウンドで発動した罠の数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 TrapsTriggeredThisRound = 0;
 
 	// ---- お宝 ----
 	/** このラウンドに出現したお宝の数 */
@@ -85,6 +97,13 @@ public:
 	/** 在庫不足などで直せなかった壁の数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 LastUnrepairedWalls = 0;
+
+	/** 在庫から置き直した罠の数 / 在庫不足で置き直せなかった罠の数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 LastRefilledTraps = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 LastUnrefilledTraps = 0;
 
 	// ---- 画面上部のお知らせ（「セーブデータから再開しました」など） ----
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")

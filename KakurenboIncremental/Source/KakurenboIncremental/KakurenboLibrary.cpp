@@ -32,6 +32,21 @@ FString UKakurenboLibrary::FormatBigNumber(double Value)
 	return FString::Printf(TEXT("%s%.2fe%d"), bNegative ? TEXT("-") : TEXT(""), Mantissa, Exponent);
 }
 
+FString UKakurenboLibrary::FormatStatNumber(double Value)
+{
+	if (FMath::Abs(Value) >= 100.0)
+	{
+		return FormatBigNumber(Value);
+	}
+	// 小数第 1 位まで。整数になるなら小数点を付けない
+	const double Rounded = FMath::RoundToDouble(Value * 10.0) / 10.0;
+	if (FMath::IsNearlyEqual(Rounded, FMath::RoundToDouble(Rounded), 1e-6))
+	{
+		return FString::Printf(TEXT("%d"), static_cast<int32>(FMath::RoundToDouble(Rounded)));
+	}
+	return FString::Printf(TEXT("%.1f"), Rounded);
+}
+
 double UKakurenboLibrary::ExpCurve(double Base, double Growth, int32 Level)
 {
 	return Base * FMath::Pow(Growth, static_cast<double>(Level));
