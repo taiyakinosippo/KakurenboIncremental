@@ -10,7 +10,10 @@ public class KakurenboIncremental : ModuleRules
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
 
-		// SlateCore: HUD で日本語フォント（FCoreStyle）を使うため
+		// サブフォルダ（Tests など）からもモジュール直下のヘッダを #include できるようにする
+		PrivateIncludePaths.Add(ModuleDirectory);
+
+		// Slate/SlateCore: HUD の文字描画（FSlateFontInfo）で使う
 		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
 		
 		// Uncomment if you are using online features

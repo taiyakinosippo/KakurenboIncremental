@@ -11,6 +11,7 @@
 
 class AKakurenboArena;
 class AKakurenboGameState;
+class AOniCharacter;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboGameMode : public AGameModeBase
@@ -70,6 +71,50 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	double TimeUpgradeCostGrowth = 1.7;
 
+	// ===== 鬼（ステージが上がるほど強くなる） =====
+
+	/** スポーンする鬼のクラス（BP の派生クラスで見た目を変えてよい） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	TSubclassOf<AOniCharacter> OniClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniWanderSpeedBase = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniInvestigateSpeedBase = 340.f;
+
+	/** ステージごとの移動速度の増加（cm/秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniSpeedPerStage = 15.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniSightRadius = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniSightHalfAngle = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniHearingRadiusBase = 1200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float OniHearingRadiusPerStage = 100.f;
+
+	/** 鬼の攻撃力（ステージ 1）。壁の耐久値と比べる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	double OniAttackDamageBase = 1.0;
+
+	/** 攻撃力のステージごとの倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	double OniAttackDamageGrowth = 1.6;
+
+	/** 連打したとき、音の届く範囲を床に表示する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	bool bShowNoiseRing = true;
+
+	/** 鬼の経路などをデバッグ表示する */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	bool bDebugOni = false;
+
 	// ===== 舞台 =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
@@ -80,6 +125,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
 	float CellSize = 100.f;
+
+	/** ブロックを積める最大の段数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
+	int32 MaxStackHeight = 4;
 
 	// ===== 計算 =====
 
@@ -100,6 +149,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetHideDuration() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetOniAttackDamage() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	float GetOniHearingRadius() const;
+
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	AOniCharacter* GetOni() const { return Oni; }
 
 	// ===== 操作（PlayerController や UI から呼ぶ） =====
 
@@ -159,6 +217,14 @@ protected:
 	void SetPhase(EKakurenboPhase NewPhase);
 	AKakurenboGameState* GS() const;
 
+	void SpawnOni();
+	void DespawnOni();
+	void HandleOniFoundHider();
+	void HandleOniDestroyedWalls(int32 Count);
+
 	UPROPERTY()
 	TObjectPtr<AKakurenboArena> Arena;
+
+	UPROPERTY()
+	TObjectPtr<AOniCharacter> Oni;
 };

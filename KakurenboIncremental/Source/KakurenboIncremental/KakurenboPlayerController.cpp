@@ -4,9 +4,6 @@
 #include "HiderCharacter.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
-#include "Misc/Paths.h"
-#include "TimerManager.h"
-#include "UnrealClient.h"
 
 AKakurenboPlayerController::AKakurenboPlayerController()
 {
@@ -184,49 +181,4 @@ void AKakurenboPlayerController::KakuMash(int32 Count)
 void AKakurenboPlayerController::KakuBuy(int32 ItemNumber)
 {
 	BuyItem(ItemNumber);
-}
-
-// ---------------------------------------------------------------- 自動テスト
-
-void AKakurenboPlayerController::KakuAutoTest()
-{
-	struct FStep
-	{
-		float Delay;
-		TFunction<void()> Run;
-	};
-
-	auto Shot = [](const FString& Name)
-	{
-		const FString Path = FPaths::ProjectSavedDir() / TEXT("AutoTest") / (Name + TEXT(".png"));
-		FScreenshotRequest::RequestScreenshot(Path, true, false);
-		UE_LOG(LogTemp, Display, TEXT("[AutoTest] screenshot %s"), *Path);
-	};
-	auto Log = [this](const FString& Label)
-	{
-		if (const AKakurenboGameState* S = GetWorld()->GetGameState<AKakurenboGameState>())
-		{
-			UE_LOG(LogTemp, Display, TEXT("[AutoTest] %s: Phase=%s Stage=%d Coins=%.2f Earned=%.2f Mash=%d MashLv=%d TimeLv=%d Remaining=%.1f"),
-				*Label, *UEnum::GetValueAsString(S->Phase), S->Stage, S->Coins, S->CoinsEarnedThisRound,
-				S->MashCountThisRound, S->MashIncomeLevel, S->TimeIncomeLevel, S->HideTimeRemaining);
-		}
-	};
-
-	TArray<FStep> Steps;
-	Steps.Add({ 1.f, [=] { Log(TEXT("start")); Shot(TEXT("01_hide_countdown")); } });
-	Steps.Add({ 4.f, [=, this] { KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("02_hide_mashing")); } });
-	Steps.Add({ 1.f, [=, this] { KakuSkipTime(1000.f); } });
-	Steps.Add({ 1.f, [=] { Log(TEXT("result")); Shot(TEXT("03_result")); } });
-	Steps.Add({ 1.f, [=, this] { KakuNext(); KakuAddCoins(1000.0); KakuBuy(1); KakuBuy(2); KakuBuy(2); Log(TEXT("shop bought")); Shot(TEXT("04_shop")); } });
-	Steps.Add({ 1.f, [=, this] { KakuNext(); Log(TEXT("build")); Shot(TEXT("05_build")); } });
-	Steps.Add({ 1.f, [=, this] { KakuNext(); Log(TEXT("hide stage 2")); } });
-	Steps.Add({ 1.f, [this] { UE_LOG(LogTemp, Display, TEXT("[AutoTest] done")); ConsoleCommand(TEXT("quit")); } });
-
-	float Time = 0.f;
-	for (const FStep& Step : Steps)
-	{
-		Time += Step.Delay;
-		FTimerHandle Handle;
-		GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateLambda(Step.Run), Time, false);
-	}
 }

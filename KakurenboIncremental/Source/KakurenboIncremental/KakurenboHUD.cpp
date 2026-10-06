@@ -6,6 +6,7 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboLibrary.h"
+#include "OniCharacter.h"
 
 namespace
 {
@@ -125,6 +126,24 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	{
 		Text(FString::Printf(TEXT("%d"), FMath::CeilToInt(State->HideStartCountdown)), 0, 380, 120, FLinearColor::White, true);
 		Text(TEXT("もうすぐ鬼が来る…"), 0, 520, 28, FLinearColor::White, true);
+	}
+
+	// 鬼の様子
+	if (const AOniCharacter* Oni = GM->GetOni())
+	{
+		FString StateText;
+		FLinearColor StateColor = FLinearColor::White;
+		switch (State->OniState)
+		{
+		case EOniState::Wander:      StateText = TEXT("鬼: うろうろしている"); break;
+		case EOniState::Investigate: StateText = TEXT("鬼: 音に気づいた！"); StateColor = Bad; break;
+		case EOniState::Attack:      StateText = TEXT("鬼: 壁を壊している！"); StateColor = FLinearColor(1.f, 0.6f, 0.2f); break;
+		}
+		const APawn* Pawn = GetOwningPawn();
+		const float DistM = Pawn ? FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f : 0.f;
+		Panel(20, 170, 380, 76);
+		Text(StateText, 36, 180, 22, StateColor);
+		Text(FString::Printf(TEXT("距離 %.1f m"), DistM), 36, 214, 18, Gray);
 	}
 
 	// 操作説明（下部中央）

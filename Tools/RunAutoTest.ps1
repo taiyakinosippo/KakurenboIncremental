@@ -1,7 +1,7 @@
 ﻿# ゲームを起動して KakuAutoTest を実行し、スクリーンショットとログを確認できるようにする
 #   スクリーンショット: KakurenboIncremental/Saved/AutoTest/*.png
 #   ログ:              KakurenboIncremental/Saved/Logs/KakurenboIncremental.log
-param([int]$TimeoutSec = 600)
+param([string]$Scenario = "Loop", [int]$TimeoutSec = 600)
 
 $Engine = "C:\Program Files\Epic Games\UE_5.8"
 $Project = Join-Path $PSScriptRoot "..\KakurenboIncremental\KakurenboIncremental.uproject" | Resolve-Path
@@ -9,7 +9,7 @@ $Saved = Join-Path (Split-Path $Project) "Saved"
 
 Remove-Item (Join-Path $Saved "AutoTest") -Recurse -Force -ErrorAction SilentlyContinue
 
-$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-NoSound", "-ExecCmds=`"KakuAutoTest`"", "-log")
+$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-NoSound", "-ExecCmds=`"KakuAutoTest $Scenario`"", "-log")
 $Proc = Start-Process -FilePath "$Engine\Engine\Binaries\Win64\UnrealEditor.exe" -ArgumentList $GameArgs -PassThru
 if (-not $Proc.WaitForExit($TimeoutSec * 1000)) {
     Write-Host "Timeout: killing game"

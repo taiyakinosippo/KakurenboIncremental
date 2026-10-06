@@ -5,8 +5,11 @@
 #include "GameFramework/PlayerStart.h"
 #include "HiderCharacter.h"
 #include "KakurenboArena.h"
+#include "DrawDebugHelpers.h"
 #include "KakurenboGameState.h"
+#include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
+#include "OniCharacter.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboPlayerController.h"
 
@@ -21,6 +24,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	PlayerControllerClass = AKakurenboPlayerController::StaticClass();
 	GameStateClass = AKakurenboGameState::StaticClass();
 	HUDClass = AKakurenboHUD::StaticClass();
+	OniClass = AOniCharacter::StaticClass();
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -46,6 +50,12 @@ void AKakurenboGameMode::BeginPlay()
 		Arena->GridSizeY = GridSizeY;
 		Arena->CellSize = CellSize;
 		Arena->FinishSpawning(FTransform::Identity);
+	}
+
+	// グリッド（ブロック配置・鬼の経路探索）を舞台に合わせて初期化
+	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	{
+		Grid->Configure(Arena->GetGridOrigin(), Arena->GridSizeX, Arena->GridSizeY, Arena->CellSize, MaxStackHeight);
 	}
 
 	// 最初のラウンドは「何もない空間で棒立ちのまま連打」から始まる
@@ -80,11 +90,21 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 		return;
 	}
 
-	// 開始前のカウントダウン
+	// 開始前のカウントダウン。0 になったら鬼が出てくる
 	if (State->HideStartCountdown > 0.f)
 	{
 		State->HideStartCountdown = FMath::Max(0.f, State->HideStartCountdown - DeltaSeconds);
+		if (State->HideStartCountdown <= 0.f)
+		{
+			SpawnOni();
+		}
 		return;
+	}
+
+	State->bOniActive = Oni != nullptr;
+	if (Oni)
+	{
+		State->OniState = Oni->GetOniState();
 	}
 
 	// 時間収入（毎フレーム、経過時間ぶんだけ加算）
@@ -134,6 +154,18 @@ float AKakurenboGameMode::GetHideDuration() const
 {
 	const AKakurenboGameState* State = GS();
 	return HideDurationBase + HideDurationPerStage * ((State ? State->Stage : 1) - 1);
+}
+
+double AKakurenboGameMode::GetOniAttackDamage() const
+{
+	const AKakurenboGameState* State = GS();
+	return UKakurenboLibrary::ExpCurve(OniAttackDamageBase, OniAttackDamageGrowth, State ? State->Stage - 1 : 0);
+}
+
+float AKakurenboGameMode::GetOniHearingRadius() const
+{
+	const AKakurenboGameState* State = GS();
+	return OniHearingRadiusBase + OniHearingRadiusPerStage * ((State ? State->Stage : 1) - 1);
 }
 
 EKakurenboPhase AKakurenboGameMode::GetPhase() const
@@ -229,6 +261,87 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	}
 	State->AddCoins(GetMashIncome(), true);
 	State->MashCountThisRound++;
+
+	// 連打の音が鬼に届く
+	if (Oni)
+	{
+		Oni->HearNoise(NoiseLocation);
+	}
+	if (bShowNoiseRing)
+	{
+		// 音の届く範囲を床に円で表示（開発用の描画機能を流用した仮の演出）
+		const FVector Floor(NoiseLocation.X, NoiseLocation.Y, 3.f);
+		DrawDebugCircle(GetWorld(), Floor, GetOniHearingRadius(), 64, FColor(255, 220, 80), false, 0.15f, 0, 4.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+	}
+}
+
+// ---------------------------------------------------------------- 鬼
+
+void AKakurenboGameMode::SpawnOni()
+{
+	DespawnOni();
+
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	AHiderCharacter* Hider = Cast<AHiderCharacter>(GetWorld()->GetFirstPlayerController() ? GetWorld()->GetFirstPlayerController()->GetPawn() : nullptr);
+	if (!Grid || !Hider || !OniClass)
+	{
+		return;
+	}
+
+	// プレイヤーからいちばん遠い空きマスに出現
+	const FIntPoint Cell = Grid->FindFarthestFreeCell(Hider->GetActorLocation());
+	const FVector Location = Grid->CellFloorCenter(Cell) + FVector(0.f, 0.f, 100.f);
+	const FRotator Facing(0.f, (Hider->GetActorLocation() - Location).Rotation().Yaw, 0.f);
+
+	Oni = GetWorld()->SpawnActorDeferred<AOniCharacter>(OniClass, FTransform(Facing, Location), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
+	if (!Oni)
+	{
+		return;
+	}
+
+	const int32 Stage = GS()->Stage;
+	Oni->WanderSpeed = OniWanderSpeedBase + OniSpeedPerStage * (Stage - 1);
+	Oni->InvestigateSpeed = OniInvestigateSpeedBase + OniSpeedPerStage * (Stage - 1);
+	Oni->SightRadius = OniSightRadius;
+	Oni->SightHalfAngle = OniSightHalfAngle;
+	Oni->HearingRadius = GetOniHearingRadius();
+	Oni->AttackDamage = GetOniAttackDamage();
+	Oni->bDrawDebug = bDebugOni;
+	Oni->FinishSpawning(FTransform(Facing, Location));
+
+	// 鬼からの通知を受け取る（C# の event += に相当）
+	Oni->OnFoundHider.AddUObject(this, &AKakurenboGameMode::HandleOniFoundHider);
+	Oni->OnDestroyedWalls.AddUObject(this, &AKakurenboGameMode::HandleOniDestroyedWalls);
+	Oni->Activate(Hider);
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Oni spawned at cell (%d,%d), damage %.2f"), Cell.X, Cell.Y, Oni->AttackDamage);
+}
+
+void AKakurenboGameMode::DespawnOni()
+{
+	if (Oni)
+	{
+		Oni->Destroy();
+		Oni = nullptr;
+	}
+	if (AKakurenboGameState* State = GS())
+	{
+		State->bOniActive = false;
+	}
+}
+
+void AKakurenboGameMode::HandleOniFoundHider()
+{
+	UE_LOG(LogKakurenbo, Log, TEXT("Hider was found!"));
+	EndHidePhase(false);
+}
+
+void AKakurenboGameMode::HandleOniDestroyedWalls(int32 Count)
+{
+	if (AKakurenboGameState* State = GS())
+	{
+		State->LastRoundWallsDestroyed += Count;
+	}
 }
 
 // ---------------------------------------------------------------- パート遷移
@@ -248,6 +361,7 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 
 void AKakurenboGameMode::StartShopPhase()
 {
+	DespawnOni();
 	SetPhase(EKakurenboPhase::Shop);
 }
 
@@ -290,6 +404,16 @@ void AKakurenboGameMode::EndHidePhase(bool bCleared)
 		State->Stage++;
 	}
 	// 見つかった場合もペナルティなし（稼いだコインはそのまま）
+
+	// 見つかったときは鬼の姿を少しの間見せたいので、リザルト画面を抜けるときに消す
+	if (bCleared)
+	{
+		DespawnOni();
+	}
+	else if (Oni)
+	{
+		Oni->SetActorTickEnabled(false);
+	}
 
 	SetPhase(EKakurenboPhase::Result);
 }

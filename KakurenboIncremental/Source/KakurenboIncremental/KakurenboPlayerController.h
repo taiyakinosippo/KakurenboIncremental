@@ -53,10 +53,12 @@ public:
 
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
-	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest"
+	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Build（壁の設置と破壊）
+	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Oni"
+	 * 実装は KakurenboAutoTest.cpp
 	 */
 	UFUNCTION(Exec)
-	void KakuAutoTest();
+	void KakuAutoTest(const FString& Scenario);
 
 protected:
 	virtual void PlayerTick(float DeltaTime) override;
