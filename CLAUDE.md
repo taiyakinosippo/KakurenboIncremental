@@ -39,4 +39,4 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ## Git
 
 - `*.uasset` と `*.umap` は Git LFS で管理する（`.gitattributes`）
-- push はユーザーの確認を取ってから行う
+- 区切りのよい単位でコミットし、origin/main へ push してよい（ユーザー許可済み）
