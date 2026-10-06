@@ -108,6 +108,13 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// ぶつかったら（体が触れたら）向きや視線に関係なく即発見。一瞬の接触も逃さないよう毎フレーム調べる
+	if (IsTouchingTarget())
+	{
+		FoundTarget(TEXT("touch"));
+		return;
+	}
+
 	// 視界チェックは 0.1 秒ごと（毎フレームでなくても十分）
 	SenseTimer += DeltaSeconds;
 	if (SenseTimer >= 0.1f)
@@ -115,13 +122,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		SenseTimer = 0.f;
 		if (CanSeeTarget())
 		{
-			bActive = false;
-			GetCharacterMovement()->StopMovementImmediately();
-			if (Target)
-			{
-				SetActorRotation(FRotator(0.f, (Target->GetActorLocation() - GetActorLocation()).Rotation().Yaw, 0.f));
-			}
-			OnFoundHider.Broadcast();
+			FoundTarget(TEXT("sight"));
 			return;
 		}
 	}
@@ -174,6 +175,35 @@ void AOniCharacter::Tick(float DeltaSeconds)
 }
 
 // ---------------------------------------------------------------- 感覚
+
+void AOniCharacter::FoundTarget(FName Reason)
+{
+	bActive = false;
+	FoundReason = Reason;
+	GetCharacterMovement()->StopMovementImmediately();
+	if (Target)
+	{
+		SetActorRotation(FRotator(0.f, (Target->GetActorLocation() - GetActorLocation()).Rotation().Yaw, 0.f));
+	}
+	UE_LOG(LogTemp, Log, TEXT("Oni found the hider by %s"), *Reason.ToString());
+	OnFoundHider.Broadcast();
+}
+
+bool AOniCharacter::IsTouchingTarget() const
+{
+	if (!Target)
+	{
+		return false;
+	}
+	// 2 つのカプセル（縦長の円柱とみなす）が、横方向にも縦方向にも重なりかけているか
+	const UCapsuleComponent* Mine = GetCapsuleComponent();
+	const UCapsuleComponent* Theirs = Target->GetCapsuleComponent();
+	const FVector A = GetActorLocation();
+	const FVector B = Target->GetActorLocation();
+	const float HorizontalLimit = Mine->GetScaledCapsuleRadius() + Theirs->GetScaledCapsuleRadius() + TouchMargin;
+	const float VerticalLimit = Mine->GetScaledCapsuleHalfHeight() + Theirs->GetScaledCapsuleHalfHeight() + TouchMargin;
+	return FVector::DistSquared2D(A, B) <= FMath::Square(HorizontalLimit) && FMath::Abs(A.Z - B.Z) <= VerticalLimit;
+}
 
 bool AOniCharacter::CanSeeTarget() const
 {

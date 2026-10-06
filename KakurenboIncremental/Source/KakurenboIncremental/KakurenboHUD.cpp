@@ -203,6 +203,8 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	// 画面中央の小さな点（向いている方向の目安）
 	Panel(CanvasW * 0.5f - 3, CanvasH * 0.5f - 3, 6, 6, FLinearColor(1.f, 1.f, 1.f, 0.7f));
 
+	DrawMashPopups(State, GM);
+
 	// 残り時間（上部中央）
 	const float Ratio = State->HideTimeLimit > 0.f ? State->HideTimeRemaining / State->HideTimeLimit : 0.f;
 	const float BarW = 600;
@@ -238,6 +240,51 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	// 操作説明（下部中央）
 	Text(FString::Printf(TEXT("マウス: 見回す　Space / 左クリック: 連打 (+%s コイン・音が出る)"), *Big(GM->GetMashIncome())), 0, CanvasH - 90, 24, FLinearColor::White, true);
 	Text(FString::Printf(TEXT("今回の獲得: %s コイン　連打 %d 回"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, CanvasH - 54, 18, Gray, true);
+}
+
+void AKakurenboHUD::DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM)
+{
+	constexpr float Lifetime = 0.8f;
+	constexpr int32 MaxPopups = 12;
+
+	// 連打回数が増えた分だけ「+〇」を出す（新しいラウンドで回数が 0 に戻ったら追従する）
+	if (State->MashCountThisRound < LastSeenMashCount)
+	{
+		LastSeenMashCount = 0;
+		MashPopups.Reset();
+	}
+	const int32 NewMashes = State->MashCountThisRound - LastSeenMashCount;
+	if (NewMashes > 0)
+	{
+		FMashPopup& Popup = MashPopups.AddDefaulted_GetRef();
+		Popup.Text = FString::Printf(TEXT("+%s"), *Big(GM->GetMashIncome() * NewMashes));
+		Popup.OffsetX = FMath::FRandRange(-70.f, 70.f);
+		LastSeenMashCount = State->MashCountThisRound;
+		if (MashPopups.Num() > MaxPopups)
+		{
+			MashPopups.RemoveAt(0);
+		}
+	}
+
+	// 上に浮かびながら消えていく
+	const float CenterX = Canvas->ClipX * 0.5f;
+	const float BaseY = Canvas->ClipY * 0.5f + 160.f * UIScale; // カウントダウンの説明文より下
+	for (int32 i = MashPopups.Num() - 1; i >= 0; --i)
+	{
+		FMashPopup& Popup = MashPopups[i];
+		Popup.Age += RenderDelta;
+		if (Popup.Age >= Lifetime)
+		{
+			MashPopups.RemoveAt(i);
+			continue;
+		}
+		const float T = Popup.Age / Lifetime;
+		const FLinearColor Color(Gold.R, Gold.G, Gold.B, 1.f - T);
+		FCanvasTextItem Item(FVector2D(CenterX + Popup.OffsetX * UIScale, BaseY - 70.f * T * UIScale), FText::FromString(Popup.Text), MakeFont(26), Color);
+		Item.bCentreX = true;
+		Item.EnableShadow(FLinearColor(0.f, 0.f, 0.f, 0.7f * (1.f - T)));
+		Canvas->DrawItem(Item);
+	}
 }
 
 void AKakurenboHUD::DrawOniIndicator(const AOniCharacter* Oni, const AKakurenboGameState* State)

@@ -132,26 +132,49 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	if (Scenario.Equals(TEXT("Camera"), ESearchCase::IgnoreCase))
 	{
 		// ---- 1. かくれんぼ（一人称）：マウスで視点が回るか ----
-		TSharedRef<FRotator> RotBefore = MakeShared<FRotator>();
 		Steps.Add({ 1.f, [=, this]
 		{
 			AHiderCharacter* Hider = GetHider();
 			Check(TEXT("hide phase uses first-person camera"),
 				Hider->GetViewMode() == EHiderViewMode::FirstPerson && Hider->FirstPersonCamera->IsActive() && !Hider->OverheadCamera->IsActive());
 			Check(TEXT("cursor hidden in hide phase"), !bShowMouseCursor);
-			*RotBefore = GetControlRotation();
+			const FRotator RotBefore = GetControlRotation();
 			SimulateMouse(150.f, 60.f); // 右へ 150、上へ 60 カウント
+
+			// 疑似入力は次のフレームの入力処理で反映される。タイマーは入力処理より後に動くので、次のフレームで確かめる
+			GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([=, this]
+			{
+				const FRotator Now = GetControlRotation();
+				const float DYaw = FRotator::NormalizeAxis(Now.Yaw - RotBefore.Yaw);
+				const float DPitch = FRotator::NormalizeAxis(Now.Pitch - RotBefore.Pitch);
+				Check(FString::Printf(TEXT("mouse right turns view right (dYaw=%.1f, expected %.1f)"), DYaw, 150.f * MouseSensitivity),
+					FMath::IsNearlyEqual(DYaw, 150.f * MouseSensitivity, 0.5f));
+				Check(FString::Printf(TEXT("mouse up looks up (dPitch=%.1f, expected %.1f)"), DPitch, 60.f * MouseSensitivity),
+					FMath::IsNearlyEqual(DPitch, 60.f * MouseSensitivity, 0.5f));
+			}));
 		} });
+		Steps.Add({ 0.3f, [=] { Shot(TEXT("camera_01_hide_firstperson")); } });
+
+		// ---- 1b. 左クリックで連打しても、画面（視野角・カメラ位置）が拡縮しない ----
 		Steps.Add({ 0.3f, [=, this]
 		{
-			const FRotator Now = GetControlRotation();
-			const float DYaw = FRotator::NormalizeAxis(Now.Yaw - RotBefore->Yaw);
-			const float DPitch = FRotator::NormalizeAxis(Now.Pitch - RotBefore->Pitch);
-			Check(FString::Printf(TEXT("mouse right turns view right (dYaw=%.1f, expected %.1f)"), DYaw, 150.f * MouseSensitivity),
-				FMath::IsNearlyEqual(DYaw, 150.f * MouseSensitivity, 0.5f));
-			Check(FString::Printf(TEXT("mouse up looks up (dPitch=%.1f, expected %.1f)"), DPitch, 60.f * MouseSensitivity),
-				FMath::IsNearlyEqual(DPitch, 60.f * MouseSensitivity, 0.5f));
-			Shot(TEXT("camera_01_hide_firstperson"));
+			AHiderCharacter* Hider = GetHider();
+			const float FovBefore = Hider->FirstPersonCamera->FieldOfView;
+			const FVector CamBefore = Hider->FirstPersonCamera->GetRelativeLocation();
+			const int32 MashBefore = GetWorld()->GetGameState<AKakurenboGameState>()->MashCountThisRound;
+			SimulateKey(EKeys::LeftMouseButton, IE_Pressed);
+			SimulateKey(EKeys::LeftMouseButton, IE_Released);
+
+			// 以前の演出（視野角を広げる・視点を沈める）は 0.125 秒ほど続いたので、直後のフレームで確かめる
+			GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([=, this]
+			{
+				const AKakurenboGameState* S = GetWorld()->GetGameState<AKakurenboGameState>();
+				Check(FString::Printf(TEXT("left click mashes (count %d -> %d)"), MashBefore, S->MashCountThisRound), S->MashCountThisRound == MashBefore + 1);
+				Check(FString::Printf(TEXT("mash does not zoom the view (FOV %.2f -> %.2f)"), FovBefore, Hider->FirstPersonCamera->FieldOfView),
+					FMath::IsNearlyEqual(FovBefore, Hider->FirstPersonCamera->FieldOfView, 0.01f));
+				Check(TEXT("mash does not move the camera"), Hider->FirstPersonCamera->GetRelativeLocation().Equals(CamBefore, 0.01f));
+				Shot(TEXT("camera_01b_mash_popup"));
+			}));
 		} });
 
 		// ---- 2. 鬼の方向表示（背後なら画面の縁に矢印、正面なら頭上にマーカー） ----
@@ -248,6 +271,40 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("camera_07_hide_again"));
 		} });
 	}
+	else if (Scenario.Equals(TEXT("Touch"), ESearchCase::IgnoreCase))
+	{
+		// 目の見えない鬼を音だけで呼び寄せ、ぶつかった時点で見つかることを確認する
+		Steps.Add({ 3.5f, [=]
+		{
+			if (AOniCharacter* Oni = GM->GetOni())
+			{
+				Oni->SightRadius = 0.f;          // 視線では見つけられない
+				Oni->CloseSenseRadius = 0.f;
+				Oni->NoiseInaccuracyCells = 0.f; // 音のした場所を正確に聞き取る
+				Oni->HearingRadius = 100000.f;   // どこにいても聞こえる
+				Oni->bDrawDebug = true;
+			}
+			Log(TEXT("blind oni"));
+		} });
+		for (int32 i = 0; i < 100; ++i)
+		{
+			Steps.Add({ 0.2f, [=, this] { KakuMash(1); } });
+			if (i % 10 == 9)
+			{
+				const FString Label = FString::Printf(TEXT("mashing %d"), i + 1);
+				Steps.Add({ 0.f, [=] { Log(Label); } });
+			}
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const AKakurenboGameState* S = GetWorld()->GetGameState<AKakurenboGameState>();
+			const AOniCharacter* Oni = GM->GetOni();
+			const FName Reason = Oni ? Oni->GetFoundReason() : FName();
+			Check(FString::Printf(TEXT("blind oni finds the hider by touching (phase=%s, reason=%s)"), *UEnum::GetValueAsString(S->Phase), *Reason.ToString()),
+				S->Phase == EKakurenboPhase::Result && !S->bLastRoundCleared && Reason == FName(TEXT("touch")));
+			Shot(TEXT("touch_01_found"));
+		} });
+	}
 	else if (Scenario.Equals(TEXT("Oni"), ESearchCase::IgnoreCase))
 	{
 		// 鬼が出てきてから連打し続け、音に寄ってきて見つかるまでを確認する
@@ -269,7 +326,15 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Steps.Add({ 1.f, [=] { LookAtOni(); Log(TEXT("waiting")); } });
 		}
-		Steps.Add({ 0.f, [=] { LookAtOni(); Log(TEXT("final")); ShotLater(TEXT("oni_03_final")); } });
+		Steps.Add({ 0.f, [=]
+		{
+			LookAtOni();
+			Log(TEXT("final"));
+			ShotLater(TEXT("oni_03_final"));
+			const AOniCharacter* Oni = GM->GetOni();
+			const FName Reason = Oni ? Oni->GetFoundReason() : FName();
+			Check(FString::Printf(TEXT("oni finds the mashing hider by sight (reason=%s)"), *Reason.ToString()), Reason == FName(TEXT("sight")));
+		} });
 	}
 	else if (Scenario.Equals(TEXT("Build"), ESearchCase::IgnoreCase))
 	{

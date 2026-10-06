@@ -34,13 +34,15 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
-powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Oni / Build
+powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # Camera / Loop / Oni / Touch / Build
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
   スクリーンショットを Read で確認して見た目も検証すること。最後に `CHECK: n passed, m failed` が出る
 - 入力が絡む変更は、`PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(...))` で疑似入力を流して検証する
   （`SetControlRotation` などで直接状態を書き換えるテストでは、入力の経路のバグを見逃す）
+- 疑似入力は次のフレームの入力処理で反映される。結果の確認は `GetWorldTimerManager().SetTimerForNextTick` で行う
+  （タイマーは TG_PrePhysics の入力処理より後に動く。固定の秒数で待つと、フレームの引っかかりで同じフレームに実行されて失敗することがある）
 - `-ExtraExec "ShowFlag.VisualizeHDR 1,"` を付けると露出（EV100）の実測値が画面に出る
 - ユーザーが UE エディタを開いているとリンクに失敗する（DLL がロックされる）。エディタのプロセスは勝手に終了せず、閉じてもらう
 

@@ -74,7 +74,7 @@ public:
 	void AddOverheadYaw(float DeltaDegrees);
 	void AddOverheadZoom(float DeltaCm);
 
-	/** 連打したときの見た目の反応（体が縮む／一人称では視点が少し沈む） */
+	/** 連打したときの見た目の反応（体が縮む。一人称のカメラは動かさない） */
 	void PlayMashFeedback();
 
 	/** 鬼の視線チェックで狙う点（頭・体・足） */
@@ -88,6 +88,5 @@ private:
 	EHiderViewMode ViewMode = EHiderViewMode::FirstPerson;
 	float OverheadYaw = 0.f;
 	float MashPulse = 0.f;
-	float BaseFOV = 90.f;
 	FVector BodyBaseScale = FVector::OneVector;
 };

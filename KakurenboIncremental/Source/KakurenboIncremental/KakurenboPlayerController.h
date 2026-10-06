@@ -110,7 +110,7 @@ public:
 
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
-	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Build（壁の設置と破壊） / Camera（視点と操作）
+	 * Scenario: Loop（基本ループ） / Oni（鬼の追跡） / Touch（ぶつかったら発見） / Build（壁の設置と破壊） / Camera（視点と操作）
 	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Oni"
 	 * 実装は KakurenboAutoTest.cpp
 	 */

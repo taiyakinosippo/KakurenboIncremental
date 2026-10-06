@@ -82,7 +82,6 @@ void AHiderCharacter::BeginPlay()
 	Super::BeginPlay();
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	BodyBaseScale = BodyMesh->GetRelativeScale3D();
-	BaseFOV = FirstPersonCamera->FieldOfView;
 	OverheadYaw = GetActorRotation().Yaw;
 }
 
@@ -128,12 +127,11 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 	CameraBoom->SetWorldRotation(FRotator(OverheadPitch, OverheadYaw, 0.f));
 	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, OverheadDistance, DeltaSeconds, 8.f);
 
-	// 連打の反応
+	// 連打の反応は体を縮めるだけ（俯瞰で見えたときの演出）。
+	// 一人称カメラの位置や視野角は動かさない（動かすとクリックのたびに画面が拡縮して見える）
 	MashPulse = FMath::Max(0.f, MashPulse - DeltaSeconds * 8.f);
 	const float Squash = 1.f - 0.15f * MashPulse;
 	BodyMesh->SetRelativeScale3D(FVector(BodyBaseScale.X / Squash, BodyBaseScale.Y / Squash, BodyBaseScale.Z * Squash));
-	FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, EyeHeight - 5.f * MashPulse));
-	FirstPersonCamera->SetFieldOfView(BaseFOV + 2.f * MashPulse);
 }
 
 void AHiderCharacter::PlayMashFeedback()

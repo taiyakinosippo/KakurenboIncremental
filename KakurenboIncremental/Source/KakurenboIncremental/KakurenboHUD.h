@@ -33,6 +33,9 @@ protected:
 	void DrawResult(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawOniIndicator(const AOniCharacter* Oni, const AKakurenboGameState* State);
 
+	/** 連打したときに「+〇」を画面中央の下に浮かべる（カメラを揺らさない手応え） */
+	void DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM);
+
 	// ---- 描画の補助（X/Y は 1080p 基準の座標。Px が付くものは実際のピクセル座標） ----
 
 	/** 日本語が表示できるフォントで文字を描く。bCenterX なら画面の横方向の中央に揃える */
@@ -47,4 +50,14 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UFont> HUDFont;
+
+private:
+	struct FMashPopup
+	{
+		FString Text;
+		float Age = 0.f;     // 出てからの秒数
+		float OffsetX = 0.f; // 横方向のばらつき（1080p 基準）
+	};
+	TArray<FMashPopup> MashPopups;
+	int32 LastSeenMashCount = 0;
 };

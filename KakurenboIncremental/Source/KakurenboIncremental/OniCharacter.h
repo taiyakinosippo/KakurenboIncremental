@@ -4,7 +4,7 @@
 // 状態遷移:
 //   Wander（うろうろ）──音を聞く──▶ Investigate（音のした方へ）──着いて何もない──▶ Wander
 //        └──────進路に壁──────▶ Attack（壁を壊す）──壊し終わる──▶ 元の状態へ
-//   どの状態でも、プレイヤーが見えたら即「発見」（＝プレイヤーの負け）
+//   どの状態でも、プレイヤーが見えたら、またはプレイヤーにぶつかったら即「発見」（＝プレイヤーの負け）
 
 #pragma once
 
@@ -62,6 +62,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CloseSenseRadius = 150.f;
 
+	/** 体（カプセル）同士がこの距離まで近づいたら「ぶつかった」とみなして発見する（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float TouchMargin = 8.f;
+
 	/** 連打の音が聞こえる距離（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float HearingRadius = 1200.f;
@@ -107,6 +111,9 @@ public:
 
 	EOniState GetOniState() const { return State; }
 
+	/** 何でプレイヤーを見つけたか（"sight" = 視線 / "touch" = ぶつかった / None = まだ） */
+	FName GetFoundReason() const { return FoundReason; }
+
 	FOnOniFoundHider OnFoundHider;
 	FOnOniDestroyedWalls OnDestroyedWalls;
 
@@ -117,6 +124,8 @@ protected:
 private:
 	// 感覚
 	bool CanSeeTarget() const;
+	bool IsTouchingTarget() const;
+	void FoundTarget(FName Reason);
 
 	// 移動
 	void SetState(EOniState NewState);
@@ -138,6 +147,7 @@ private:
 
 	EOniState State = EOniState::Wander;
 	bool bActive = false;
+	FName FoundReason = NAME_None;
 
 	TArray<FIntPoint> Path;
 	int32 PathIndex = 0;
