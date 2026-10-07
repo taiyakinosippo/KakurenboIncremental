@@ -22,6 +22,7 @@ enum class EKakurenboUIAction : uint8
 	NextPhase, // 次のパートへ（Enter と同じ）
 	BuildSlot, // 置く物（Index は SelectedBuildSlot と同じ番号）
 	RefillAll, // 壊れた壁・使った罠をまとめて補充（R と同じ）
+	BackToShop, // 設置パートから購入パートへ戻る（B と同じ）
 };
 
 /** 画面上のボタン 1 つ（位置は実際のピクセル） */
@@ -40,13 +41,7 @@ class KAKURENBOINCREMENTAL_API AKakurenboHUD : public AHUD
 public:
 	virtual void DrawHUD() override;
 
-	/** かくれんぼ中に鬼の位置を表示する（画面内: 頭上のマーカー / 画面外: 画面の縁の矢印） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
-	bool bShowOniIndicator = true;
-
-	/** かくれんぼ中にお宝の位置を表示する */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
-	bool bShowTreasureIndicator = true;
+	// 鬼とお宝の位置は矢印では出さない（鬼の足音・お宝のキラキラの音で、どこにいそうかわかる）
 
 	/** 画面全体を一瞬その色で光らせる（Color.A が最初の濃さ。Duration 秒で消える） */
 	void Flash(const FLinearColor& Color, float Duration);
@@ -93,7 +88,7 @@ protected:
 	/** 日本語が表示できるフォントで文字を描く。bCenterX なら画面の横方向の中央に揃える */
 	void Text(const FString& Str, float X, float Y, int32 Size, const FLinearColor& Color = FLinearColor::White, bool bCenterX = false);
 	void TextPx(const FString& Str, float Px, float Py, int32 Size, const FLinearColor& Color, bool bCenterX);
-	void Panel(float X, float Y, float W, float H, const FLinearColor& Color = FLinearColor(0.f, 0.f, 0.f, 0.55f));
+	void Panel(float X, float Y, float W, float H, const FLinearColor& Color = FLinearColor(0.05f, 0.02f, 0.09f, 0.68f));
 	void TrianglePx(const FVector2D& A, const FVector2D& B, const FVector2D& C, const FLinearColor& Color);
 	FSlateFontInfo MakeFont(int32 Size);
 

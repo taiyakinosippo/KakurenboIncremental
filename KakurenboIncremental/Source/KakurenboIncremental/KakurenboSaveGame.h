@@ -33,6 +33,16 @@ struct FKakurenboSavedColumn
 	bool bTrapLive = false;
 };
 
+/** 1 つのマップの壁・罠の置き方（今ではないマップの設計図をとっておくのに使う） */
+USTRUCT()
+struct FKakurenboSavedLayout
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TArray<FKakurenboSavedColumn> Columns;
+};
+
 UCLASS()
 class KAKURENBOINCREMENTAL_API UKakurenboSaveGame : public USaveGame
 {
@@ -42,9 +52,10 @@ public:
 	/**
 	 * 保存形式の版（項目を増やしたときに古いデータを見分けるため）。
 	 * 2: 罠・壁の補強を追加 / 3: 壁の補強をやめて転生を追加 / 4: 転生のお店（ポイントを使う永続強化）
+	 * 5: 館のマップ（今のマップと、ほかのマップの設計図）
 	 */
 	UPROPERTY()
-	int32 SaveVersion = 4;
+	int32 SaveVersion = 5;
 
 	UPROPERTY()
 	double Coins = 0.0;
@@ -82,8 +93,17 @@ public:
 	UPROPERTY()
 	TArray<int32> TrapStock;
 
+	/** 今のマップの壁・罠 */
 	UPROPERTY()
 	TArray<FKakurenboSavedColumn> Columns;
+
+	/** 今のマップ（版 4 までは無い → ステージから決める） */
+	UPROPERTY()
+	FName CurrentMap;
+
+	/** ほかのマップの設計図（壁・罠の置き方。置いてあった分は在庫に戻してある） */
+	UPROPERTY()
+	TMap<FName, FKakurenboSavedLayout> MapLayouts;
 
 	UPROPERTY()
 	bool bHasPlayerLocation = false;

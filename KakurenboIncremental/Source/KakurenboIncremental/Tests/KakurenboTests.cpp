@@ -5,6 +5,8 @@
 #include "GridPathfinder.h"
 #include "KakurenboBalance.h"
 #include "KakurenboLayout.h"
+#include "KakurenboMaps.h"
+#include "Misc/FileHelper.h"
 #include "KakurenboSynth.h"
 #include "UObject/Package.h"
 #include "KakurenboLibrary.h"
@@ -338,6 +340,54 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale == 0.f && Scout->StunScale > 1.f);
 		TestTrue(TEXT("power oni: lured by decoys, strong against sticky and disarms it"),
 			Breaker && Breaker->DecoyHearingScale > 1.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
+		// 宝物鬼：連打には鈍く足音に敏感・壁を壊すのが苦手。探知鬼：仲間を呼ぶ
+		const FKakurenboOniTypeRow* Treasure = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Treasure"), TEXT("Test"));
+		const FKakurenboOniTypeRow* Detector = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Detector"), TEXT("Test"));
+		TestTrue(TEXT("treasure oni: deaf to mashing, sensitive to footsteps, weak at walls"),
+			Treasure && Treasure->HearingScale < 0.5f && Treasure->StepHearingScale > 1.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f);
+		TestTrue(TEXT("detector: summons others from far"), Detector && Detector->SummonRadius >= 1500.f && Detector->SightRadius > 1000.f);
+		TestTrue(TEXT("enum has Treasure and Detector"), StaticEnum<EOniType>()->GetValueByNameString(TEXT("Treasure")) != INDEX_NONE && StaticEnum<EOniType>()->GetValueByNameString(TEXT("Detector")) != INDEX_NONE);
+	}
+	TArray<FName> MapNames;
+	if (UDataTable* Maps = Load(FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))
+	{
+		MapNames = Maps->GetRowNames();
+		TestTrue(TEXT("at least 5 maps"), MapNames.Num() >= 5);
+		TSet<TCHAR> FurnitureKeys;
+		if (UDataTable* Furniture = Load(FKakurenboFurnitureRow::StaticStruct(), TEXT("Furniture.csv")))
+		{
+			for (const FName& Key : Furniture->GetRowNames())
+			{
+				TestEqual(FString::Printf(TEXT("furniture row '%s' is 1 character"), *Key.ToString()), Key.ToString().Len(), 1);
+				FurnitureKeys.Add(Key.ToString()[0]);
+			}
+		}
+		for (const FName& Name : MapNames)
+		{
+			// 間取りのファイルが 24×24 で読め、使っている文字がすべて家具の表にあり、鬼の出入り口の前が空いている
+			const FKakurenboMapRow* Row = Maps->FindRow<FKakurenboMapRow>(Name, TEXT("Test"));
+			FString Text;
+			const bool bRead = Row && FFileHelper::LoadFileToString(Text, *KakurenboBalance::GetDataFilePath(FString(TEXT("Maps")) / Row->LayoutFile));
+			TestTrue(FString::Printf(TEXT("map %s layout file reads"), *Name.ToString()), bRead);
+			TArray<FString> Problems;
+			const KakurenboMaps::FLayout Layout = KakurenboMaps::ParseLayout(Text, 24, 24, Problems);
+			TestEqual(FString::Printf(TEXT("map %s layout is 24x24 (%s)"), *Name.ToString(), *FString::Join(Problems, TEXT(" / "))), Problems.Num(), 0);
+			for (int32 Y = 0; Y < 24; ++Y)
+			{
+				for (int32 X = 0; X < 24; ++X)
+				{
+					const TCHAR C = Layout.Get(FIntPoint(X, Y));
+					if (C != KakurenboMaps::EmptyChar && C != KakurenboMaps::WallChar && !FurnitureKeys.Contains(C))
+					{
+						AddError(FString::Printf(TEXT("map %s: unknown furniture '%c' at (%d,%d)"), *Name.ToString(), C, X, Y));
+					}
+					if (X >= 21 && Y >= 10 && Y <= 14 && C != KakurenboMaps::EmptyChar)
+					{
+						AddError(FString::Printf(TEXT("map %s: (%d,%d) is in front of the oni gate"), *Name.ToString(), X, Y));
+					}
+				}
+			}
+		}
 	}
 	if (UDataTable* Stages = Load(FKakurenboStageRow::StaticStruct(), TEXT("Stages.csv")))
 	{
@@ -345,6 +395,13 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		TArray<FKakurenboStageRow*> Rows;
 		Stages->GetAllRows<FKakurenboStageRow>(TEXT("Test"), Rows);
 		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 1 && Rows[0]->OniTypes.Num() >= 1 && Rows[1]->OniTypes.Num() >= 2);
+		for (int32 i = 0; i < Rows.Num(); ++i)
+		{
+			// 鬼の出入り口のマスは 6 つ。マップは Maps.csv にあるもの
+			TestTrue(FString::Printf(TEXT("stage %d has at most 6 onis"), i + 1), Rows[i]->OniTypes.Num() <= 6);
+			TestTrue(FString::Printf(TEXT("stage %d map '%s' exists"), i + 1, *Rows[i]->Map.ToString()), Rows[i]->Map.IsNone() || MapNames.Contains(Rows[i]->Map));
+		}
+		TestTrue(TEXT("stage 1 names a map"), Rows.Num() > 0 && !Rows[0]->Map.IsNone());
 	}
 	return true;
 }
@@ -375,6 +432,63 @@ bool FKakurenboSynthTest::RunTest(const FString& Parameters)
 	}
 	// 高さを変えても長さは変わらない
 	TestEqual(TEXT("pitch keeps the length"), KakurenboSynth::RenderSfx(EKakurenboSfx::Mash, 1.5f).Num(), KakurenboSynth::RenderSfx(EKakurenboSfx::Mash).Num());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboMusicTest, "Kakurenbo.Sound.Music", TestFlags)
+bool FKakurenboMusicTest::RunTest(const FString& Parameters)
+{
+	// BGM：ちょうど 1 周の長さで、聞こえる大きさ。音が割れっぱなしになっていない
+	for (const EKakurenboMusic Music : { EKakurenboMusic::Calm, EKakurenboMusic::Hide })
+	{
+		const FString Name = UEnum::GetValueAsString(Music);
+		float LoopSeconds = 0.f;
+		const TArray<KakurenboSynth::FNote> Notes = KakurenboSynth::GetMusicRecipe(Music, LoopSeconds);
+		const TArray<int16> Samples = KakurenboSynth::RenderMusic(Music);
+		TestTrue(FString::Printf(TEXT("%s has notes and a loop of %.1f s"), *Name, LoopSeconds), Notes.Num() > 50 && LoopSeconds >= 8.f && LoopSeconds <= 40.f);
+		TestEqual(FString::Printf(TEXT("%s is exactly one loop long"), *Name), Samples.Num(), FMath::RoundToInt(LoopSeconds * KakurenboSynth::MusicSampleRate));
+		int32 Peak = 0;
+		int32 Loud = 0;
+		for (const int16 S : Samples)
+		{
+			Peak = FMath::Max(Peak, FMath::Abs(static_cast<int32>(S)));
+			Loud += FMath::Abs(static_cast<int32>(S)) > 29000 ? 1 : 0;
+		}
+		TestTrue(FString::Printf(TEXT("%s is audible (peak %d)"), *Name, Peak), Peak > 4000);
+		TestTrue(FString::Printf(TEXT("%s is not distorted (%d of %d samples near the limit)"), *Name, Loud, Samples.Num()), Loud < Samples.Num() / 100);
+	}
+	TestEqual(TEXT("no music for None"), KakurenboSynth::RenderMusic(EKakurenboMusic::None).Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboMapLayoutTest, "Kakurenbo.Maps.Layout", TestFlags)
+bool FKakurenboMapLayoutTest::RunTest(const FString& Parameters)
+{
+	// メモの行は飛ばす。短い行・足りない行は床で埋める
+	TArray<FString> Problems;
+	const KakurenboMaps::FLayout Layout = KakurenboMaps::ParseLayout(TEXT("; memo\nBB..#\n.BB.#\n..C..\n"), 5, 4, Problems);
+	TestEqual(TEXT("size"), Layout.Cells.Num(), 20);
+	TestEqual(TEXT("first row is not the memo"), Layout.Get(FIntPoint(0, 0)), TEXT('B'));
+	TestEqual(TEXT("missing row is floor"), Layout.Get(FIntPoint(0, 3)), KakurenboMaps::EmptyChar);
+	TestEqual(TEXT("one problem: only 3 rows"), Problems.Num(), 1);
+
+	// 同じ文字の長方形を 1 つの家具にまとめる
+	const TArray<KakurenboMaps::FPiece> Pieces = KakurenboMaps::FindPieces(Layout);
+	int32 Books = 0;
+	for (const KakurenboMaps::FPiece& Piece : Pieces)
+	{
+		Books += Piece.Key == TEXT('B') ? 1 : 0;
+	}
+	TestEqual(TEXT("BB on row 0 and BB on row 1 (shifted) are 2 pieces"), Books, 2);
+	const KakurenboMaps::FPiece* Wall = Pieces.FindByPredicate([](const KakurenboMaps::FPiece& P) { return P.Key == KakurenboMaps::WallChar; });
+	TestTrue(TEXT("the # column is one 1x2 piece"), Wall && Wall->Min == FIntPoint(4, 0) && Wall->Size == FIntPoint(1, 2));
+	const KakurenboMaps::FPiece* First = Pieces.FindByPredicate([](const KakurenboMaps::FPiece& P) { return P.Min == FIntPoint(0, 0); });
+	TestTrue(TEXT("the first BB is 2x1"), First && First->Size == FIntPoint(2, 1));
+
+	// 2x2 の四角は 1 つ
+	TArray<FString> Ignore;
+	const TArray<KakurenboMaps::FPiece> Square = KakurenboMaps::FindPieces(KakurenboMaps::ParseLayout(TEXT("TT.\nTT.\n..."), 3, 3, Ignore));
+	TestTrue(TEXT("2x2 table is one piece"), Square.Num() == 1 && Square[0].Size == FIntPoint(2, 2));
 	return true;
 }
 
@@ -450,6 +564,14 @@ bool FKakurenboEnclosureDampingTest::RunTest(const FString& Parameters)
 	// 囲まれていない場所・壁の上では効かない
 	TestEqual(TEXT("outside the ring: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(0, 0), Damping), 0.f);
 	TestEqual(TEXT("on a wall: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(4, 4), Damping), 0.f);
+
+	// 家具（負の値）は囲む壁として数えない：残りの壁の平均になる
+	Damping[Grid.ToIndex(FIntPoint(4, 4))] = -1.f;
+	Damping[Grid.ToIndex(FIntPoint(6, 6))] = -1.f;
+	Walls = 0;
+	const float WithFurniture = KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping, &Walls);
+	TestEqual(TEXT("furniture is not counted as an enclosing wall"), Walls, 6);
+	TestTrue(FString::Printf(TEXT("damping without furniture (%.3f)"), WithFurniture), WithFurniture > 0.f);
 
 	// 1 か所開けると囲まれていないので効かない
 	Grid.SetExtra(FIntPoint(6, 5), 0.f);

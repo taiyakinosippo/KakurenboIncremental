@@ -97,6 +97,23 @@ public:
 	/** ダッシュをやめてクールタイムも消す（ラウンドの始まり） */
 	void ResetDash();
 
+	// ===== 足音・しのび足 =====
+
+	/** 1 歩の長さ（cm）。これだけ歩くたびに足音が出る（鬼に聞こえる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Step")
+	float StepStride = 120.f;
+
+	/** しのび足（Ctrl を押しながら歩く）の速さの倍率。足音が小さくなる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Step")
+	float SneakSpeedMultiplier = 0.5f;
+
+	/** しのび足にする・やめる（ダッシュ中は速さを変えない） */
+	void SetSneaking(bool bInSneaking);
+	bool IsSneaking() const { return bSneaking; }
+
+	/** 歩いた足音の数（テスト用） */
+	int32 GetStepCount() const { return StepCount; }
+
 	bool IsDashing() const { return DashTimeRemaining > 0.f; }
 
 	/** 次にダッシュできるまでの残り秒数（0 ならすぐできる） */
@@ -146,6 +163,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+	/** ジャンプした（音が出る） */
+	virtual void OnJumped_Implementation() override;
+	/** 着地した（1 歩ぶんの足音） */
+	virtual void Landed(const FHitResult& Hit) override;
 
 private:
 	EHiderViewMode ViewMode = EHiderViewMode::ThirdPerson;
@@ -157,4 +178,13 @@ private:
 	float WalkSpeed = 420.f;
 	float DashTimeRemaining = 0.f;
 	float DashCooldownRemaining = 0.f;
+
+	bool bSneaking = false;
+	float StepDistance = 0.f;
+	FVector LastStepLocation = FVector::ZeroVector;
+	int32 StepCount = 0;
+	/** 足音を GameMode に知らせる */
+	void NotifyStep();
+	/** 今の歩く速さ（しのび足・ダッシュを反映）にする */
+	void UpdateWalkSpeed();
 };

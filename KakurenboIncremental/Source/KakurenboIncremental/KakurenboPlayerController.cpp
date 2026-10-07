@@ -106,6 +106,7 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	bViewInitialized = true;
 	ViewPhase = Phase;
 
+	Hider->SetSneaking(false);
 	if (Phase == EKakurenboPhase::Hide)
 	{
 		// 俯瞰・真上 → 三人称：俯瞰カメラが向いていた方向を、少し見下ろす角度で向いて始める
@@ -399,6 +400,7 @@ bool AKakurenboPlayerController::HandleUIClick()
 	case EKakurenboUIAction::NextPhase: GM->AdvancePhase(); break;
 	case EKakurenboUIAction::BuildSlot: SelectedBuildSlot = Button.Index; break;
 	case EKakurenboUIAction::RefillAll: GM->BuyAllMissing(); break;
+	case EKakurenboUIAction::BackToShop: GM->ReturnToShop(); break;
 	default: break;
 	}
 	return true; // パネルの上のクリックは、後ろの床に壁を置かない
@@ -495,6 +497,12 @@ void AKakurenboPlayerController::HandleBuildInput()
 	if (WasInputKeyJustPressed(EKeys::T) && bHasBuildTarget)
 	{
 		SetStartCell(BuildTargetCell);
+	}
+
+	// B / BackSpace: 購入パートへ戻る（置いた壁・罠はそのまま）
+	if (WasInputKeyJustPressed(EKeys::B) || WasInputKeyJustPressed(EKeys::BackSpace))
+	{
+		GM->ReturnToShop();
 	}
 }
 
@@ -658,6 +666,12 @@ void AKakurenboPlayerController::HandleHideInput()
 	HandleCharacterMovement();
 	HandleZoom();
 
+	// Ctrl（または C）を押している間はしのび足（ゆっくり・足音が小さい）
+	if (AHiderCharacter* Hider = GetHider())
+	{
+		Hider->SetSneaking(bTestSneak || IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl) || IsInputKeyDown(EKeys::C));
+	}
+
 	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) || WasInputKeyJustPressed(EKeys::F))
 	{
 		DoMash();
@@ -802,6 +816,22 @@ void AKakurenboPlayerController::KakuPrestige()
 void AKakurenboPlayerController::KakuDash()
 {
 	DoDash();
+}
+
+void AKakurenboPlayerController::KakuShop()
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->ReturnToShop();
+	}
+}
+
+void AKakurenboPlayerController::KakuMusicVolume(float Volume)
+{
+	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
+	{
+		Sound->SetMusicVolume(Volume);
+	}
 }
 
 void AKakurenboPlayerController::KakuSetStart(int32 X, int32 Y)

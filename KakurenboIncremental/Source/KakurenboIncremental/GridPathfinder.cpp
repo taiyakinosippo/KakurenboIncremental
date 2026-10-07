@@ -237,7 +237,8 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 			for (int32 DX = -1; DX <= 1; ++DX)
 			{
 				const FIntPoint N = P + FIntPoint(DX, DY);
-				if (Grid.IsInside(N) && Grid.GetExtra(N) != 0.f)
+				// CellDamping が負のマス（家具・部屋の壁）は数えない
+				if (Grid.IsInside(N) && Grid.GetExtra(N) != 0.f && !(CellDamping.IsValidIndex(Grid.ToIndex(N)) && CellDamping[Grid.ToIndex(N)] < 0.f))
 				{
 					Walls.Add(Grid.ToIndex(N));
 				}

@@ -114,6 +114,12 @@ public:
 	/** 今あるブロック・罠だけを消し、設計図は残す（転生したとき。在庫を買い直せば設置パートで自動で直る） */
 	void ClearLiveKeepDesign();
 
+	/**
+	 * 指定したマスの壁・罠と設計図を消す。消した壁・罠（今あった分）の数を種類ごとに足して返す（在庫に戻す用）
+	 * @return 何か消したマスの数
+	 */
+	int32 ClearCells(const TArray<FIntPoint>& Cells, TArray<int32>& InOutWallRefund, TArray<int32>& InOutTrapRefund);
+
 	/** 置いてある壁の耐久をすべて Factor 倍にする（転生のお店で壁の硬さを買ったとき） */
 	void ScaleAllBlockHP(double Factor);
 
@@ -136,6 +142,19 @@ public:
 
 	/** 壁が攻撃されたとき（演出と音に使う） */
 	FOnKakurenboBlockHit OnBlockHit;
+
+	// ===== 館の家具・部屋の壁（壊せない・通れない） =====
+
+	/** 通れないマス（家具・部屋の壁）を決める。置いてある壁・罠には触らない（先に片付けておく） */
+	void SetObstacles(const TArray<FIntPoint>& Cells);
+
+	/** 家具・部屋の壁のマスか */
+	bool IsObstacle(const FIntPoint& Cell) const { return IsInside(Cell) && Obstacles.IsValidIndex(ToIndex(Cell)) && Obstacles[ToIndex(Cell)]; }
+
+	/** 歩けるマスか（舞台の中で、壁も家具も無い） */
+	bool IsWalkable(const FIntPoint& Cell) const { return IsInside(Cell) && GetColumnHeight(Cell) == 0 && !IsObstacle(Cell); }
+
+	int32 GetObstacleCount() const;
 
 	// ===== 罠 =====
 
@@ -231,6 +250,9 @@ public:
 	/** 一番大きな空き地（壁に囲まれていない場所）のマスか */
 	bool IsInMainArea(const FIntPoint& Cell) const;
 
+	/** マスごとの「一番大きな空き地に含まれる」（インデックスは Y * SizeX + X） */
+	TArray<bool> GetMainAreaMask() const { return BuildMainAreaMask(); }
+
 	/**
 	 * そのマスを含む「建物」：つながっている壁（斜めも含めて隣り合う壁のまとまり）と、それに接する空洞のマス。
 	 * 慎重鬼が「仲間が壊している壁とその周り（ドーナツ形の壁の真ん中など）」を避けるのに使う
@@ -278,6 +300,9 @@ private:
 
 	/** 壁も罠も置けないマス（鬼の出入り口の前） */
 	TArray<FIntPoint> ReservedCells;
+
+	/** マスごとの「家具・部屋の壁がある」 */
+	TArray<bool> Obstacles;
 
 	UPROPERTY()
 	TArray<FKakurenboBlockColumn> Columns;

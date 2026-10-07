@@ -13,6 +13,13 @@
 //   経路が無いとき（壁で完全に囲まれている・相手が壁の上にいる）だけ、壁を壊す経路を使い、目の前の壁から壊す。
 //
 //   プレイヤーに「ぶつかったら」発見（＝プレイヤーの負け）。見えただけでは負けにならない。
+//
+// 種類ごとの探し方（うろうろの行き先）:
+//   標準: ランダム / スピード: 長く行っていない区画 / パワー: 近場・見えた壁を壊しに行く
+//   慎重: 担当の区画の、まだ誰も見ていない広い場所から（細い道と壁に囲まれた場所は後回し）。見渡したマスを仲間と共有
+//   宝物: お宝の周りをぐるぐる回る / 探知: 決まった場所へ行ったら動かず見張り、見つけたら周りの鬼を呼ぶ
+//
+// 歩くと足音（どたどた）がその場所から聞こえる。
 
 #pragma once
 
@@ -79,6 +86,10 @@ struct FKakurenboOniLook
 
 DECLARE_MULTICAST_DELEGATE(FOnOniFoundHider);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnOniDestroyedWalls, int32 /*Count*/);
+/** 探知鬼がプレイヤーを見つけて仲間を呼んだ（呼んだ鬼・プレイヤーの位置） */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnOniSummon, AOniCharacter* /*Caller*/, const FVector& /*TargetLocation*/);
+
+class ATreasureActor;
 
 UCLASS()
 class KAKURENBOINCREMENTAL_API AOniCharacter : public ACharacter
@@ -176,6 +187,55 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float DecoyHearingRadius = 1200.f;
 
+	/** プレイヤーの足音・ジャンプの音が聞こえる距離（cm）。0 なら気にしない（宝物鬼は遠くから聞こえる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float StepHearingRadius = 700.f;
+
+	/** プレイヤーを見つけたとき、この距離（cm）以内の鬼を呼び寄せる（0 なら呼ばない。探知鬼） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float SummonRadius = 0.f;
+
+	/** 仲間を呼んでから、次に呼べるまでの時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float SummonCooldown = 5.f;
+
+	/** 探知鬼：見張りながら首を回す速さ（度/秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float ScanDegreesPerSecond = 50.f;
+
+	/** 慎重鬼：歩きながら見渡して「調べた」ことにする距離（マス。壁・家具の向こうは見えない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	int32 CarefulLookCells = 4;
+
+	/** 慎重鬼：細い道（両側が壁・家具）のマスを後回しにする強さ（何マスぶん遠いとみなすか。壁 1 面ごと） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CarefulNarrowPenalty = 5.f;
+
+	/** 慎重鬼：自分の担当の区画の外のマスを後回しにする強さ（マス） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CarefulOtherSectorPenalty = 14.f;
+
+	/** 慎重鬼：広い場所の調べ残しがこの割合以下になったら、壁に囲まれた場所（空洞）を調べに行く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CarefulPocketThreshold = 0.12f;
+
+	/** 宝物鬼：お宝の周りを回る半径（マス）と、次のお宝へ移るまでに回る周数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	int32 TreasurePatrolRadiusCells = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	int32 TreasurePatrolLaps = 2;
+
+	/** 足音（どたどた）を鳴らす歩幅（cm）と大きさ・高さ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float StepStride = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float StepVolume = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float StepPitch = 1.f;
+
 	/** トリモチで動けない時間の倍率（スピード鬼は長く、パワー鬼は短い） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float StunScale = 1.f;
@@ -218,7 +278,7 @@ public:
 
 	/** 慎重鬼：調べたマスを覚えておく時間（秒）。これより前に調べたマスはまた調べる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
-	float CarefulMemorySeconds = 45.f;
+	float CarefulMemorySeconds = 60.f;
 
 	/** 罠から抜け出した後、この時間は罠にかからない（秒。続けて踏んでも動けないままにならないように） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
@@ -266,9 +326,30 @@ public:
 
 	/**
 	 * 音を聞かせる。聞こえる距離なら音の方へ向かう（追いかけている間・音を気にしない種類は無視）。
-	 * bFromDecoy: おとりの音（DecoyHearingRadius で聞く）
+	 * 聞こえる距離は音の種類で違う（連打・ダッシュ = HearingRadius / 足音 = StepHearingRadius / おとり = DecoyHearingRadius）
 	 */
-	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, bool bFromDecoy = false);
+	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, EKakurenboNoise Kind = EKakurenboNoise::Mash);
+
+	/** 探知鬼に呼ばれた：その場所へ急いで向かう（追いかけ中・動けない間・探知鬼自身は無視） */
+	void Summon(const FVector& Location);
+
+	/** 探知鬼：見張る場所（Activate の前に設定する。そこへ行ったら動かない） */
+	void SetGuardCell(const FIntPoint& Cell) { GuardCell = Cell; bHasGuardCell = true; }
+	bool IsAtGuardPost() const { return bAtGuardPost; }
+	FIntPoint GetGuardCell() const { return GuardCell; }
+
+	/** 最後に仲間を呼んだワールド時刻（まだなら負の値） */
+	float GetLastSummonTime() const { return LastSummonTime; }
+
+	/** 慎重鬼：担当の区画（舞台を Y 方向に Count 等分した Index 番目）。GameMode が出現時に決める */
+	void SetCarefulSector(int32 Index, int32 Count) { CarefulSector = Index; CarefulSectorCount = FMath::Max(1, Count); }
+	bool IsInCarefulSector(const FIntPoint& Cell) const;
+
+	/** 宝物鬼：今回っているお宝（無ければ null） */
+	ATreasureActor* GetPatrolTreasure() const { return PatrolTreasure.Get(); }
+
+	/** 鳴らした足音の数（テスト用） */
+	int32 GetStepSoundCount() const { return StepSoundCount; }
 
 	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
@@ -304,6 +385,7 @@ public:
 
 	FOnOniFoundHider OnFoundHider;
 	FOnOniDestroyedWalls OnDestroyedWalls;
+	FOnOniSummon OnSummon;
 
 protected:
 	virtual void BeginPlay() override;
@@ -347,7 +429,18 @@ private:
 	bool ChooseRandomTarget(int32 MaxDistanceCells);
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
+	bool ChooseTreasurePatrolTarget();
 	bool TryInspectPocket();
+	/** 探知鬼：見張りの場所へ行き、着いたらその場で首を回して見張る */
+	void TickGuard(float DeltaSeconds);
+	/** 探知鬼：プレイヤーが見えた（仲間を呼ぶ） */
+	void HandleGuardSighting();
+	/** 慎重鬼：見渡せるマスを「調べた」と記録する */
+	void MarkVisibleCellsChecked(float Now);
+	/** 歩いた距離に合わせて足音を鳴らす */
+	void TickFootsteps();
+	/** 種類ごとの飾り（宝物鬼の王冠・探知鬼のアンテナ） */
+	void BuildTypeDecoration();
 	/** 壁に囲まれた場所（出入り口の前を壁で囲まれたときなど）にいたら、壁を壊して外へ出る */
 	bool TryEscapeEnclosure();
 	/** 慎重鬼：そのマスを含む建物（つながった壁と中の空洞）を仲間に知らせて、仲間が来ないようにする */
@@ -416,6 +509,33 @@ private:
 	/** スピード鬼：区画（RegionSize×RegionSize マス）ごとの最後に訪れた時刻 */
 	static constexpr int32 RegionSize = 4;
 	TArray<float> RegionVisitTime;
+
+	/** 慎重鬼：担当の区画 */
+	int32 CarefulSector = 0;
+	int32 CarefulSectorCount = 1;
+
+	/** 宝物鬼：回っているお宝・次に向かう周りのマスの番号・回る向き・回ったマスの数 */
+	TWeakObjectPtr<ATreasureActor> PatrolTreasure;
+	int32 PatrolIndex = 0;
+	int32 PatrolDirection = 1;
+	int32 PatrolSteps = 0;
+
+	/** 探知鬼 */
+	FIntPoint GuardCell = FIntPoint::ZeroValue;
+	bool bHasGuardCell = false;
+	bool bAtGuardPost = false;
+	float GuardLookYaw = 0.f;
+	float SummonTimer = 0.f;
+	float LastSummonTime = -1.f;
+
+	/** 足音 */
+	FVector LastStepLocation = FVector::ZeroVector;
+	float StepDistance = 0.f;
+	int32 StepSoundCount = 0;
+
+	/** 種類ごとの飾りの部品 */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> DecorationMeshes;
 
 	/** Attack 中 */
 	FIntPoint AttackCell = FIntPoint::ZeroValue;

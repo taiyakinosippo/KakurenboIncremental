@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "KakurenboGameMode.h"
 #include "KakurenboLibrary.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -63,6 +64,7 @@ void AHiderCharacter::BeginPlay()
 	OverheadYaw = GetActorRotation().Yaw;
 	WalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	TopDownFocus = GetActorLocation();
+	LastStepLocation = GetActorLocation();
 	SetViewMode(ViewMode);
 }
 
@@ -140,10 +142,24 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 		if (DashTimeRemaining <= 0.f)
 		{
 			DashTimeRemaining = 0.f;
-			GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+			UpdateWalkSpeed();
 		}
 	}
 	DashCooldownRemaining = FMath::Max(0.f, DashCooldownRemaining - DeltaSeconds);
+
+	// 足音：地面を歩いた距離が 1 歩ぶんになるたびに鳴る（ダッシュ中は歩幅が広い）
+	const FVector Loc = GetActorLocation();
+	const float Moved = FVector::Dist2D(Loc, LastStepLocation);
+	LastStepLocation = Loc;
+	if (Moved < 200.f && GetCharacterMovement()->IsMovingOnGround() && GetVelocity().Size2D() > 50.f)
+	{
+		StepDistance += Moved;
+		if (StepDistance >= StepStride * (IsDashing() ? 1.4f : 1.f))
+		{
+			StepDistance = 0.f;
+			NotifyStep();
+		}
+	}
 
 	// アームの向きと長さを今の視点に合わせる
 	if (ViewMode == EHiderViewMode::Overhead)
@@ -189,7 +205,7 @@ bool AHiderCharacter::TryStartDash()
 	}
 	DashTimeRemaining = DashDuration;
 	DashCooldownRemaining = DashCooldown;
-	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed * DashSpeedMultiplier;
+	UpdateWalkSpeed();
 	return true;
 }
 
@@ -197,7 +213,50 @@ void AHiderCharacter::ResetDash()
 {
 	DashTimeRemaining = 0.f;
 	DashCooldownRemaining = 0.f;
-	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	UpdateWalkSpeed();
+}
+
+void AHiderCharacter::SetSneaking(bool bInSneaking)
+{
+	if (bSneaking != bInSneaking)
+	{
+		bSneaking = bInSneaking;
+		UpdateWalkSpeed();
+	}
+}
+
+void AHiderCharacter::UpdateWalkSpeed()
+{
+	// ダッシュ中はダッシュの速さ、しのび足はゆっくり
+	GetCharacterMovement()->MaxWalkSpeed = IsDashing() ? WalkSpeed * DashSpeedMultiplier
+		: bSneaking ? WalkSpeed * SneakSpeedMultiplier
+		: WalkSpeed;
+}
+
+void AHiderCharacter::NotifyStep()
+{
+	++StepCount;
+	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
+	{
+		const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());
+		GM->HandlePlayerStep(Feet, bSneaking && !IsDashing());
+	}
+}
+
+void AHiderCharacter::OnJumped_Implementation()
+{
+	Super::OnJumped_Implementation();
+	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
+	{
+		GM->HandlePlayerJump(GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight()));
+	}
+}
+
+void AHiderCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+	StepDistance = 0.f;
+	NotifyStep(); // 着地も 1 歩
 }
 
 void AHiderCharacter::GetSightTargetPoints(TArray<FVector>& OutPoints) const

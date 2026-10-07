@@ -5,6 +5,7 @@
 #include "DrawDebugHelpers.h"
 #include "Animation/AnimSequence.h"
 #include "Engine/SkeletalMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/PackageName.h"
 #include "Engine/DataTable.h"
@@ -25,6 +26,7 @@
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
 #include "TrapActor.h"
@@ -125,7 +127,8 @@ AKakurenboGameMode::AKakurenboGameMode()
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
 	auto AddOniType = [this](EOniType Type, const TCHAR* Name, float Speed, double Damage, float Sight, float Angle, float Hearing,
-		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body, float DecoyHearing, float Stun, bool bDisarm)
+		bool bSingle, float Radius, float Windup, float Pocket, FLinearColor Color, float Body, float DecoyHearing, float Stun, bool bDisarm,
+		float StepHearing, float Summon)
 	{
 		FKakurenboOniTypeRow& Row = OniTypeRows.Add(Type);
 		Row.DisplayName = FText::FromString(Name);
@@ -143,13 +146,19 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Row.DecoyHearingScale = DecoyHearing;
 		Row.StunScale = Stun;
 		Row.bDisarmTraps = bDisarm;
+		Row.StepHearingScale = StepHearing;
+		Row.SummonRadius = Summon;
 	};
 	// スピード鬼: 音に敏感（プレイヤーの音は遠くから聞こえ、おとりにはだまされない）・トリモチに弱い
 	// パワー鬼: 連打は気にしないが、おとりには遠くから寄っていく・トリモチに強い（すぐ抜け出し、直後に踏んだトリモチは壊す）
-	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f, 1.f, 1.f, false);
-	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 0.f, 1.5f, false);
-	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 800.f, 70.f, 0.f, false, 200.f, 1.0f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f, 1.6f, 0.4f, true);
-	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false);
+	// 宝物鬼: お宝の周りを回る。壁を壊す力が弱く、空洞も調べない。連打には鈍いが足音に敏感
+	// 探知鬼: 見張りの場所から動かず、見つけたら周りの鬼を呼ぶ。音は聞かない
+	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
+	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 0.f, 1.5f, false, 1.f, 0.f);
+	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 800.f, 70.f, 0.f, false, 200.f, 1.0f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f, 1.6f, 0.4f, true, 0.f, 0.f);
+	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
+	AddOniType(EOniType::Treasure, TEXT("宝物鬼"), 0.9f, 0.4, 900.f, 45.f, 0.3f, false, 140.f, 1.0f, 0.f, FLinearColor(1.f, 0.85f, 0.2f), 1.0f, 0.5f, 1.f, false, 2.2f, 0.f);
+	AddOniType(EOniType::Detector, TEXT("探知鬼"), 0.9f, 1.0, 1500.f, 32.f, 0.f, false, 160.f, 0.8f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 0.f, 1.f, false, 0.f, 2400.f);
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -215,7 +224,7 @@ void AKakurenboGameMode::BeginPlay()
 		Grid->OnBlockHit.AddUObject(this, &AKakurenboGameMode::HandleBlockHit);
 	}
 
-	// セーブがあれば続きから（設置パートで再開）。無ければ「何もない空間で連打」から始める
+	// セーブがあれば続きから（設置パートで再開。マップもセーブから）。無ければステージ 1 のマップで「何もない空間で連打」から始める
 	if (LoadProgress())
 	{
 		ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeLoaded", "セーブデータから再開しました（ステージ {0}）"), GS()->Stage));
@@ -223,6 +232,7 @@ void AKakurenboGameMode::BeginPlay()
 	}
 	else
 	{
+		SwitchToMap(GetMapNameForStage(1));
 		StartHidePhase();
 	}
 }
@@ -434,8 +444,39 @@ void AKakurenboGameMode::LoadBalanceData()
 		}
 	}
 
-	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, %d oni types, %d trap types, mash %.2f x%.2f (cost %.1f x%.2f)"),
-		StageRows.Num(), WallTypes.Num(), OniTypeRows.Num(), TrapTypes.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
+	if (UDataTable* Table = GetTable(MapTable, FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))
+	{
+		// 行の順番＝表より後のステージで回る順番
+		MapRows.Reset();
+		MapOrder.Reset();
+		for (const FName& Name : Table->GetRowNames())
+		{
+			if (const FKakurenboMapRow* Row = Table->FindRow<FKakurenboMapRow>(Name, TEXT("Maps")))
+			{
+				MapRows.Add(Name, *Row);
+				MapOrder.Add(Name);
+			}
+		}
+	}
+
+	if (UDataTable* Table = GetTable(FurnitureTable, FKakurenboFurnitureRow::StaticStruct(), TEXT("Furniture.csv")))
+	{
+		// 行の名前の 1 文字目が間取りの文字
+		FurnitureRows.Reset();
+		for (const TPair<FName, uint8*>& Pair : Table->GetRowMap())
+		{
+			const FString Key = Pair.Key.ToString();
+			if (Key.Len() != 1)
+			{
+				UE_LOG(LogKakurenbo, Warning, TEXT("Furniture.csv: row name '%s' must be 1 character"), *Key);
+				continue;
+			}
+			FurnitureRows.Add(Key[0], *reinterpret_cast<const FKakurenboFurnitureRow*>(Pair.Value));
+		}
+	}
+
+	UE_LOG(LogKakurenbo, Log, TEXT("Balance data: %d stages, %d wall types, %d oni types, %d trap types, %d maps, %d furniture, mash %.2f x%.2f (cost %.1f x%.2f)"),
+		StageRows.Num(), WallTypes.Num(), OniTypeRows.Num(), TrapTypes.Num(), MapRows.Num(), FurnitureRows.Num(), MashIncomeBase, MashIncomeGrowth, MashUpgradeBaseCost, MashUpgradeCostGrowth);
 }
 
 FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
@@ -1062,6 +1103,11 @@ bool AKakurenboGameMode::MovePlayerStart(const FIntPoint& Cell, FText* OutReason
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "StartOnGate", "鬼の出入り口の前からは始められません");
 		return false;
 	}
+	if (Grid->IsObstacle(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "StartOnFurniture", "家具や部屋の壁のあるマスからは始められません");
+		return false;
+	}
 	const FVector Floor = Grid->CellFloorCenter(Cell);
 	Player->SetActorLocation(FVector(Floor.X, Floor.Y, Floor.Z + Player->GetSimpleCollisionHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
 	Sfx2D(this, EKakurenboSfx::Place, 0.6f, 1.6f);
@@ -1222,7 +1268,7 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->MashCountThisRound++;
 
 	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなり、消音壁が少し傷む）
-	const float Loudness = MakePlayerNoise(NoiseLocation, 1.f, MashSoundDamage, NoiseRingColor, 14.f);
+	const float Loudness = MakePlayerNoise(NoiseLocation, 1.f, MashSoundDamage, NoiseRingColor, 14.f, EKakurenboNoise::Mash);
 	Sfx2D(this, EKakurenboSfx::Mash, 0.6f * FMath::Max(Loudness, 0.4f), FMath::FRandRange(0.92f, 1.08f));
 }
 
@@ -1233,11 +1279,11 @@ void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness
 		return;
 	}
 	// ダッシュは大きな音が出る（消音壁で囲まれていれば小さくなる）
-	MakePlayerNoise(NoiseLocation, Loudness, DashSoundDamage, FLinearColor(1.f, 0.45f, 0.2f), 22.f);
+	MakePlayerNoise(NoiseLocation, Loudness, DashSoundDamage, FLinearColor(1.f, 0.45f, 0.2f), 22.f, EKakurenboNoise::Dash);
 	Sfx2D(this, EKakurenboSfx::Dash, 0.9f);
 }
 
-float AKakurenboGameMode::MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness)
+float AKakurenboGameMode::MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness, EKakurenboNoise Kind)
 {
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
 	const ACharacter* Player = GetPlayerCharacter();
@@ -1248,7 +1294,7 @@ float AKakurenboGameMode::MakePlayerNoise(const FVector& Location, float Loudnes
 		Damping = Grid->GetEnclosureNoiseDamping(Grid->WorldToCell(Player->GetActorLocation()), WallTypes, nullptr, &WallCells);
 	}
 	const float Scaled = Loudness * FMath::Clamp(1.f - Damping, 0.f, 1.f);
-	EmitNoise(Location, Scaled);
+	EmitNoise(Location, Scaled, Kind);
 	ShowNoiseRing(Location, Scaled, RingColor, RingThickness);
 
 	// 音を消した消音壁は傷み、回数が尽きると壊れる（囲みに穴が開く）
@@ -1330,15 +1376,102 @@ TArray<FIntPoint> AKakurenboGameMode::GetOniGateCells() const
 	return Arena ? Arena->GetOniGateCells() : TArray<FIntPoint>();
 }
 
-void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness, bool bFromDecoy)
+void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind)
 {
 	for (AOniCharacter* Oni : Onis)
 	{
 		if (Oni)
 		{
-			Oni->HearNoise(Location, Loudness, bFromDecoy);
+			Oni->HearNoise(Location, Loudness, Kind);
 		}
 	}
+}
+
+float AKakurenboGameMode::GetStepNoiseMultiplier() const
+{
+	// 壁に囲まれた場所（空洞）にいると、消音壁でなくても足音はほとんど外に漏れない。消音壁の方が効くならそちら
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !Grid->IsConfigured())
+	{
+		return 1.f;
+	}
+	const FIntPoint Cell = Grid->WorldToCell(Player->GetActorLocation());
+	if (!Grid->IsWalkable(Cell) || Grid->IsInMainArea(Cell))
+	{
+		return 1.f; // 広い場所にいる（壁の上に乗っているときも聞こえる）
+	}
+	return FMath::Min(EnclosedStepMultiplier, GetPlayerNoiseMultiplier());
+}
+
+void AKakurenboGameMode::HandlePlayerStep(const FVector& FeetLocation, bool bSneaking)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	const float Multiplier = GetStepNoiseMultiplier();
+	const float Loudness = StepNoiseLoudness * (bSneaking ? SneakStepMultiplier : 1.f) * Multiplier;
+	State->StepsThisRound++;
+	if (bOnisSpawnedThisRound)
+	{
+		EmitNoise(FeetLocation, Loudness, EKakurenboNoise::Step);
+		if (bShowStepRing && Loudness > 0.05f)
+		{
+			// 足音の輪は控えめに（普通の鬼が聞こえるくらいの大きさ・細く暗い線）
+			ShowNoiseRing(FeetLocation, Loudness * 0.6f, FLinearColor(0.35f, 0.5f, 0.8f), 3.f);
+		}
+	}
+	Sfx2D(this, EKakurenboSfx::PlayerStep, 0.35f /* 連打の音の 60% */ * (bSneaking ? 0.4f : 1.f) * (Multiplier < 1.f ? 0.5f : 1.f), FMath::FRandRange(0.9f, 1.1f));
+}
+
+void AKakurenboGameMode::HandlePlayerJump(const FVector& FeetLocation)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	const float Loudness = JumpNoiseLoudness * GetStepNoiseMultiplier();
+	if (bOnisSpawnedThisRound)
+	{
+		EmitNoise(FeetLocation, Loudness, EKakurenboNoise::Step);
+		if (bShowStepRing)
+		{
+			ShowNoiseRing(FeetLocation, Loudness, FLinearColor(0.55f, 0.75f, 1.f), 6.f);
+		}
+	}
+	Sfx2D(this, EKakurenboSfx::PlayerJump, 0.45f); // 連打の音（0.6）の 75%
+}
+
+void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& TargetLocation)
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase != EKakurenboPhase::Hide || !Caller)
+	{
+		return;
+	}
+	// 呼んだ鬼の周り SummonRadius 以内の鬼が、プレイヤーを見つけた場所へ集まってくる
+	int32 Count = 0;
+	for (AOniCharacter* Oni : Onis)
+	{
+		if (Oni && Oni != Caller && Oni->IsActive() && FVector::Dist2D(Oni->GetActorLocation(), Caller->GetActorLocation()) <= Caller->SummonRadius)
+		{
+			Oni->Summon(TargetLocation);
+			++Count;
+		}
+	}
+	LastSummonedCount = Count;
+	State->SummonsThisRound++;
+	UE_LOG(LogKakurenbo, Log, TEXT("Detector summoned %d onis"), Count);
+
+	Sfx2D(this, EKakurenboSfx::Summon, 0.8f);
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		F->Ring(Caller->GetActorLocation(), 60.f, Caller->SummonRadius, 0.9f, FLinearColor(0.75f, 0.3f, 1.f), 18.f);
+	}
+	ShowPopup(Count > 0 ? FString::Printf(TEXT("探知鬼に見つかった！ 鬼が %d 体集まってくる！"), Count) : FString(TEXT("探知鬼に見つかった！")), FLinearColor(0.8f, 0.5f, 1.f));
 }
 
 void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
@@ -1430,7 +1563,7 @@ void AKakurenboGameMode::HandleDecoyPing(ATrapActor* Trap)
 		return;
 	}
 	const FVector Location = Trap->GetActorLocation();
-	EmitNoise(Location, Trap->Def.NoiseLoudness, true);
+	EmitNoise(Location, Trap->Def.NoiseLoudness, EKakurenboNoise::Decoy);
 	Sfx3D(this, EKakurenboSfx::DecoyPing, Location + FVector(0.f, 0.f, 40.f));
 	if (UKakurenboFxSubsystem* F = Fx(this))
 	{
@@ -1588,7 +1721,7 @@ void AKakurenboGameMode::SpawnOnis()
 	for (int32 i = 0; i < Settings.OniTypes.Num(); ++i)
 	{
 		FIntPoint Cell = GateCells.Num() > 0 ? GateCells[i % GateCells.Num()] : FIntPoint::ZeroValue;
-		if (GateCells.Num() == 0 || Grid->GetColumnHeight(Cell) > 0)
+		if (GateCells.Num() == 0 || !Grid->IsWalkable(Cell))
 		{
 			float BestDistSq = TNumericLimits<float>::Max();
 			for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
@@ -1597,7 +1730,7 @@ void AKakurenboGameMode::SpawnOnis()
 				{
 					const FIntPoint C(X, Y);
 					const float DistSq = FVector::DistSquared2D(Grid->CellFloorCenter(C), GateLocation);
-					if (Grid->GetColumnHeight(C) == 0 && !Cells.Contains(C) && DistSq < BestDistSq)
+					if (Grid->IsWalkable(C) && !Cells.Contains(C) && DistSq < BestDistSq)
 					{
 						BestDistSq = DistSq;
 						Cell = C;
@@ -1607,6 +1740,11 @@ void AKakurenboGameMode::SpawnOnis()
 		}
 		Cells.Add(Cell);
 	}
+
+	// 慎重鬼は舞台を手分けする（担当の区画）。探知鬼は見張りの場所をランダムに決める（スタート位置・門・ほかの探知鬼から離す）
+	const int32 NumCareful = Settings.OniTypes.FilterByPredicate([](EOniType T) { return T == EOniType::Careful; }).Num();
+	int32 CarefulIndex = 0;
+	TArray<FVector> GuardAvoid = { Hider->GetActorLocation(), GateLocation };
 
 	for (int32 i = 0; i < Cells.Num(); ++i)
 	{
@@ -1628,6 +1766,20 @@ void AKakurenboGameMode::SpawnOnis()
 		Oni->ChaseSpeed = OniChaseSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
 		Oni->HearingRadius = Settings.OniHearingRadius * TypeRow.HearingScale;
 		Oni->DecoyHearingRadius = Settings.OniHearingRadius * TypeRow.DecoyHearingScale;
+		Oni->StepHearingRadius = Settings.OniHearingRadius * TypeRow.StepHearingScale;
+		if (Type == EOniType::Careful)
+		{
+			Oni->SetCarefulSector(CarefulIndex++, NumCareful);
+		}
+		if (Type == EOniType::Detector)
+		{
+			const TArray<FIntPoint> Guard = Grid->FindRandomFreeCells(1, GuardAvoid, DetectorGuardMinDistanceCells, TreasureRandom);
+			if (Guard.Num() > 0)
+			{
+				Oni->SetGuardCell(Guard[0]);
+				GuardAvoid.Add(Grid->CellFloorCenter(Guard[0]));
+			}
+		}
 		Oni->AttackDamage = Settings.OniDamage * TypeRow.DamageScale;
 		Oni->bDrawDebug = bDebugOni;
 		if (LoadedOniLook.Mesh)
@@ -1641,6 +1793,7 @@ void AKakurenboGameMode::SpawnOnis()
 		// 鬼からの通知を受け取る（C# の event += に相当）
 		Oni->OnFoundHider.AddUObject(this, &AKakurenboGameMode::HandleOniFoundHider);
 		Oni->OnDestroyedWalls.AddUObject(this, &AKakurenboGameMode::HandleOniDestroyedWalls);
+		Oni->OnSummon.AddUObject(this, &AKakurenboGameMode::HandleOniSummon);
 		Oni->Activate(Hider);
 		Onis.Add(Oni);
 
@@ -1701,6 +1854,15 @@ void AKakurenboGameMode::LoadOniAppearance()
 	{
 		if (UMaterialInterface* Material = Load(Pair.Value.MeshMaterial))
 		{
+			// 縁の光の色を変える（宝物鬼を金色っぽく）。動的マテリアル（MID）は元のマテリアルの値を一部だけ変えたコピー
+			if (Pair.Value.MeshTint.A > 0.f)
+			{
+				if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Material, this))
+				{
+					MID->SetVectorParameterValue(TEXT("ReflectionColor"), Pair.Value.MeshTint);
+					Material = MID;
+				}
+			}
 			LoadedOniMaterials.Add(Pair.Key, Material);
 		}
 	}
@@ -1749,6 +1911,12 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 		*UEnum::GetValueAsString(NewPhase), State->Stage, *UKakurenboLibrary::FormatBigNumber(State->Coins));
 	State->OnPhaseChanged.Broadcast(NewPhase);
 
+	// BGM：かくれんぼ中は速くて少し怖い曲、それ以外はのんびりした曲
+	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
+	{
+		Sound->PlayMusic(NewPhase == EKakurenboPhase::Hide ? EKakurenboMusic::Hide : EKakurenboMusic::Calm);
+	}
+
 	// かくれんぼ以外のパートに入るたびに自動で保存する（かくれんぼの途中で終わっても、直前の状態から再開できる）
 	if (NewPhase != EKakurenboPhase::Hide)
 	{
@@ -1760,7 +1928,23 @@ void AKakurenboGameMode::StartShopPhase()
 {
 	DespawnOnis();
 	ClearTreasures();
+
+	// ステージが進んで館のマップが変わるなら、ここで切り替える（置いていた壁・罠は在庫に戻る）
+	const FName WantedMap = GetMapNameForStage(GS() ? GS()->Stage : 1);
+	if (WantedMap != CurrentMapName)
+	{
+		SwitchToMap(WantedMap);
+		ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeNewMap", "新しい館「{0}」！ 置いていた壁と罠は在庫に戻しました"), GetCurrentMapDisplayName()), 7.f);
+	}
 	SetPhase(EKakurenboPhase::Shop);
+}
+
+void AKakurenboGameMode::ReturnToShop()
+{
+	if (GetPhase() == EKakurenboPhase::Build)
+	{
+		StartShopPhase();
+	}
 }
 
 void AKakurenboGameMode::StartBuildPhase()
@@ -1785,6 +1969,8 @@ void AKakurenboGameMode::StartHidePhase()
 	State->MashCountThisRound = 0;
 	State->LastRoundWallsDestroyed = 0;
 	State->TrapsTriggeredThisRound = 0;
+	State->StepsThisRound = 0;
+	State->SummonsThisRound = 0;
 	State->TreasuresCollectedThisRound = 0;
 	State->TreasureCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
@@ -1882,6 +2068,215 @@ void AKakurenboGameMode::AdvancePhase()
 	}
 }
 
+// ---------------------------------------------------------------- 館のマップ
+
+FName AKakurenboGameMode::GetMapNameForStage(int32 Stage) const
+{
+	if (bMapOverride)
+	{
+		return MapOverride;
+	}
+	Stage = FMath::Max(1, Stage);
+	// 表の中：そのステージまでで最後に書いてあるマップ
+	FName Map = NAME_None;
+	for (int32 i = 0; i < FMath::Min(Stage, StageRows.Num()); ++i)
+	{
+		if (!StageRows[i].Map.IsNone())
+		{
+			Map = StageRows[i].Map;
+		}
+	}
+	// 表より後：StagesPerMapAfterTable ステージごとに、Maps.csv の順で次のマップへ
+	if (Stage > StageRows.Num() && MapOrder.Num() > 0 && StageRows.Num() > 0)
+	{
+		const int32 Steps = (Stage - StageRows.Num()) / FMath::Max(1, StagesPerMapAfterTable);
+		const int32 Start = FMath::Max(0, MapOrder.IndexOfByKey(Map));
+		Map = MapOrder[(Start + Steps) % MapOrder.Num()];
+	}
+	if (!MapRows.Contains(Map))
+	{
+		Map = MapOrder.Num() > 0 ? MapOrder[0] : NAME_None;
+	}
+	return Map;
+}
+
+FText AKakurenboGameMode::GetCurrentMapDisplayName() const
+{
+	const FKakurenboMapRow* Row = MapRows.Find(CurrentMapName);
+	return Row ? Row->DisplayName : CurrentMapName.IsNone() ? FText::GetEmpty() : FText::FromName(CurrentMapName);
+}
+
+KakurenboMaps::FLayout AKakurenboGameMode::LoadMapLayout(const FKakurenboMapRow& Row) const
+{
+	FString Text;
+	if (!Row.LayoutFile.IsEmpty() && !FFileHelper::LoadFileToString(Text, *KakurenboBalance::GetDataFilePath(FString(TEXT("Maps")) / Row.LayoutFile)))
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Map layout '%s' could not be read. The map is empty."), *Row.LayoutFile);
+	}
+	TArray<FString> Problems;
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	KakurenboMaps::FLayout Layout = KakurenboMaps::ParseLayout(Text, Grid ? Grid->GetSizeX() : GridSizeX, Grid ? Grid->GetSizeY() : GridSizeY, Problems);
+	for (const FString& Problem : Problems)
+	{
+		UE_LOG(LogKakurenbo, Warning, TEXT("Map layout '%s': %s"), *Row.LayoutFile, *Problem);
+	}
+	return Layout;
+}
+
+void AKakurenboGameMode::ApplyCurrentMap()
+{
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!Arena || !Grid || !Grid->IsConfigured())
+	{
+		return;
+	}
+	FKakurenboMapRow Row;
+	if (const FKakurenboMapRow* Found = MapRows.Find(CurrentMapName))
+	{
+		Row = *Found;
+	}
+	const KakurenboMaps::FLayout Layout = LoadMapLayout(Row);
+
+	// 鬼の出入り口の前（と、そこから出られるよう 1 列手前まで）には家具を置かない
+	TArray<FIntPoint> KeepClear;
+	for (const FIntPoint& Gate : GetOniGateCells())
+	{
+		for (int32 DY = -1; DY <= 1; ++DY)
+		{
+			for (int32 DX = -1; DX <= 0; ++DX)
+			{
+				KeepClear.AddUnique(Gate + FIntPoint(DX, DY));
+			}
+		}
+	}
+	TArray<FIntPoint> Obstacles;
+	Arena->ApplyMap(Row, Layout, FurnitureRows, KeepClear, Obstacles);
+	Grid->SetObstacles(Obstacles);
+	UE_LOG(LogKakurenbo, Log, TEXT("Map -> %s (%d blocked cells)"), *CurrentMapName.ToString(), Obstacles.Num());
+}
+
+void AKakurenboGameMode::SwitchToMap(FName NewMap)
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || !Grid->IsConfigured())
+	{
+		return;
+	}
+	State->WallStock.SetNum(WallTypes.Num());
+	State->TrapStock.SetNum(TrapTypes.Num());
+
+	// 今のマップの設計図をとっておき、置いてあった壁・罠は在庫に戻す
+	TArray<FKakurenboSavedColumn> Columns;
+	Grid->ExportLayout(Columns);
+	int32 Returned = 0;
+	for (FKakurenboSavedColumn& Column : Columns)
+	{
+		for (const int32 Type : Column.Live)
+		{
+			if (State->WallStock.IsValidIndex(Type))
+			{
+				State->WallStock[Type]++;
+				++Returned;
+			}
+		}
+		if (Column.bTrapLive && State->TrapStock.IsValidIndex(Column.TrapDesign))
+		{
+			State->TrapStock[Column.TrapDesign]++;
+			++Returned;
+		}
+		Column.Live.Reset();
+		Column.bTrapLive = false;
+	}
+	Columns.RemoveAll([](const FKakurenboSavedColumn& Column) { return Column.Design.Num() == 0 && Column.TrapDesign == INDEX_NONE; });
+	if (!CurrentMapName.IsNone() && Columns.Num() > 0)
+	{
+		FKakurenboSavedLayout Stored;
+		Stored.Columns = Columns;
+		StoredMapLayouts.Add(CurrentMapName, Stored);
+	}
+	Grid->ClearAllBlocks();
+
+	// 次のマップを作り、前に来たときの設計図があれば戻す（壁は設置パートで在庫から直る）
+	const FName OldMap = CurrentMapName;
+	CurrentMapName = NewMap;
+	ApplyCurrentMap();
+	if (const FKakurenboSavedLayout* Stored = StoredMapLayouts.Find(NewMap))
+	{
+		Grid->ImportLayout(Stored->Columns, GetEffectiveWallTypes(), TrapTypes);
+		StoredMapLayouts.Remove(NewMap);
+		ClearLayoutOnObstacles();
+	}
+	EnsurePlayerOnFreeCell();
+	UE_LOG(LogKakurenbo, Log, TEXT("Switched map %s -> %s (%d walls / traps returned to stock)"), *OldMap.ToString(), *NewMap.ToString(), Returned);
+}
+
+void AKakurenboGameMode::ClearLayoutOnObstacles()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid)
+	{
+		return;
+	}
+	TArray<FIntPoint> Cells;
+	for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < Grid->GetSizeX(); ++X)
+		{
+			if (Grid->IsObstacle(FIntPoint(X, Y)))
+			{
+				Cells.Add(FIntPoint(X, Y));
+			}
+		}
+	}
+	State->WallStock.SetNum(WallTypes.Num());
+	State->TrapStock.SetNum(TrapTypes.Num());
+	if (const int32 Cleared = Grid->ClearCells(Cells, State->WallStock, State->TrapStock))
+	{
+		UE_LOG(LogKakurenbo, Log, TEXT("%d wall/trap cells overlapped furniture and were returned to stock"), Cleared);
+	}
+}
+
+void AKakurenboGameMode::EnsurePlayerOnFreeCell()
+{
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	ACharacter* Player = GetPlayerCharacter();
+	if (!Grid || !Player || !Grid->IsConfigured())
+	{
+		return;
+	}
+	const FIntPoint Here = Grid->WorldToCell(Player->GetActorLocation());
+	const TArray<bool> MainArea = Grid->GetMainAreaMask();
+	auto IsGood = [&](const FIntPoint& Cell)
+	{
+		return Grid->IsWalkable(Cell) && MainArea[Cell.Y * Grid->GetSizeX() + Cell.X] && !Grid->IsReservedCell(Cell);
+	};
+	if (Grid->IsInside(Here) && IsGood(Here))
+	{
+		return;
+	}
+	// 舞台の真ん中に一番近い、広い場所の空きマスへ
+	const FIntPoint Center(Grid->GetSizeX() / 2, Grid->GetSizeY() / 2);
+	FIntPoint Best = Here;
+	int32 BestDistSq = MAX_int32;
+	for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < Grid->GetSizeX(); ++X)
+		{
+			const FIntPoint Cell(X, Y);
+			const int32 DistSq = FMath::Square(X - Center.X) + FMath::Square(Y - Center.Y);
+			if (IsGood(Cell) && DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				Best = Cell;
+			}
+		}
+	}
+	const FVector Floor = Grid->CellFloorCenter(Best);
+	Player->SetActorLocation(FVector(Floor.X, Floor.Y, Floor.Z + Player->GetSimpleCollisionHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+}
+
 // ---------------------------------------------------------------- 転生
 
 bool AKakurenboGameMode::CanPrestige() const
@@ -1961,6 +2356,8 @@ bool AKakurenboGameMode::SaveProgress()
 	Save->WallStock = State->WallStock;
 	Save->TrapStock = State->TrapStock;
 	Grid->ExportLayout(Save->Columns);
+	Save->CurrentMap = CurrentMapName;
+	Save->MapLayouts = StoredMapLayouts;
 	if (const ACharacter* Player = GetPlayerCharacter())
 	{
 		Save->bHasPlayerLocation = true;
@@ -2004,7 +2401,15 @@ bool AKakurenboGameMode::LoadProgress()
 	State->WallStock.SetNum(WallTypes.Num()); // CSV で壁の種類が増減していても合わせる
 	State->TrapStock = Save->TrapStock;
 	State->TrapStock.SetNum(TrapTypes.Num());
+
+	// マップ（版 4 までのセーブには無いので、ステージ 1 のマップ）を先に作ってから、壁・罠を置き直す
+	Grid->ClearAllBlocks();
+	StoredMapLayouts = Save->MapLayouts;
+	CurrentMapName = (!Save->CurrentMap.IsNone() && MapRows.Contains(Save->CurrentMap)) ? Save->CurrentMap : GetMapNameForStage(1);
+	StoredMapLayouts.Remove(CurrentMapName);
+	ApplyCurrentMap();
 	Grid->ImportLayout(Save->Columns, GetEffectiveWallTypes(), TrapTypes);
+	ClearLayoutOnObstacles(); // 家具と重なった壁（古いセーブ・間取りを変えたとき）は在庫に戻す
 
 	if (Save->bHasPlayerLocation)
 	{
@@ -2013,6 +2418,7 @@ bool AKakurenboGameMode::LoadProgress()
 			Player->SetActorLocation(Save->PlayerLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
+	EnsurePlayerOnFreeCell();
 	ApplyPrestigeToPlayer();
 	UE_LOG(LogKakurenbo, Log, TEXT("Loaded save '%s': stage %d, coins %s, %d wall columns"),
 		*SaveSlotName, State->Stage, *UKakurenboLibrary::FormatBigNumber(State->Coins), Save->Columns.Num());
@@ -2035,6 +2441,8 @@ void AKakurenboGameMode::ResetProgress()
 	DespawnOnis();
 	ClearTreasures();
 	Grid->ClearAllBlocks();
+	StoredMapLayouts.Reset();
+	CurrentMapName = NAME_None;
 
 	State->Coins = 0.0;
 	State->Stage = 1;
@@ -2055,6 +2463,7 @@ void AKakurenboGameMode::ResetProgress()
 	{
 		Player->SetActorLocation(FVector(CellSize * 0.5f, CellSize * 0.5f, 120.f), false, nullptr, ETeleportType::TeleportPhysics);
 	}
+	SwitchToMap(GetMapNameForStage(1));
 	UE_LOG(LogKakurenbo, Log, TEXT("Progress reset"));
 	ShowNotice(NSLOCTEXT("Kakurenbo", "NoticeReset", "最初からやり直します"));
 

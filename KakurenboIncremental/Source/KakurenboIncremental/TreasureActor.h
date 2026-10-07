@@ -1,4 +1,5 @@
 ﻿// お宝。かくれんぼパートの開始時にランダムな空きマスに出現し、プレイヤーが触れると取得できる。
+// ときどきキラキラと鳴る（その場所から聞こえる）ので、画面に映っていなくても場所の見当がつく。
 
 #pragma once
 
@@ -35,6 +36,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	FLinearColor Color = FLinearColor(1.f, 0.72f, 0.08f);
 
+	/** キラキラの音を鳴らす間隔（秒）と大きさ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float SparkleInterval = 1.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float SparkleVolume = 0.8f;
+
+	/** 鳴らしたキラキラの数（テスト用） */
+	int32 GetSparkleCount() const { return SparkleCount; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -42,4 +53,6 @@ protected:
 private:
 	FVector BaseMeshLocation = FVector::ZeroVector;
 	float Time = 0.f;
+	float SparkleTimer = 0.f;
+	int32 SparkleCount = 0;
 };

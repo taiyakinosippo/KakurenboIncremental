@@ -55,6 +55,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	bIgnoreRealInputForAutoTest = true;
 	ApplyAutoTestInputIsolation();
 
+	// 館の家具があると、テストで壁を置くマスや鬼の通り道が塞がることがあるので、家具の無い舞台で行う。
+	// マップそのものを確かめるシナリオ（と再起動をまたぐセーブ）だけは本物のマップを使う
+	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase);
+	if (!bUsesMaps)
+	{
+		GM->bMapOverride = true;
+		GM->MapOverride = NAME_None;
+		GM->SwitchToMap(NAME_None);
+	}
+
 	// ---------------------------------------------------------------- 共通の道具
 
 	auto GS = [this]() { return GetWorld()->GetGameState<AKakurenboGameState>(); };
@@ -1633,7 +1644,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("a building = the ring and its hollow"), Grid()->GetStructureAround(DonutA).Num() == 9 && Grid()->GetStructureAround(DonutA + FIntPoint(1, 0)).Contains(DonutA));
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 12)));
 		} });
-		Steps.Add({ 3.f, [=]
+		Steps.Add({ 3.f, [=, this]
 		{
 			for (AOniCharacter* Oni : GM->GetOnis())
 			{
@@ -1641,7 +1652,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->CloseSenseRadius = 0.f;
 				Oni->HearingRadius = 0.f;
 				Oni->DecoyHearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
 				Oni->bDrawDebug = true;
+			}
+			// 慎重鬼は広い場所を見終わってから空洞へ行くので、広い場所は「もう調べた」ことにしておく
+			if (UKakurenboOniBlackboard* BB = GetWorld()->GetSubsystem<UKakurenboOniBlackboard>())
+			{
+				for (int32 Y = 0; Y < Grid()->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < Grid()->GetSizeX(); ++X)
+					{
+						BB->MarkChecked(FIntPoint(X, Y), GetWorld()->GetTimeSeconds() + 1000.f);
+					}
+				}
 			}
 		} });
 		auto WhichDonut = [=](const AOniCharacter* Oni) -> int32
@@ -1681,7 +1704,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	else if (Scenario.Equals(TEXT("Look"), ESearchCase::IgnoreCase))
 	{
 		// 4 種類の鬼をプレイヤーの前に横一列に並べ、こちらを向かせて撮る（大きさ・向き・色の確認）
-		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced, EOniType::Scout, EOniType::Breaker, EOniType::Careful }); } });
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced, EOniType::Scout, EOniType::Breaker, EOniType::Careful, EOniType::Treasure, EOniType::Detector }); } });
 		Steps.Add({ 3.3f, [=, this]
 		{
 			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
@@ -1690,7 +1713,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			{
 				AOniCharacter* Oni = GM->GetOnis()[i];
 				Oni->Deactivate(); // 止めて待機のアニメーションにする
-				const FVector Location = Grid()->CellFloorCenter(Me + FIntPoint(4, i * 2 - 3)) + FVector(0.f, 0.f, 100.f);
+				const FVector Location = Grid()->CellFloorCenter(Me + FIntPoint(5, i * 2 - 5)) + FVector(0.f, 0.f, 100.f);
 				Oni->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
 				Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f)); // プレイヤーの方（-X）を向く
 			}
@@ -2305,6 +2328,501 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			UGameplayStatics::DeleteGameInSlot(GM->SaveSlotName, 0);
 			GM->bSaveEnabled = false;
 			Shot(TEXT("save_01_after_reset"));
+		} });
+	}
+	// ================================================================ BackToShop（設置パートから購入パートへ戻る）
+	else if (Scenario.Equals(TEXT("BackToShop"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(500.0);
+			BuyWall(0, 2);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			KakuPlaceWall(Me.X + 2, Me.Y, 0);
+			Check(FString::Printf(TEXT("in the build phase with 1 wall placed (phase %s, blocks %d)"), *UEnum::GetValueAsString(GS()->Phase), Grid()->GetBlockCount()),
+				GS()->Phase == EKakurenboPhase::Build && Grid()->GetBlockCount() == 1);
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Shot(TEXT("backtoshop_01_build"));
+			Check(TEXT("the back-to-shop button is clickable"), ClickUI(EKakurenboUIAction::BackToShop, 0));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("clicking it returns to the shop, the placed wall stays (phase %s, blocks %d, wood stock %d)"),
+					*UEnum::GetValueAsString(GS()->Phase), Grid()->GetBlockCount(), GS()->WallStock[0]),
+					GS()->Phase == EKakurenboPhase::Shop && Grid()->GetBlockCount() == 1 && GS()->WallStock[0] == 1);
+			});
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Shot(TEXT("backtoshop_02_shop"));
+			KakuNext(); // → もう一度設置
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(TEXT("back in the build phase"), GS()->Phase == EKakurenboPhase::Build);
+			SimulateKey(EKeys::B, IE_Pressed);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the B key also returns to the shop (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Shop);
+				SimulateKey(EKeys::B, IE_Released);
+			});
+		} });
+	}
+	// ================================================================ Steps（足音・ジャンプの音・しのび足）
+	else if (Scenario.Equals(TEXT("Steps"), ESearchCase::IgnoreCase))
+	{
+		struct FStepRecord { int32 Steps = 0; int32 Sounds = 0; int32 JumpSounds = 0; };
+		TSharedRef<FStepRecord> Before = MakeShared<FStepRecord>();
+		auto Listener = [GM](int32 Index) { return GM->GetOnis()[Index].Get(); };
+		// 1) 広い場所を歩くと、足音が鬼に聞こえる（鬼は止めておき、音を聞いて向かおうとしたかだけ見る）
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced, EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			for (int32 i = 0; i < 2; ++i)
+			{
+				AOniCharacter* Oni = Listener(i);
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->DecoyHearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+				Oni->NoiseInaccuracyCells = 0.f;
+				Oni->InvestigateMaxDuration = 100.f;
+				Oni->StepHearingRadius = 1200.f; // 足音（0.5）は 6m まで聞こえる
+				Oni->GetCharacterMovement()->DisableMovement();
+			}
+			Listener(0)->SetActorLocation(Grid()->CellFloorCenter(FIntPoint(5, 12)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Listener(1)->SetActorLocation(Grid()->CellFloorCenter(FIntPoint(16, 19)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(8, 12)));
+			SetControlRotation(FRotator(-20.f, 0.f, 0.f)); // +X（鬼から離れる向き）へ歩く
+			Before->Steps = GS()->StepsThisRound;
+			Before->Sounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerStep);
+			SimulateKey(EKeys::W, IE_Pressed);
+		} });
+		Steps.Add({ 0.7f, [=, this]
+		{
+			SimulateKey(EKeys::W, IE_Released);
+			Check(FString::Printf(TEXT("walking makes footsteps (%d steps, %d sounds)"), GS()->StepsThisRound - Before->Steps, Sound()->GetPlayCount(EKakurenboSfx::PlayerStep) - Before->Sounds),
+				GS()->StepsThisRound - Before->Steps >= 2 && Sound()->GetPlayCount(EKakurenboSfx::PlayerStep) - Before->Sounds >= 2);
+			Check(FString::Printf(TEXT("an oni nearby heard the footsteps (intent %s)"), *UEnum::GetValueAsString(Listener(0)->GetIntent())), Listener(0)->GetIntent() == EOniState::Investigate);
+			Check(TEXT("open area: footsteps at full loudness"), FMath::IsNearlyEqual(GM->GetStepNoiseMultiplier(), 1.f));
+		} });
+		// 2) 壁に囲まれた中（消音壁でなくても）では足音が 80% 小さく、5m 先の鬼には聞こえない
+		Steps.Add({ 0.3f, [=, this]
+		{
+			for (int32 X = 14; X <= 18; ++X)
+			{
+				for (int32 Y = 10; Y <= 14; ++Y)
+				{
+					if (X == 14 || X == 18 || Y == 10 || Y == 14)
+					{
+						PlaceTestWall(FIntPoint(X, Y));
+					}
+				}
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(15, 12)));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("enclosed by plain walls: footsteps x%.2f (expected 0.2)"), GM->GetStepNoiseMultiplier()), FMath::IsNearlyEqual(GM->GetStepNoiseMultiplier(), 0.2f, 0.01f));
+			Before->Steps = GS()->StepsThisRound;
+			SimulateKey(EKeys::W, IE_Pressed);
+		} });
+		Steps.Add({ 0.45f, [=, this]
+		{
+			SimulateKey(EKeys::W, IE_Released);
+			Check(FString::Printf(TEXT("walked inside the walls (%d steps), the oni 5m away did not hear (intent %s)"), GS()->StepsThisRound - Before->Steps, *UEnum::GetValueAsString(Listener(1)->GetIntent())),
+				GS()->StepsThisRound - Before->Steps >= 1 && Listener(1)->GetIntent() != EOniState::Investigate);
+			Shot(TEXT("steps_01_enclosed"));
+		} });
+		// 3) しのび足（Ctrl）：ゆっくり歩く
+		Steps.Add({ 0.3f, [=, this] { bTestSneak = true; } });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("sneaking walks slowly (speed %.0f)"), GetHider()->GetCharacterMovement()->MaxWalkSpeed),
+				GetHider()->IsSneaking() && GetHider()->GetCharacterMovement()->MaxWalkSpeed < 300.f);
+			bTestSneak = false;
+		} });
+		// 4) ジャンプ（転生のお店で解放）で音が出る
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("sneaking stops when Ctrl is released"), !GetHider()->IsSneaking());
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1;
+			GM->ApplyPrestigeToPlayer();
+			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerJump);
+			SimulateKey(EKeys::SpaceBar, IE_Pressed);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			SimulateKey(EKeys::SpaceBar, IE_Released);
+			Check(FString::Printf(TEXT("jumping makes a sound (%d)"), Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds),
+				Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds >= 1);
+		} });
+	}
+	// ================================================================ TreasureOni（宝物鬼）
+	else if (Scenario.Equals(TEXT("TreasureOni"), ESearchCase::IgnoreCase))
+	{
+		struct FPatrol { int32 Samples = 0; int32 Near = 0; int32 Patrolling = 0; };
+		TSharedRef<FPatrol> Patrol = MakeShared<FPatrol>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Treasure }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("treasure oni: deaf to mashing, sensitive to footsteps (hearing %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
+				Oni->OniType == EOniType::Treasure && Oni->HearingRadius < GM->GetOniHearingRadius() * 0.5f && Oni->StepHearingRadius > GM->GetOniHearingRadius() * 1.5f);
+			Check(FString::Printf(TEXT("treasure oni is weak at breaking walls (damage %.2f) and does not inspect hollows"), Oni->AttackDamage),
+				Oni->AttackDamage < GM->GetOniAttackDamage() && Oni->PocketInspectChance <= 0.f);
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Oni->HearingRadius = 0.f;
+			Oni->StepHearingRadius = 0.f;
+			Oni->bDrawDebug = true;
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		for (int32 i = 0; i < 28; ++i)
+		{
+			Steps.Add({ 0.5f, [=]
+			{
+				const AOniCharacter* Oni = GM->GetOnis()[0];
+				const ATreasureActor* Treasure = Oni->GetPatrolTreasure();
+				if (i >= 12) // 門からお宝まで歩く時間を除いて数える
+				{
+					++Patrol->Samples;
+					Patrol->Patrolling += Treasure ? 1 : 0;
+					Patrol->Near += (Treasure && FVector::Dist2D(Oni->GetActorLocation(), Treasure->GetActorLocation()) <= 380.f) ? 1 : 0;
+				}
+			} });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			Check(FString::Printf(TEXT("treasure oni circles around treasures (patrolling %d, near %d of %d samples)"), Patrol->Patrolling, Patrol->Near, Patrol->Samples),
+				Patrol->Patrolling == Patrol->Samples && Patrol->Near * 10 >= Patrol->Samples * 6);
+			LookAtOni();
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("treasureoni_01")); } });
+	}
+	// ================================================================ Detector（探知鬼）
+	else if (Scenario.Equals(TEXT("Detector"), ESearchCase::IgnoreCase))
+	{
+		struct FGuard { FVector PostLocation = FVector::ZeroVector; };
+		TSharedRef<FGuard> Guard = MakeShared<FGuard>();
+		auto Detector = [GM]() { return GM->GetOnis()[0].Get(); };
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Detector, EOniType::Balanced, EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("a detector with a big summon radius (%.0f) and a guard post"), Detector()->SummonRadius),
+				Detector()->OniType == EOniType::Detector && Detector()->SummonRadius >= 2000.f);
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->SightRadius = 0.f; // まだ誰もプレイヤーを見ない
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+				Oni->DecoyHearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 9.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the detector reached its post (%d,%d)"), Detector()->GetGuardCell().X, Detector()->GetGuardCell().Y), Detector()->IsAtGuardPost());
+			Guard->PostLocation = Detector()->GetActorLocation();
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			const float Moved = FVector::Dist2D(Detector()->GetActorLocation(), Guard->PostLocation);
+			Check(FString::Printf(TEXT("the detector stays at its post (moved %.0f cm in 3s)"), Moved), Moved < 30.f);
+			// 他の鬼を探知鬼の近くへ。プレイヤーを探知鬼の正面 4 マス先へ出して、見つけさせる
+			AOniCharacter* Watcher = Detector();
+			const FIntPoint Post = Grid()->WorldToCell(Watcher->GetActorLocation());
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				const FIntPoint Near(FMath::Clamp(Post.X + (i == 1 ? -6 : 6), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Post.Y + 5, 1, Grid()->GetSizeY() - 2));
+				GM->GetOnis()[i]->SetActorLocation(Grid()->CellFloorCenter(Near) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			Watcher->SightRadius = 1500.f;
+			const FVector Fwd = Watcher->GetActorForwardVector().GetSafeNormal2D();
+			FIntPoint Spot = Post;
+			for (int32 Dist = 4; Dist >= 2; --Dist)
+			{
+				const FIntPoint C = Grid()->WorldToCell(Watcher->GetActorLocation() + Fwd * Dist * 100.f);
+				if (Grid()->IsWalkable(C))
+				{
+					Spot = C;
+					break;
+				}
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(Spot));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			int32 Coming = 0;
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				Coming += GM->GetOnis()[i]->GetIntent() == EOniState::Investigate ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("the detector saw the player and called the others (summoned %d, coming %d, summons %d)"), GM->GetLastSummonedCount(), Coming, GS()->SummonsThisRound),
+				GS()->SummonsThisRound >= 1 && GM->GetLastSummonedCount() == 2 && Coming == 2);
+			Check(TEXT("the detector itself does not chase"), Detector()->GetIntent() != EOniState::Chase);
+			Shot(TEXT("detector_01_summon"));
+		} });
+	}
+	// ================================================================ CarefulSweep（慎重鬼：広い場所から手分けして調べ、囲まれた場所と細い道は後回し）
+	else if (Scenario.Equals(TEXT("CarefulSweep"), ESearchCase::IgnoreCase))
+	{
+		struct FSweep { int32 Samples = 0; int32 EarlyInspect = 0; int32 Inspect = 0; int32 SameInspect = 0; int32 Split = 0; int32 InCorridor = 0; };
+		TSharedRef<FSweep> Sweep = MakeShared<FSweep>();
+		const FIntPoint Donut(5, 5);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Careful, EOniType::Careful });
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f; // 調べ終わるまで時間切れにしない
+			// 中が空洞のドーナツ形の壁と、幅 1 マスの細い道（Y=19 の X 3〜10）
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					if (DX != 0 || DY != 0)
+					{
+						PlaceTestWall(Donut + FIntPoint(DX, DY));
+					}
+				}
+			}
+			for (int32 X = 3; X <= 10; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 18));
+				PlaceTestWall(FIntPoint(X, 20));
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(22, 1)));
+		} });
+		Steps.Add({ 3.3f, [=]
+		{
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+				Oni->bDrawDebug = true;
+			}
+		} });
+		for (int32 i = 0; i < 100; ++i)
+		{
+			Steps.Add({ 0.5f, [=, this]
+			{
+				if (GM->GetOnis().Num() < 2)
+				{
+					return;
+				}
+				const AOniCharacter* A = GM->GetOnis()[0];
+				const AOniCharacter* B = GM->GetOnis()[1];
+				const bool bA = A->GetIntent() == EOniState::Inspect || A->GetOniState() == EOniState::Attack;
+				const bool bB = B->GetIntent() == EOniState::Inspect || B->GetOniState() == EOniState::Attack;
+				++Sweep->Samples;
+				if (i < 16)
+				{
+					Sweep->EarlyInspect += (bA || bB) ? 1 : 0; // 最初の 8 秒は広い場所を見ているはず
+				}
+				Sweep->Inspect += (bA || bB) ? 1 : 0;
+				Sweep->SameInspect += (bA && bB) ? 1 : 0; // 空洞は 1 つなので、2 体同時に向かうのはだめ
+				const FIntPoint CA = Grid()->WorldToCell(A->GetActorLocation());
+				const FIntPoint CB = Grid()->WorldToCell(B->GetActorLocation());
+				if (i >= 6)
+				{
+					Sweep->Split += ((CA.Y < Grid()->GetSizeY() / 2) != (CB.Y < Grid()->GetSizeY() / 2)) ? 1 : 0;
+				}
+				for (const FIntPoint& C : { CA, CB })
+				{
+					Sweep->InCorridor += (C.Y == 19 && C.X >= 3 && C.X <= 10) ? 1 : 0;
+				}
+				if (i % 20 == 19)
+				{
+					Log(FString::Printf(TEXT("t=%.0fs inspect %d same %d split %d corridor %d"), (i + 1) * 0.5f, Sweep->Inspect, Sweep->SameInspect, Sweep->Split, Sweep->InCorridor));
+				}
+			} });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			Check(FString::Printf(TEXT("careful onis first look over the open area, not the hollow (inspect samples in the first 8s: %d)"), Sweep->EarlyInspect), Sweep->EarlyInspect == 0);
+			Check(FString::Printf(TEXT("after the open area, they inspect the hollow (%d samples)"), Sweep->Inspect), Sweep->Inspect >= 1);
+			Check(FString::Printf(TEXT("never both on the same hollow (%d)"), Sweep->SameInspect), Sweep->SameInspect == 0);
+			Check(FString::Printf(TEXT("they split the stage (different halves %d of %d)"), Sweep->Split, Sweep->Samples - 6), Sweep->Split * 10 >= (Sweep->Samples - 6) * 5);
+			Check(FString::Printf(TEXT("they rarely walk the narrow passage (%d of %d oni-samples)"), Sweep->InCorridor, Sweep->Samples * 2), Sweep->InCorridor * 10 <= Sweep->Samples * 2);
+			Shot(TEXT("carefulsweep_01"));
+		} });
+	}
+	// ================================================================ Maps（館のマップ）
+	else if (Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase))
+	{
+		struct FMapState { int32 WoodBefore = 0; };
+		TSharedRef<FMapState> MapState = MakeShared<FMapState>();
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("maps are loaded (%d) and stage 1 uses %s"), GM->MapOrder.Num(), *GM->GetCurrentMapName().ToString()),
+				GM->MapOrder.Num() >= 5 && GM->GetCurrentMapName() == GM->GetMapNameForStage(1));
+			Check(FString::Printf(TEXT("stages pick maps: 1 %s / 4 %s / 7 %s / 10 %s / 13 %s / 16 %s"), *GM->GetMapNameForStage(1).ToString(), *GM->GetMapNameForStage(4).ToString(),
+				*GM->GetMapNameForStage(7).ToString(), *GM->GetMapNameForStage(10).ToString(), *GM->GetMapNameForStage(13).ToString(), *GM->GetMapNameForStage(16).ToString()),
+				GM->GetMapNameForStage(1) == FName(TEXT("Hall")) && GM->GetMapNameForStage(4) == FName(TEXT("Library")) && GM->GetMapNameForStage(7) == FName(TEXT("Rooms"))
+				&& GM->GetMapNameForStage(10) == FName(TEXT("Storeroom")) && GM->GetMapNameForStage(13) == FName(TEXT("Gallery")) && GM->GetMapNameForStage(16) == FName(TEXT("Hall")));
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); KakuAddCoins(500.0); BuyWall(0, 2); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置（真上から）
+			GM->bMapOverride = true;
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			KakuPlaceWall(Me.X + 2, Me.Y, 0);
+			KakuPlaceWall(Me.X - 2, Me.Y, 0);
+			MapState->WoodBefore = GS()->WallStock[0];
+			Check(FString::Printf(TEXT("2 walls placed in the first map (blocks %d)"), Grid()->GetBlockCount()), Grid()->GetBlockCount() == 2);
+		} });
+		for (int32 m = 0; m < 5; ++m)
+		{
+			Steps.Add({ 0.8f, [=, this]
+			{
+				if (!GM->MapOrder.IsValidIndex(m))
+				{
+					return;
+				}
+				const FName Name = GM->MapOrder[m];
+				GM->MapOverride = Name;
+				GM->SwitchToMap(Name);
+				UKakurenboGridSubsystem* G = Grid();
+				// 鬼の出入り口から、プレイヤーのいる場所まで歩いて行けるか（家具で閉じ込められていないか）
+				FKakurenboPathGrid Walk = G->BuildWalkGrid();
+				TArray<FIntPoint> Path;
+				const FIntPoint Gate = GM->GetOniGateCells()[0];
+				const FIntPoint Me = G->WorldToCell(GetPawn()->GetActorLocation());
+				const bool bReach = KakurenboPathfinding::FindPath(Walk, Gate, Me, Path);
+				bool bGateFree = true;
+				for (const FIntPoint& C : GM->GetOniGateCells())
+				{
+					bGateFree &= !G->IsObstacle(C);
+				}
+				const int32 MainCells = G->GetMainAreaMask().FilterByPredicate([](bool b) { return b; }).Num();
+				const AKakurenboArena* Arena = GM->GetArena();
+				Check(FString::Printf(TEXT("map %s: %d furniture pieces (%d meshes), %d blocked cells, open %d, gate free %d, reachable %d, player cell walkable %d"),
+					*Name.ToString(), Arena->GetFurniturePieceCount(), Arena->GetFurnitureMeshCount(), G->GetObstacleCount(), MainCells, bGateFree, bReach, G->IsWalkable(Me)),
+					Arena->GetFurniturePieceCount() > 5 && G->GetObstacleCount() > 10 && MainCells >= 300 && bGateFree && bReach && G->IsWalkable(Me));
+				const bool bHasFab = FPackageName::DoesPackageExist(TEXT("/Game/Stylized_Library/Meshes/SM_Bookcase_01"));
+				Check(FString::Printf(TEXT("map %s: furniture uses the Fab meshes when they are in the project (fab %d, meshes %d)"), *Name.ToString(), bHasFab, Arena->GetFurnitureMeshCount()),
+					!bHasFab || Arena->GetFurnitureMeshCount() > 0);
+				if (m == 1)
+				{
+					// 2 つ目のマップに移ったとき：前のマップの壁は在庫に戻っている
+					Check(FString::Printf(TEXT("walls of the previous map went back to stock (wood %d -> %d, blocks %d)"), MapState->WoodBefore, GS()->WallStock[0], G->GetBlockCount()),
+						GS()->WallStock[0] == MapState->WoodBefore + 2 && G->GetBlockCount() == 0);
+					// 家具のマスには置けない
+					for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+					{
+						for (int32 X = 0; X < G->GetSizeX(); ++X)
+						{
+							if (G->IsObstacle(FIntPoint(X, Y)))
+							{
+								FText Reason;
+								Check(FString::Printf(TEXT("cannot place a wall on furniture (%s)"), *Reason.ToString()), !GM->CanPlaceWall(FIntPoint(X, Y), 0, &Reason) && !Reason.IsEmpty());
+								Y = G->GetSizeY();
+								break;
+							}
+						}
+					}
+				}
+			} });
+			Steps.Add({ 0.8f, [=, this] { Shot(FString::Printf(TEXT("maps_%02d_%s"), m + 1, GM->MapOrder.IsValidIndex(m) ? *GM->MapOrder[m].ToString() : TEXT("none"))); } });
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 最初のマップに戻ると、設計図が戻る（壁は在庫から設置パートで直る）
+			GM->MapOverride = GM->MapOrder[0];
+			GM->SwitchToMap(GM->MapOrder[0]);
+			Check(FString::Printf(TEXT("the first map's design comes back (missing %d)"), Grid()->GetTotalMissing()), Grid()->GetTotalMissing() == 2);
+			KakuShop();
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置（在庫から直る）
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("walls rebuilt from stock (blocks %d, repaired %d)"), Grid()->GetBlockCount(), GS()->LastRepairedWalls), Grid()->GetBlockCount() == 2 && GS()->LastRepairedWalls == 2);
+		} });
+	}
+	// ================================================================ Mood（館の見た目を三人称で撮る）
+	else if (Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced, EOniType::Treasure, EOniType::Detector }); } });
+		Steps.Add({ 1.0f, [=, this] { SetControlRotation(FRotator(-15.f, 180.f, 0.f)); } });
+		Steps.Add({ 1.0f, [=, this] { Shot(TEXT("mood_01_hall_west")); } });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			// 鬼は止めて、プレイヤーの前（門の方）に並べる
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			for (int32 i = 0; i < GM->GetOnis().Num(); ++i)
+			{
+				AOniCharacter* Oni = GM->GetOnis()[i];
+				Oni->Deactivate();
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Me + FIntPoint(4 + i, i * 2 - 2)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			}
+			SetControlRotation(FRotator(-15.f, 0.f, 0.f)); // 門の方
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("mood_02_hall_gate")); SetControlRotation(FRotator(-35.f, 90.f, 0.f)); } });
+		Steps.Add({ 1.0f, [=, this] { Shot(TEXT("mood_03_hall_north")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 書庫の中から
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Library");
+			GM->SwitchToMap(TEXT("Library"));
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(3, 4)));
+			SetControlRotation(FRotator(-15.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("mood_04_library")); } });
+	}
+	// ================================================================ Sounds（鬼の足音・お宝のキラキラ・BGM）
+	else if (Scenario.Equals(TEXT("Sounds"), ESearchCase::IgnoreCase))
+	{
+		struct FSoundCount { int32 OniSteps = 0; int32 Sparkles = 0; };
+		TSharedRef<FSoundCount> Counts = MakeShared<FSoundCount>();
+		Steps.Add({ 0.5f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			Check(FString::Printf(TEXT("hide phase plays the hide BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Hide);
+			Counts->Sparkles = Sound()->GetPlayCount(EKakurenboSfx::TreasureSparkle);
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("treasures sparkle (%d sounds in 3s)"), Sound()->GetPlayCount(EKakurenboSfx::TreasureSparkle) - Counts->Sparkles),
+				Sound()->GetPlayCount(EKakurenboSfx::TreasureSparkle) - Counts->Sparkles >= GM->GetTreasures().Num());
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+				Oni->DebugGoTo(FIntPoint(4, 4));
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(2, 20)));
+			Counts->OniSteps = Sound()->GetPlayCount(EKakurenboSfx::OniStep);
+		} });
+		Steps.Add({ 2.f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("a walking oni stomps (%d step sounds in 2s, oni counted %d)"), Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps, Oni->GetStepSoundCount()),
+				Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps >= 4 && Oni->GetStepSoundCount() >= 4);
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("result plays the calm BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
 		} });
 	}
 	// ================================================================ Loop

@@ -16,6 +16,7 @@ void UKakurenboGridSubsystem::Configure(const FVector& InOrigin, int32 InSizeX, 
 	BlockHeight = InBlockHeight;
 	MaxStackHeight = FMath::Max(1, InMaxStackHeight);
 	Columns.SetNum(SizeX * SizeY);
+	Obstacles.Init(false, SizeX * SizeY);
 	MarkChanged();
 }
 
@@ -93,6 +94,11 @@ bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutRea
 	if (IsReservedCell(Cell))
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceGate", "鬼の出入り口の前には置けません");
+		return false;
+	}
+	if (IsObstacle(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnFurniture", "家具や部屋の壁があります");
 		return false;
 	}
 	if (HasTrap(Cell))
@@ -329,6 +335,52 @@ void UKakurenboGridSubsystem::ClearLiveKeepDesign()
 	MarkChanged();
 }
 
+int32 UKakurenboGridSubsystem::ClearCells(const TArray<FIntPoint>& Cells, TArray<int32>& InOutWallRefund, TArray<int32>& InOutTrapRefund)
+{
+	int32 Cleared = 0;
+	for (const FIntPoint& Cell : Cells)
+	{
+		if (!IsInside(Cell))
+		{
+			continue;
+		}
+		FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+		if (Column.Blocks.Num() == 0 && Column.Design.Num() == 0 && Column.TrapDesign == INDEX_NONE && !Column.Trap)
+		{
+			continue;
+		}
+		for (APlaceableBlock* Block : Column.Blocks)
+		{
+			if (Block)
+			{
+				if (InOutWallRefund.IsValidIndex(Block->WallTypeIndex))
+				{
+					++InOutWallRefund[Block->WallTypeIndex];
+				}
+				Block->Destroy();
+			}
+		}
+		if (Column.Trap)
+		{
+			if (InOutTrapRefund.IsValidIndex(Column.Trap->TrapTypeIndex))
+			{
+				++InOutTrapRefund[Column.Trap->TrapTypeIndex];
+			}
+			Column.Trap->Destroy();
+		}
+		Column.Blocks.Reset();
+		Column.Design.Reset();
+		Column.Trap = nullptr;
+		Column.TrapDesign = INDEX_NONE;
+		++Cleared;
+	}
+	if (Cleared > 0)
+	{
+		MarkChanged();
+	}
+	return Cleared;
+}
+
 void UKakurenboGridSubsystem::ScaleAllBlockHP(double Factor)
 {
 	for (FKakurenboBlockColumn& Column : Columns)
@@ -387,6 +439,29 @@ int32 UKakurenboGridSubsystem::DamageSound(const TArray<FIntPoint>& Cells, doubl
 	return Destroyed;
 }
 
+void UKakurenboGridSubsystem::SetObstacles(const TArray<FIntPoint>& Cells)
+{
+	Obstacles.Init(false, SizeX * SizeY);
+	for (const FIntPoint& Cell : Cells)
+	{
+		if (IsInside(Cell))
+		{
+			Obstacles[ToIndex(Cell)] = true;
+		}
+	}
+	MarkChanged();
+}
+
+int32 UKakurenboGridSubsystem::GetObstacleCount() const
+{
+	int32 Count = 0;
+	for (const bool bObstacle : Obstacles)
+	{
+		Count += bObstacle ? 1 : 0;
+	}
+	return Count;
+}
+
 void UKakurenboGridSubsystem::SetReservedCells(const TArray<FIntPoint>& Cells)
 {
 	ReservedCells.Reset();
@@ -426,6 +501,11 @@ bool UKakurenboGridSubsystem::CanPlaceTrap(const FIntPoint& Cell, FText* OutReas
 	if (IsReservedCell(Cell))
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceGate", "鬼の出入り口の前には置けません");
+		return false;
+	}
+	if (IsObstacle(Cell))
+	{
+		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnFurniture", "家具や部屋の壁があります");
 		return false;
 	}
 	if (HasTrap(Cell))
@@ -627,11 +707,16 @@ int32 UKakurenboGridSubsystem::GetMissingWallCount(int32 WallTypeIndex) const
 
 float UKakurenboGridSubsystem::GetEnclosureNoiseDamping(const FIntPoint& Cell, const TArray<FWallTypeDef>& WallTypes, int32* OutBoundaryWalls, TArray<FIntPoint>* OutWallCells) const
 {
-	// 壁のマスには一番下の段の壁の「音を小さくする割合」を入れる
+	// 壁のマスには一番下の段の壁の「音を小さくする割合」を入れる。家具・部屋の壁は負の値（平均に入れない）
 	TArray<float> CellDamping;
 	CellDamping.Init(0.f, Columns.Num());
 	for (int32 Index = 0; Index < Columns.Num(); ++Index)
 	{
+		if (Obstacles.IsValidIndex(Index) && Obstacles[Index])
+		{
+			CellDamping[Index] = -1.f;
+			continue;
+		}
 		const TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[Index].Blocks;
 		if (Blocks.Num() > 0 && Blocks[0] && WallTypes.IsValidIndex(Blocks[0]->WallTypeIndex))
 		{
@@ -801,6 +886,11 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, f
 	{
 		for (int32 X = 0; X < SizeX; ++X)
 		{
+			if (Obstacles[Y * SizeX + X])
+			{
+				Grid.SetExtra(FIntPoint(X, Y), -1.f); // 家具・部屋の壁は壊せない
+				continue;
+			}
 			const TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[Y * SizeX + X].Blocks;
 			if (Blocks.Num() == 0)
 			{
@@ -827,9 +917,9 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildWalkGrid() const
 	Grid.Init(SizeX, SizeY);
 	for (int32 Index = 0; Index < Columns.Num(); ++Index)
 	{
-		if (Columns[Index].Blocks.Num() > 0)
+		if (Columns[Index].Blocks.Num() > 0 || Obstacles[Index])
 		{
-			Grid.ExtraCost[Index] = -1.f; // 壁は通れない
+			Grid.ExtraCost[Index] = -1.f; // 壁・家具は通れない
 		}
 	}
 	return Grid;
@@ -858,7 +948,7 @@ TArray<FIntPoint> UKakurenboGridSubsystem::GetStructureAround(const FIntPoint& C
 	}
 	const TArray<bool> MainArea = BuildMainAreaMask();
 	auto IsWall = [this](const FIntPoint& C) { return IsInside(C) && Columns[ToIndex(C)].Blocks.Num() > 0; };
-	auto IsPocket = [this, &MainArea](const FIntPoint& C) { return IsInside(C) && Columns[ToIndex(C)].Blocks.Num() == 0 && !MainArea[ToIndex(C)]; };
+	auto IsPocket = [this, &MainArea](const FIntPoint& C) { return IsInside(C) && Columns[ToIndex(C)].Blocks.Num() == 0 && !Obstacles[ToIndex(C)] && !MainArea[ToIndex(C)]; };
 
 	// 始まりの壁：そのマスが壁ならそのマス、空洞ならその空洞の周りの壁
 	TArray<FIntPoint> Stack;
@@ -1029,7 +1119,7 @@ bool UKakurenboGridSubsystem::FindRandomFreeCell(FIntPoint& OutCell, const FRand
 		const FIntPoint Cell(
 			Stream ? Stream->RandRange(0, SizeX - 1) : FMath::RandRange(0, SizeX - 1),
 			Stream ? Stream->RandRange(0, SizeY - 1) : FMath::RandRange(0, SizeY - 1));
-		if (GetColumnHeight(Cell) == 0)
+		if (IsWalkable(Cell))
 		{
 			OutCell = Cell;
 			return true;

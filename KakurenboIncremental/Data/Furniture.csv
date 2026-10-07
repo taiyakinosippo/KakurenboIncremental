@@ -1,0 +1,14 @@
+﻿---,DisplayName,Mesh,AltMesh,Height,Color,bWalkable,LightIntensity
+B,本棚,/Game/Stylized_Library/Meshes/SM_Bookcase_01.SM_Bookcase_01,/Game/Stylized_Library/Meshes/SM_Bookcase_02.SM_Bookcase_02,220,"(R=0.35,G=0.18,B=0.08,A=1.0)",False,0
+S,棚,/Game/Stylized_Library/Meshes/SM_Shelf.SM_Shelf,,180,"(R=0.4,G=0.24,B=0.12,A=1.0)",False,0
+T,テーブル,/Game/Stylized_Library/Meshes/SM_Table.SM_Table,,80,"(R=0.45,G=0.28,B=0.14,A=1.0)",False,0
+A,ひじかけ椅子,/Game/Stylized_Library/Meshes/SM_Armchair.SM_Armchair,/Game/Stylized_Library/Meshes/SM_Pouf.SM_Pouf,100,"(R=0.6,G=0.15,B=0.25,A=1.0)",False,0
+F,暖炉,/Game/Stylized_Library/Meshes/SM_Fireplace.SM_Fireplace,,180,"(R=0.45,G=0.2,B=0.12,A=1.0)",False,45
+G,地球儀,/Game/Stylized_Library/Meshes/SM_Globe.SM_Globe,,130,"(R=0.2,G=0.45,B=0.6,A=1.0)",False,0
+K,時計,/Game/Stylized_Library/Meshes/SM_Clock.SM_Clock,,200,"(R=0.4,G=0.3,B=0.15,A=1.0)",False,0
+P,つぼ,/Game/Stylized_Library/Meshes/SM_Pot_01.SM_Pot_01,/Game/Stylized_Library/Meshes/SM_Pot_03.SM_Pot_03,90,"(R=0.7,G=0.45,B=0.3,A=1.0)",False,0
+R,蓄音機,/Game/Stylized_Library/Meshes/SM_Gramophone.SM_Gramophone,,120,"(R=0.75,G=0.6,B=0.2,A=1.0)",False,0
+L,望遠鏡,/Game/Stylized_Library/Meshes/SM_Telescope.SM_Telescope,,170,"(R=0.6,G=0.5,B=0.3,A=1.0)",False,0
+U,トランクの山,/Game/Stylized_Library/Meshes/SM_Suitcase_01.SM_Suitcase_01,/Game/Stylized_Library/Meshes/SM_Suitcase_02.SM_Suitcase_02,100,"(R=0.5,G=0.3,B=0.18,A=1.0)",False,0
+W,まき,/Game/Stylized_Library/Meshes/SM_Woodlog_01.SM_Woodlog_01,/Game/Stylized_Library/Meshes/SM_Woodlog_02.SM_Woodlog_02,70,"(R=0.45,G=0.3,B=0.15,A=1.0)",False,0
+C,じゅうたん,/Game/Stylized_Library/Meshes/SM_Carpet.SM_Carpet,,1,"(R=0.55,G=0.12,B=0.2,A=1.0)",True,0

@@ -1,5 +1,7 @@
-﻿---,DisplayName,SpeedScale,DamageScale,SightRadius,SightHalfAngle,HearingScale,DecoyHearingScale,StunScale,bDisarmTraps,bSingleTargetAttack,AttackRadius,AttackWindup,PocketInspectChance,Color,BodyScale,MeshMaterial
-Balanced,標準鬼,1.0,1.0,900,40,1.0,1.0,1.0,False,False,160,0.8,0.5,"(R=0.9,G=0.1,B=0.08,A=1.0)",1.0,/Game/CuteCreature/Materials/MI_CuteCreature_Black.MI_CuteCreature_Black
-Scout,スピード鬼,1.25,0.5,1300,55,1.5,0,1.5,False,False,160,0.8,0,"(R=0.1,G=0.75,B=0.95,A=1.0)",0.9,/Game/CuteCreature/Materials/MI_CuteCreature_Blue.MI_CuteCreature_Blue
-Breaker,パワー鬼,0.65,2.5,800,70,0,1.6,0.4,True,False,200,1.0,0.5,"(R=1.0,G=0.5,B=0.05,A=1.0)",1.2,/Game/CuteCreature/Materials/MI_CuteCreature_Orange.MI_CuteCreature_Orange
-Careful,慎重鬼,1.15,1.0,900,40,1.0,1.0,1.0,False,True,160,0.6,1.0,"(R=0.95,G=0.4,B=0.75,A=1.0)",1.0,/Game/CuteCreature/Materials/MI_CuteCreature_Pink.MI_CuteCreature_Pink
+﻿---,DisplayName,SpeedScale,DamageScale,SightRadius,SightHalfAngle,HearingScale,DecoyHearingScale,StepHearingScale,SummonRadius,StunScale,bDisarmTraps,bSingleTargetAttack,AttackRadius,AttackWindup,PocketInspectChance,Color,BodyScale,MeshMaterial,MeshTint
+Balanced,標準鬼,1.0,1.0,900,40,1.0,1.0,0.6,0,1.0,False,False,160,0.8,0.5,"(R=0.9,G=0.1,B=0.08,A=1.0)",1.0,/Game/CuteCreature/Materials/MI_CuteCreature_Black.MI_CuteCreature_Black,"(R=0,G=0,B=0,A=0)"
+Scout,スピード鬼,1.25,0.5,1300,55,1.5,0,1.0,0,1.5,False,False,160,0.8,0,"(R=0.1,G=0.75,B=0.95,A=1.0)",0.9,/Game/CuteCreature/Materials/MI_CuteCreature_Blue.MI_CuteCreature_Blue,"(R=0,G=0,B=0,A=0)"
+Breaker,パワー鬼,0.65,2.5,800,70,0,1.6,0,0,0.4,True,False,200,1.0,0.5,"(R=1.0,G=0.5,B=0.05,A=1.0)",1.2,/Game/CuteCreature/Materials/MI_CuteCreature_Orange.MI_CuteCreature_Orange,"(R=0,G=0,B=0,A=0)"
+Careful,慎重鬼,1.15,1.0,900,40,1.0,1.0,0.6,0,1.0,False,True,160,0.6,1.0,"(R=0.95,G=0.4,B=0.75,A=1.0)",1.0,/Game/CuteCreature/Materials/MI_CuteCreature_Pink.MI_CuteCreature_Pink,"(R=0,G=0,B=0,A=0)"
+Treasure,宝物鬼,0.9,0.4,900,45,0.3,0.5,2.2,0,1.0,False,False,140,1.0,0,"(R=1.0,G=0.85,B=0.2,A=1.0)",1.0,/Game/CuteCreature/Materials/MI_CuteCreature_Orange.MI_CuteCreature_Orange,"(R=1.0,G=0.8,B=0.1,A=1.0)"
+Detector,探知鬼,0.9,1.0,1500,32,0,0,0,2400,1.0,False,False,160,0.8,0,"(R=0.6,G=0.3,B=1.0,A=1.0)",1.1,/Game/CuteCreature/Materials/M_CuteCreature_purple.M_CuteCreature_purple,"(R=0,G=0,B=0,A=0)"

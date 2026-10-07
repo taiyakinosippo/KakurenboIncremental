@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboSoundSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 
 ATreasureActor::ATreasureActor()
@@ -40,6 +41,7 @@ void ATreasureActor::BeginPlay()
 	Glow->SetLightColor(Color);
 	BaseMeshLocation = Mesh->GetRelativeLocation();
 	Time = FMath::FRandRange(0.f, 10.f); // 揺れのタイミングをお宝ごとにずらす
+	SparkleTimer = FMath::FRandRange(0.2f, SparkleInterval); // キラキラの音もお宝ごとにずらす
 }
 
 void ATreasureActor::Tick(float DeltaSeconds)
@@ -50,6 +52,15 @@ void ATreasureActor::Tick(float DeltaSeconds)
 	Time += DeltaSeconds;
 	Mesh->SetRelativeLocation(BaseMeshLocation + FVector(0.f, 0.f, 10.f * FMath::Sin(Time * 2.5f)));
 	Mesh->AddRelativeRotation(FRotator(0.f, 90.f * DeltaSeconds, 0.f));
+
+	// ときどきキラキラと鳴る（その場所から聞こえるので、見えなくてもどこにあるかわかる）
+	SparkleTimer -= DeltaSeconds;
+	if (SparkleTimer <= 0.f)
+	{
+		SparkleTimer = SparkleInterval * FMath::FRandRange(0.8f, 1.2f);
+		++SparkleCount;
+		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::TreasureSparkle, Mesh->GetComponentLocation(), SparkleVolume, FMath::FRandRange(0.94f, 1.06f));
+	}
 
 	// プレイヤーが近づいたら取得
 	const APlayerController* PC = GetWorld()->GetFirstPlayerController();

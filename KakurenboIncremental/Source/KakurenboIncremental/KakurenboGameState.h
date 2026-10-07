@@ -92,6 +92,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 TrapsTriggeredThisRound = 0;
 
+	/** このラウンドの足音の数（着地を含む） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 StepsThisRound = 0;
+
+	/** このラウンドで探知鬼が仲間を呼んだ回数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 SummonsThisRound = 0;
+
 	// ---- お宝 ----
 	/** このラウンドに出現したお宝の数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")

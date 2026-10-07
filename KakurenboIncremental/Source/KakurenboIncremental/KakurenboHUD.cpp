@@ -40,6 +40,19 @@ namespace
 			OutColor = Warn;
 			return;
 		}
+		if (Oni->OniType == EOniType::Detector && Oni->GetIntent() == EOniState::Wander)
+		{
+			const bool bJustCalled = Oni->GetLastSummonTime() >= 0.f && Oni->GetWorld()->GetTimeSeconds() - Oni->GetLastSummonTime() < 3.f;
+			OutText = bJustCalled ? TEXT("見つけた！仲間を呼んだ") : Oni->IsAtGuardPost() ? TEXT("見張っている") : TEXT("見張りの場所へ向かっている");
+			OutColor = bJustCalled ? Bad : Purple;
+			return;
+		}
+		if (Oni->OniType == EOniType::Treasure && Oni->GetIntent() == EOniState::Wander && Oni->GetPatrolTreasure())
+		{
+			OutText = TEXT("お宝の周りを回っている");
+			OutColor = Gold;
+			return;
+		}
 		switch (Oni->GetIntent())
 		{
 		case EOniState::Chase:       OutText = TEXT("追いかけてくる！"); OutColor = Bad; break;
@@ -209,8 +222,8 @@ void AKakurenboHUD::DrawButton(float X, float Y, float W, float H, const FString
 {
 	AddButton(X, Y, W, H, Action, Index);
 	const bool bHovered = IsCursorOver(X, Y, W, H);
-	const FLinearColor Back = bSelected ? FLinearColor(0.85f, 0.65f, 0.15f, 0.75f)
-		: bHovered ? FLinearColor(0.35f, 0.35f, 0.45f, 0.85f) : FLinearColor(0.08f, 0.08f, 0.1f, 0.75f);
+	const FLinearColor Back = bSelected ? FLinearColor(1.f, 0.7f, 0.2f, 0.8f)
+		: bHovered ? FLinearColor(0.45f, 0.25f, 0.6f, 0.9f) : FLinearColor(0.12f, 0.05f, 0.2f, 0.8f);
 	Panel(X, Y, W, H, Back);
 	if (bHovered)
 	{
@@ -315,6 +328,11 @@ void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMo
 	const bool bPrestiged = State->PrestigeCount > 0 || State->TotalPrestigePoints > 0;
 	Panel(20, 20, 380, bPrestiged ? 158 : 130);
 	Text(FString::Printf(TEXT("ステージ %d   [%s]"), State->Stage, PhaseNames[static_cast<int32>(State->Phase)]), 36, 30, 22);
+	const FText MapName = GM->GetCurrentMapDisplayName();
+	if (!MapName.IsEmpty())
+	{
+		Text(FString::Printf(TEXT("館：%s"), *MapName.ToString()), 270, 76, 16, FLinearColor(1.f, 0.7f, 0.9f));
+	}
 	Text(FString::Printf(TEXT("コイン  %s"), *Big(State->Coins)), 36, 64, 30, Gold);
 	Text(FString::Printf(TEXT("連打 +%s / 時間 +%s/秒"), *Stat(GM->GetMashIncome()), *Stat(GM->GetTimeIncomePerSecond())), 36, 108, 18, Gray);
 	if (bPrestiged)
@@ -433,7 +451,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	Text(TEXT("T: スタート位置（青い印）をカーソルのマスへ"), 36, HelpY + 96, 18, Blue);
 	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, HelpY + 124, 18);
 	Text(TEXT("ホイール: ズーム"), 36, HelpY + 152, 18);
-	Text(TEXT("Enter: かくれんぼ開始"), 36, HelpY + 184, 22, Gold);
+	Text(TEXT("Enter: かくれんぼ開始　B: 購入パートへ"), 36, HelpY + 184, 22, Gold);
 
 	// スタート位置と鬼の出入り口に名前を付ける
 	if (const APawn* Pawn = GetOwningPawn())
@@ -502,8 +520,9 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		Text(Detail, X + 36, SlotY + 38, 16, Gray);
 	}
 
-	// かくれんぼを始めるボタン（Enter と同じ）
+	// かくれんぼを始めるボタン（Enter と同じ）と、購入パートへ戻るボタン（B と同じ）
 	DrawButton(CanvasW - 420, CanvasH - 260, 390, 60, TEXT("かくれんぼ開始 ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
+	DrawButton(CanvasW - 420, CanvasH - 330, 390, 54, TEXT("◀ 購入パートへ戻る [B]"), EKakurenboUIAction::BackToShop, 0, false, 20, FLinearColor::White);
 
 	// 置けない理由をカーソルの下に出す
 	if (PC && PC->bHasBuildTarget && !PC->bCanPlaceAtTarget && !PC->BuildTargetReason.IsEmpty())
@@ -537,33 +556,13 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const float CanvasH = Canvas->ClipY / UIScale;
 	const APawn* Pawn = GetOwningPawn();
 
-	// 目印（一番下に描いて、他の表示に隠れないようにする）
-	if (bShowTreasureIndicator && Pawn)
+	// 鬼とお宝の場所は矢印では出さない（音で見当をつける）。見えている鬼にだけ、追いかけ始めた直後の「！」を頭の上に出す
+	for (const AOniCharacter* Oni : GM->GetOnis())
 	{
-		for (const ATreasureActor* Treasure : GM->GetTreasures())
+		const bool bJustSpotted = Oni && Oni->GetChaseStartTime() >= 0.f && GetWorld()->GetTimeSeconds() - Oni->GetChaseStartTime() < 1.5f;
+		if (bJustSpotted)
 		{
-			if (Treasure)
-			{
-				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Treasure->GetActorLocation()) / 100.f;
-				DrawWorldIndicator(Treasure->GetActorLocation() + FVector(0.f, 0.f, 90.f), FString::Printf(TEXT("お宝 %.0fm"), DistM), Gold, 0.27f, 0.8f);
-			}
-		}
-	}
-	if (bShowOniIndicator && Pawn)
-	{
-		for (const AOniCharacter* Oni : GM->GetOnis())
-		{
-			if (Oni)
-			{
-				FString StateText;
-				FLinearColor Color;
-				DescribeOni(Oni, StateText, Color);
-				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f;
-				// 追いかけ始めた直後は「！」を付ける
-				const bool bJustSpotted = Oni->GetChaseStartTime() >= 0.f && GetWorld()->GetTimeSeconds() - Oni->GetChaseStartTime() < 1.5f;
-				const FString Label = FString::Printf(TEXT("%s%s %.0fm"), bJustSpotted ? TEXT("！ ") : TEXT(""), *OniName(Oni), DistM);
-				DrawWorldIndicator(Oni->GetActorLocation() + FVector(0.f, 0.f, 130.f), Label, Color, 0.33f, 1.f);
-			}
+			DrawWorldLabel(Oni->GetActorLocation() + FVector(0.f, 0.f, 150.f), TEXT("！"), Bad);
 		}
 	}
 
@@ -584,6 +583,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	{
 		Text(FString::Printf(TEXT("%d"), FMath::CeilToInt(State->HideStartCountdown)), 0, 380, 120, FLinearColor::White, true);
 		Text(TEXT("もうすぐ鬼が来る…（赤い門から出てくる）　ぶつかったらアウト"), 0, 580, 28, FLinearColor::White, true);
+		Text(TEXT("鬼の「どたどた」という足音と、お宝の「キラキラ」という音で、見えなくてもどこにいるかわかる"), 0, 626, 20, FLinearColor(1.f, 0.85f, 0.95f), true);
 		// 鬼が出てくる門の方向
 		if (const AKakurenboArena* Arena = GM->GetArena())
 		{
@@ -603,10 +603,9 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 				FString StateText;
 				FLinearColor Color;
 				DescribeOni(Oni, StateText, Color);
-				const float DistM = FVector::Dist2D(Pawn->GetActorLocation(), Oni->GetActorLocation()) / 100.f;
 				const float RowY = BelowStatusY + 10 + i * 34;
 				Panel(32, RowY + 4, 16, 20, Oni->BodyColor); // 体の色（どの鬼か見分ける）
-				Text(FString::Printf(TEXT("%s: %s（%.1f m）"), *OniName(Oni), *StateText, DistM), 58, RowY, 20, Color);
+				Text(FString::Printf(TEXT("%s: %s"), *OniName(Oni), *StateText), 58, RowY, 20, Color);
 			}
 		}
 	}
@@ -638,8 +637,20 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		Text(QuietText, 0, 120, 20, Remaining >= 0 && Remaining <= 10 ? Warn : Purple, true);
 	}
 
+	// 足音（壁に囲まれていると小さい・しのび足）
+	const AHiderCharacter* HiderPawn = Cast<AHiderCharacter>(Pawn);
+	const float StepMultiplier = GM->GetStepNoiseMultiplier();
+	if (StepMultiplier < 0.999f && NoiseMultiplier >= 0.999f)
+	{
+		Text(FString::Printf(TEXT("壁に囲まれている：足音が %d%% 小さい"), FMath::RoundToInt((1.f - StepMultiplier) * 100.f)), 0, 120, 20, Purple, true);
+	}
+	if (HiderPawn && HiderPawn->IsSneaking())
+	{
+		Text(TEXT("しのび足（足音が小さい）"), 0, CanvasH - 124, 18, Blue, true);
+	}
+
 	// 操作説明（下部中央）
-	FString Controls = TEXT("WASD: 移動　");
+	FString Controls = TEXT("WASD: 移動　Ctrl: しのび足　");
 	if (GM->IsJumpUnlocked())
 	{
 		Controls += TEXT("Space: ジャンプ　");

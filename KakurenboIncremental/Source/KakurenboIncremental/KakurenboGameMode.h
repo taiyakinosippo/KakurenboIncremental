@@ -12,6 +12,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "KakurenboMaps.h"
+#include "KakurenboSaveGame.h"
 #include "KakurenboTypes.h"
 #include "OniCharacter.h"
 #include "KakurenboGameMode.generated.h"
@@ -70,6 +72,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> PrestigeUpgradeTable;
 
+	/** 館のマップ。Data/Maps.csv の代わりに使う DataTable（行の型: KakurenboMapRow） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> MapTable;
+
+	/** 家具。Data/Furniture.csv の代わりに使う DataTable（行の型: KakurenboFurnitureRow。行の名前は間取りの 1 文字） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> FurnitureTable;
+
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
 	TMap<EOniType, FKakurenboOniTypeRow> OniTypeRows;
@@ -77,6 +87,17 @@ public:
 	/** 読み込んだステージの表（CSV・DataTable が無ければ空 → ステージ 1 の既定値から伸ばす） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
 	TArray<FKakurenboStageRow> StageRows;
+
+	/** 読み込んだ館のマップ（行の名前 → 設定）と、表に書いてある順番 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
+	TMap<FName, FKakurenboMapRow> MapRows;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
+	TArray<FName> MapOrder;
+
+	/** 表より後のステージで、何ステージごとに次のマップへ移るか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
+	int32 StagesPerMapAfterTable = 3;
 
 	/** 表より後のステージで、1 ステージごとに伸ばす量 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
@@ -172,6 +193,10 @@ public:
 	/** 効果音を音アセットに差し替える（設定していない音はプログラムで作った音を鳴らす） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
 	TMap<EKakurenboSfx, TObjectPtr<USoundBase>> SoundOverrides;
+
+	/** BGM を音アセットに差し替える（くり返し再生の設定（Looping）をした音アセットにする。設定していない曲はプログラムで作った曲） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
+	TMap<EKakurenboMusic, TObjectPtr<USoundBase>> MusicOverrides;
 
 	// ===== 鬼 =====
 
@@ -364,6 +389,64 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	double DashSoundDamage = 3.0;
 
+	// ===== 足音・ジャンプの音 =====
+
+	/** 足音 1 歩・ジャンプ 1 回の音の大きさ（連打 = 1） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	float StepNoiseLoudness = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	float JumpNoiseLoudness = 0.7f;
+
+	/** しのび足（Ctrl を押しながら歩く）のときの足音の倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	float SneakStepMultiplier = 0.3f;
+
+	/** 壁に囲まれた場所（空洞）にいるときの足音・ジャンプの音の倍率（消音壁でなくても小さくなる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	float EnclosedStepMultiplier = 0.2f;
+
+	/** 足音を床の輪で見せる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	bool bShowStepRing = true;
+
+	/** プレイヤーが 1 歩歩いた（着地も 1 歩）。かくれんぼ中だけ鬼に聞こえる */
+	void HandlePlayerStep(const FVector& FeetLocation, bool bSneaking);
+
+	/** プレイヤーがジャンプした */
+	void HandlePlayerJump(const FVector& FeetLocation);
+
+	/** 今の場所での足音の倍率（壁に囲まれていれば小さい） */
+	float GetStepNoiseMultiplier() const;
+
+	// ===== 探知鬼 =====
+
+	/** 探知鬼の見張りの場所は、プレイヤーのスタート位置・門・ほかの探知鬼からこのマス数以上離す */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float DetectorGuardMinDistanceCells = 6.f;
+
+	/** 探知鬼が最後に呼び寄せた鬼の数（テスト用） */
+	int32 GetLastSummonedCount() const { return LastSummonedCount; }
+
+	// ===== 館のマップ =====
+
+	/** そのステージで使うマップ（Stages.csv の Map。空なら前のステージと同じ。表より後は順番に回る） */
+	FName GetMapNameForStage(int32 Stage) const;
+
+	/** テスト用：ステージに関係なくこのマップを使う（NAME_None なら家具の無い舞台） */
+	bool bMapOverride = false;
+	FName MapOverride;
+
+	/** 今のマップ */
+	FName GetCurrentMapName() const { return CurrentMapName; }
+	FText GetCurrentMapDisplayName() const;
+
+	/**
+	 * マップを切り替える。今のマップの設計図はとっておき（次に来たとき在庫から直る）、置いてあった壁・罠は在庫に戻す。
+	 * 次のマップの設計図があれば戻す（設置パートで在庫から自動で直る）
+	 */
+	void SwitchToMap(FName NewMap);
+
 	// ===== 鬼の出入り口 =====
 
 	/** 鬼が出てくるマス（出てくる順）。壁・罠は置けない */
@@ -487,8 +570,8 @@ public:
 	/** ダッシュした（大きな音を出す）。プレイヤーのダッシュが始まったときに呼ぶ */
 	void HandleDash(const FVector& NoiseLocation, float Loudness);
 
-	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。bFromDecoy: おとりの音） */
-	void EmitNoise(const FVector& Location, float Loudness, bool bFromDecoy = false);
+	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。種類によって聞こえる距離が違う） */
+	void EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind = EKakurenboNoise::Mash);
 
 	/** お宝を取得する（お宝がプレイヤーに触れたときに呼ぶ） */
 	void CollectTreasure(ATreasureActor* Treasure);
@@ -510,6 +593,10 @@ public:
 	/** 設置パートへ。壊れた壁は在庫があれば自動で修復する */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void StartBuildPhase();
+
+	/** 設置パートから購入パートへ戻る（置いた壁・罠はそのまま） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	void ReturnToShop();
 
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void StartHidePhase();
@@ -568,6 +655,17 @@ protected:
 	void DespawnOnis();
 	void HandleOniFoundHider();
 	void HandleOniDestroyedWalls(int32 Count);
+	/** 探知鬼がプレイヤーを見つけた：周りの鬼を呼び寄せる */
+	void HandleOniSummon(AOniCharacter* Caller, const FVector& TargetLocation);
+
+	/** 今のマップの家具・部屋の壁を舞台とグリッドに反映する */
+	void ApplyCurrentMap();
+	/** 間取りのファイルを読む（無ければ全部床） */
+	KakurenboMaps::FLayout LoadMapLayout(const FKakurenboMapRow& Row) const;
+	/** 家具の上に壁・罠が残っていたら在庫に戻して消す（古いセーブ・間取りを変えたとき） */
+	void ClearLayoutOnObstacles();
+	/** プレイヤーが家具の中や囲まれた場所にいたら、広い場所のマスへ移す */
+	void EnsurePlayerOnFreeCell();
 
 	/** 壁が攻撃された（破片を飛ばして音を鳴らす） */
 	void HandleBlockHit(const FVector& Location, const FLinearColor& Color, bool bDestroyed);
@@ -598,10 +696,22 @@ protected:
 	 * プレイヤーが音を出す（連打・ダッシュ）。消音壁に囲まれていれば小さくなり、その消音壁の「音を消せる回数」が SoundDamage 減る
 	 * @return 鬼に届いた音の大きさ
 	 */
-	float MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness);
+	float MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness, EKakurenboNoise Kind);
 
 	/** 鬼の見た目のメッシュを読み込む（設定が無ければ何もしない） */
 	void LoadOniAppearance();
+
+	/** 読み込んだ家具（間取りの 1 文字 → 家具） */
+	TMap<TCHAR, FKakurenboFurnitureRow> FurnitureRows;
+
+	/** 今のマップ（Maps.csv の行の名前） */
+	FName CurrentMapName;
+
+	/** 今ではないマップの設計図（壁・罠の置き方。そのマップに戻ったとき在庫から直す） */
+	UPROPERTY()
+	TMap<FName, FKakurenboSavedLayout> StoredMapLayouts;
+
+	int32 LastSummonedCount = 0;
 
 	/** 読み込んだ鬼の見た目（メッシュが無ければ空＝円柱のまま） */
 	UPROPERTY()

@@ -48,4 +48,13 @@ namespace KakurenboSynth
 
 	/** 効果音の長さ（秒） */
 	float GetDuration(EKakurenboSfx Sfx);
+
+	/** BGM のサンプリング周波数（効果音より低くして、作る手間とメモリを減らす） */
+	constexpr int32 MusicSampleRate = 32000;
+
+	/** BGM の設計図（音の並び）と 1 周の長さ（秒） */
+	TArray<FNote> GetMusicRecipe(EKakurenboMusic Music, float& OutLoopSeconds);
+
+	/** BGM の 1 周ぶんの波形（くり返し再生するとつながる） */
+	TArray<int16> RenderMusic(EKakurenboMusic Music, int32 SampleRate = MusicSampleRate);
 }

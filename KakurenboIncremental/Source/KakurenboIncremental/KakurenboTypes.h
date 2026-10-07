@@ -7,6 +7,7 @@
 #include "KakurenboTypes.generated.h"
 
 class UMaterialInterface;
+class UStaticMesh;
 
 /** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
 UENUM(BlueprintType)
@@ -46,7 +47,19 @@ enum class EOniType : uint8
 	Balanced UMETA(DisplayName = "Balanced"), // 標準：速さも壁を壊す力も普通
 	Scout    UMETA(DisplayName = "Scout"),    // スピード：足が速く視界が広い。マップ全体を大まかに回る。壁を壊す力は弱い
 	Breaker  UMETA(DisplayName = "Breaker"),  // パワー：遅いが壁を壊す力が強い。見つけた壁を壊しに行く。自分から探さない
-	Careful  UMETA(DisplayName = "Careful"),  // 慎重：近くから隅々まで調べる。調べた場所を仲間の慎重鬼と共有。壁は 1 個ずつ壊す
+	Careful  UMETA(DisplayName = "Careful"),  // 慎重：広い場所を手分けして見渡しながら調べる。囲まれた場所は最後。壁は 1 個ずつ壊す
+	Treasure UMETA(DisplayName = "Treasure"), // 宝物：お宝の周りをぐるぐる回る。壁を壊すのも探すのも苦手。連打には鈍く、足音に敏感
+	Detector UMETA(DisplayName = "Detector"), // 探知：決まった場所へ行ったら動かず見張る。プレイヤーを見つけると周りの鬼を呼び寄せる
+};
+
+/** プレイヤーなどが出す音の種類（鬼の種類によって聞こえ方が違う） */
+UENUM(BlueprintType)
+enum class EKakurenboNoise : uint8
+{
+	Mash  UMETA(DisplayName = "Mash"),  // 連打
+	Dash  UMETA(DisplayName = "Dash"),  // ダッシュ
+	Step  UMETA(DisplayName = "Step"),  // 足音・ジャンプ（足音として聞く）
+	Decoy UMETA(DisplayName = "Decoy"), // おとり
 };
 
 /** 罠の種類（Data/Traps.csv の Kind 列） */
@@ -93,7 +106,21 @@ enum class EKakurenboSfx : uint8
 	PickUp        UMETA(DisplayName = "PickUp"),        // 壁・罠を回収した
 	Dash          UMETA(DisplayName = "Dash"),          // ダッシュした（大きな音）
 	Prestige      UMETA(DisplayName = "Prestige"),      // 転生した
+	PlayerStep    UMETA(DisplayName = "PlayerStep"),    // プレイヤーの足音
+	PlayerJump    UMETA(DisplayName = "PlayerJump"),    // プレイヤーのジャンプ
+	OniStep       UMETA(DisplayName = "OniStep"),       // 鬼の足音（どたどた。その場所から聞こえる）
+	TreasureSparkle UMETA(DisplayName = "TreasureSparkle"), // お宝のキラキラ（その場所から聞こえる）
+	Summon        UMETA(DisplayName = "Summon"),        // 探知鬼が仲間を呼んだ
 	Count         UMETA(Hidden)
+};
+
+/** BGM の曲（プログラムで作る。KakurenboSynth） */
+UENUM(BlueprintType)
+enum class EKakurenboMusic : uint8
+{
+	None UMETA(DisplayName = "None"),
+	Calm UMETA(DisplayName = "Calm"), // 購入・設置・リザルト：夜の館のおもちゃ箱のような、のんびりした曲
+	Hide UMETA(DisplayName = "Hide"), // かくれんぼ：速くて少し怖い曲
 };
 
 /** 購入パートの商品 1 つ分の表示用データ */
@@ -278,6 +305,10 @@ struct FKakurenboStageRow : public FTableRowBase
 	/** 鬼の移動速度に足す値（cm/秒。うろうろ・調べる・追いかける の全部に足す） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
 	float OniSpeedBonus = 0.f;
+
+	/** 館のマップ（Maps.csv の行の名前）。空なら前のステージと同じ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	FName Map;
 };
 
 /** 鬼の種類ごとの数値。Data/OniTypes.csv の 1 行（行名は Balanced / Scout / Breaker / Careful） */
@@ -313,6 +344,14 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float DecoyHearingScale = 1.f;
 
+	/** プレイヤーの足音・ジャンプの音が聞こえる距離の倍率（0 なら気にしない。宝物鬼は大きい） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float StepHearingScale = 1.f;
+
+	/** プレイヤーを見つけたとき、この距離（cm）以内の鬼を呼び寄せる（0 なら呼ばない。探知鬼） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float SummonRadius = 0.f;
+
 	/** トリモチで動けない時間の倍率 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float StunScale = 1.f;
@@ -347,6 +386,10 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	/** キャラクターのモデル（スケルタルメッシュ）を使うときの、この種類のマテリアル（色違い）。空ならメッシュのまま */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	TSoftObjectPtr<UMaterialInterface> MeshMaterial;
+
+	/** モデルの縁の光の色（Cute Creature の ReflectionColor）。A が 0 なら変えない（宝物鬼は金色） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	FLinearColor MeshTint = FLinearColor(0.f, 0.f, 0.f, 0.f);
 };
 
 /** 罠 1 種類の数値。Data/Traps.csv の 1 行（行の並び順が購入パート・設置パートでの並び順） */
@@ -388,4 +431,70 @@ struct FKakurenboTrapRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	FLinearColor Color = FLinearColor(1.f, 0.9f, 0.2f);
+};
+
+/**
+ * 館のマップ 1 つ。Data/Maps.csv の 1 行（行の名前をステージの表の Map に書く）。
+ * 間取り（家具・部屋の壁）は Data/Maps/<LayoutFile> に文字で書く（書き方は Data/README.md）
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboMapRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FText DisplayName;
+
+	/** 間取りのファイル（Data/Maps/ の中） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FString LayoutFile;
+
+	/** 床の色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor FloorColor = FLinearColor(0.16f, 0.09f, 0.06f);
+
+	/** 外周と部屋の壁（壁紙）の色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor WallColor = FLinearColor(0.2f, 0.1f, 0.3f);
+
+	/** 明かり（ランプ・暖炉）の色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor LightColor = FLinearColor(1.f, 0.6f, 0.3f);
+};
+
+/**
+ * 家具 1 種類。Data/Furniture.csv の 1 行（行の名前は間取りで使う 1 文字）。
+ * 家具は壊せず、通れない（壁と同じように隠れるのに使える）。bWalkable の家具（じゅうたん）は飾りだけ
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboFurnitureRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FText DisplayName;
+
+	/** 見た目のメッシュ（例: Fab の Stylized Library）。無い・見つからなければ色の付いた箱 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	TSoftObjectPtr<UStaticMesh> Mesh;
+
+	/** もう 1 つの見た目（あればランダムにどちらか） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	TSoftObjectPtr<UStaticMesh> AltMesh;
+
+	/** 高さ（cm）。メッシュの高さはこれに合わせる。箱のときの高さ・当たり判定の高さでもある */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	float Height = 200.f;
+
+	/** 箱で表すときの色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FLinearColor Color = FLinearColor(0.4f, 0.25f, 0.15f);
+
+	/** true なら上を歩ける飾り（じゅうたんなど）。通れない家具にならない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	bool bWalkable = false;
+
+	/** 明かりの強さ（カンデラ。0 なら明かりなし。暖炉・ランプ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	float LightIntensity = 0.f;
 };

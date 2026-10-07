@@ -182,6 +182,14 @@ public:
 	UFUNCTION(Exec)
 	void KakuSetStart(int32 X, int32 Y);
 
+	/** 設置パートから購入パートへ戻る（B キーと同じ） */
+	UFUNCTION(Exec)
+	void KakuShop();
+
+	/** BGM の音量（0〜1）。例: KakuMusicVolume 0.2 */
+	UFUNCTION(Exec)
+	void KakuMusicVolume(float Volume);
+
 	/**
 	 * 自動テスト：一連の操作を時間差で実行し、スクリーンショットを Saved/AutoTest に保存して終了する。
 	 * Scenario: Loop（基本ループ） / Senses（鬼の追跡・見失い） / Touch（ぶつかったら発見）
@@ -189,6 +197,7 @@ public:
 	 *           Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）
 	 *           Trap（罠） / Shop（商品の並び・壊れた数・罠の値段） / Fx（演出と効果音）
 	 *           Gate（鬼の出入り口） / Crowd（鬼どうしのすれ違い） / Quiet（消音壁） / Dash（ダッシュ） / Prestige（転生）
+	 *           BackToShop / Steps / TreasureOni / Detector / CarefulSweep / Maps / Sounds / Mood（M9）
 	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Senses"
 	 * 実装は KakurenboAutoTest.cpp
 	 */
@@ -250,6 +259,9 @@ private:
 	/** 自動テスト用：設置パートのカーソル位置を本物のマウスの代わりに使う（本物のカーソルは動かさない） */
 	bool bUseTestCursor = false;
 	FVector2D TestCursorPosition = FVector2D::ZeroVector;
+
+	/** 自動テスト用：Ctrl を押しているのと同じ（しのび足） */
+	bool bTestSneak = false;
 
 	bool bViewInitialized = false;
 	EKakurenboPhase ViewPhase = EKakurenboPhase::Hide;

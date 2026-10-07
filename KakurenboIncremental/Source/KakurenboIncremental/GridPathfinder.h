@@ -69,7 +69,7 @@ namespace KakurenboPathfinding
 	/**
 	 * 消音壁：Cell が空洞（一番大きいまとまり以外）の中なら、その空洞を囲んでいる壁（空洞のマスの周り 8 マスにある壁）の
 	 * CellDamping の平均を返す。囲まれていなければ 0。
-	 * @param CellDamping マスごとの「音を小さくする割合」（0〜1。壁の無いマスは使わない）
+	 * @param CellDamping マスごとの「音を小さくする割合」（0〜1。壁の無いマスは使わない。負のマス＝家具などは囲む壁として数えない）
 	 * @param OutBoundaryWalls 囲んでいる壁の数
 	 * @param OutBoundaryCells 囲んでいる壁のマス
 	 */
