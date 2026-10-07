@@ -264,6 +264,25 @@ Wander（うろうろ。行き先の選び方は種類ごと）
 - かくれんぼ以外のパートに入るたび、かくれんぼの開始時に自動で保存（`Saved/SaveGames/Kakurenbo.sav`）
 - 起動時にセーブがあれば設置パートから再開。コンソールで `KakuResetSave` を実行すると最初からやり直す
 
+## パッケージ化（配布用の .exe）
+
+UE エディタが無いパソコンでも遊べる形にする。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\Build.ps1     # 先にエディタ側をビルド
+powershell -ExecutionPolicy Bypass -File Tools\Package.ps1   # パッケージ化（-Config Shipping も指定できる）
+```
+
+- 出来上がり: `Packaged/Windows/KakurenboIncremental.exe`。配るときは `Windows` フォルダごと渡す（`Packaged/` は Git に入れない）
+- 初回はシェーダーの準備などで数十分かかる。2 回目からは速い
+- エディタのメニュー（プラットフォーム → Windows → パッケージプロジェクト）ではなく、必ずスクリプトを使う
+  - バランスの CSV（`Data/*.csv`）はアセットではないので自動では入らない。スクリプトが `KakurenboIncremental/Data` にコピーする
+    （無いとプログラムの既定値で動き、CSV と違うバランスになる）
+- 鬼の見た目（`Content/CuteCreature`）はパスでしか参照していないので、DefaultGame.ini の `DirectoriesToAlwaysCook` で必ず入れている。
+  そのパソコンに Fab アセットが無ければ、円柱の鬼のまま入る
+- **今は Development で作る**。Shipping では開発用の描画（設置パートの枠・グリッド線）が出ないので、メッシュに置き換えてから Shipping にする
+- パッケージ版のセーブはエディタで遊んだセーブとは別の場所に保存される
+
 ## 未決定事項
 
 - 罠の種類を増やすか（遅くする・閉じ込める など。Traps.csv の行を足せば同じ働きの強い版は作れる）

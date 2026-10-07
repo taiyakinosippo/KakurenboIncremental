@@ -60,6 +60,7 @@ powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       #
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
 powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # 下の一覧のシナリオ
 powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）
+powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     # 配布用の .exe（Packaged/Windows）。Data/*.csv もコピーする
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。

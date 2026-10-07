@@ -1,3 +1,6 @@
 
 # Fab asset (Cute Creature): its license does not allow putting the files in a public repo. Add it from Fab on each PC.
 KakurenboIncremental/Content/CuteCreature/
+
+# Packaged game (Tools/Package.ps1)
+/Packaged/
