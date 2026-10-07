@@ -634,9 +634,10 @@ void AKakurenboPlayerController::DrawBuildPreview() const
 	if (const APawn* P = GetPawn())
 	{
 		const FVector Floor(P->GetActorLocation().X, P->GetActorLocation().Y, Grid->CellFloorCenter(FIntPoint(0, 0)).Z + 3.f);
-		const FColor Blue(60, 150, 255);
-		DrawDebugCircle(GetWorld(), Floor, Cell * 0.4f, 32, Blue, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
-		DrawDebugCircle(GetWorld(), Floor, Cell * 0.2f, 24, Blue, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+		// 名前を HUD の Blue と分ける（ビルドで複数の .cpp が 1 つにまとめられると、同じ名前がぶつかってエラーになる）
+		const FColor StartMarkerColor(60, 150, 255);
+		DrawDebugCircle(GetWorld(), Floor, Cell * 0.4f, 32, StartMarkerColor, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+		DrawDebugCircle(GetWorld(), Floor, Cell * 0.2f, 24, StartMarkerColor, false, 0.f, 0, 6.f, FVector(1, 0, 0), FVector(0, 1, 0), false);
 	}
 
 	// 回収できる壁・罠を黄色で囲む

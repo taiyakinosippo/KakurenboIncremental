@@ -12,6 +12,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - エンジン: `C:\Program Files\Epic Games\UE_5.8`（`Tools/EnginePath.ps1` が場所を自動で探す。別の場所なら環境変数 `UE_ROOT`）
 - エディタ: VSCode（ユーザー）。ビルドは MSVC（Visual Studio 2022・MSVC 14.44）
 - 複数のパソコンで開発している。作業の前に `git pull`、終わったら push。別のパソコンの環境構築は [docs/Setup.md](docs/Setup.md)
+- **pull したら必ず `Tools\Build.ps1` でビルドし直す**（Binaries は Git に入らないので、ビルドしないと古いゲームのまま動く）
 
 ### コードの構成
 
@@ -107,6 +108,8 @@ powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           
 - コインなどインフレする数値は `double` を使う
 - ユーザーは C++ 初心者で C# 経験者。分かりにくい UE 特有の書き方には短いコメントを付ける
 - ゲームロジックは C++、見た目と配置は BP というハイブリッド構成にする
+- .cpp の無名名前空間の定数（色など）と、関数の中の変数に同じ名前を付けない。ビルドで複数の .cpp が 1 つにまとめられる（Unity ビルド）と
+  C4459 エラーになる。まとめ方はパソコンによって変わるので、片方のパソコンでは通ってしまう
 - **.h / .cpp は UTF-8（BOM 付き）で保存する**（日本語環境の MSVC が日本語コメントや文字列を誤読しないため）。
   新規作成・編集後に BOM が付いているか確認する
 
