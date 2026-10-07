@@ -60,7 +60,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 ## ビルドとテスト（UE エディタは閉じておく）
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド
+powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド（-Unity: コミット前の確認。全部まとめてビルド）
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
 powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # 下の一覧のシナリオ
 powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）
@@ -115,7 +115,9 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
 - ユーザーは C++ 初心者で C# 経験者。分かりにくい UE 特有の書き方には短いコメントを付ける
 - ゲームロジックは C++、見た目と配置は BP というハイブリッド構成にする
 - .cpp の無名名前空間の定数（色など）と、関数の中の変数に同じ名前を付けない。ビルドで複数の .cpp が 1 つにまとめられる（Unity ビルド）と
-  C4459 エラーになる。まとめ方はパソコンによって変わるので、片方のパソコンでは通ってしまう
+  C4459 エラーになる。まとめ方はパソコンによって変わるので、片方のパソコンでは通ってしまう。
+  **変更中のファイルはまとめずにビルドされる**（git status で変更があるファイル）ので、自分の作業中は通っても、コミット後・別のパソコンでは失敗する。
+  **コミット前に `Tools\Build.ps1 -Unity`**（全部まとめてビルド）で確かめる。クラスのメンバー名（`Mesh` など）と同じ名前のローカル変数も C4458 になる
 - **.h / .cpp は UTF-8（BOM 付き）で保存する**（日本語環境の MSVC が日本語コメントや文字列を誤読しないため）。
   新規作成・編集後に BOM が付いているか確認する
 

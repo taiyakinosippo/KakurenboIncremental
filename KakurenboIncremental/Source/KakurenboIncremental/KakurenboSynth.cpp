@@ -280,7 +280,7 @@ namespace KakurenboSynth
 	namespace
 	{
 		/** ラ（A4 = 440Hz）から半音いくつ分か → 高さ（Hz） */
-		float Hz(int32 SemitonesFromA4)
+		float NoteHz(int32 SemitonesFromA4)
 		{
 			return 440.f * FMath::Pow(2.f, SemitonesFromA4 / 12.f);
 		}
@@ -316,14 +316,14 @@ namespace KakurenboSynth
 				const float BarStart = Bar * 4 * Beat;
 				const int32 Chord = Bar % 4;
 				// ベース：1 拍目に根音、3 拍目に 5 度、2・4 拍目の裏で 1 オクターブ上へはねる
-				Notes.Add(Tone(BarStart, Beat * 0.9f, Hz(Roots[Chord]), 0.f, EWave::Triangle, 0.30f, 1.2f));
-				Notes.Add(Tone(BarStart + Beat * 1.5f, Beat * 0.4f, Hz(Roots[Chord] + 12), 0.f, EWave::Triangle, 0.18f, 1.5f));
-				Notes.Add(Tone(BarStart + Beat * 2.f, Beat * 0.9f, Hz(Roots[Chord] + 7), 0.f, EWave::Triangle, 0.26f, 1.2f));
-				Notes.Add(Tone(BarStart + Beat * 3.5f, Beat * 0.4f, Hz(Roots[Chord] + 12), 0.f, EWave::Triangle, 0.18f, 1.5f));
+				Notes.Add(Tone(BarStart, Beat * 0.9f, NoteHz(Roots[Chord]), 0.f, EWave::Triangle, 0.30f, 1.2f));
+				Notes.Add(Tone(BarStart + Beat * 1.5f, Beat * 0.4f, NoteHz(Roots[Chord] + 12), 0.f, EWave::Triangle, 0.18f, 1.5f));
+				Notes.Add(Tone(BarStart + Beat * 2.f, Beat * 0.9f, NoteHz(Roots[Chord] + 7), 0.f, EWave::Triangle, 0.26f, 1.2f));
+				Notes.Add(Tone(BarStart + Beat * 3.5f, Beat * 0.4f, NoteHz(Roots[Chord] + 12), 0.f, EWave::Triangle, 0.18f, 1.5f));
 				// 薄い和音（ゆらゆらさせて、少し不気味に）
 				for (const int32 Tone3 : Chords[Chord])
 				{
-					Notes.Add(Vibrato(Tone(BarStart, Beat * 4.f, Hz(Tone3 - 12), 0.f, EWave::Sine, 0.05f, 0.6f), 0.012f, 4.5f));
+					Notes.Add(Vibrato(Tone(BarStart, Beat * 4.f, NoteHz(Tone3 - 12), 0.f, EWave::Sine, 0.05f, 0.6f), 0.012f, 4.5f));
 				}
 				// オルゴールのメロディ
 				for (int32 i = 0; i < 8; ++i)
@@ -333,8 +333,8 @@ namespace KakurenboSynth
 						continue;
 					}
 					const float Start = BarStart + i * Eighth;
-					Notes.Add(Tone(Start, 0.45f, Hz(Melody[Bar][i]), 0.f, EWave::Sine, 0.16f, 2.2f));
-					Notes.Add(Tone(Start, 0.25f, Hz(Melody[Bar][i] + 12), 0.f, EWave::Triangle, 0.04f, 2.5f));
+					Notes.Add(Tone(Start, 0.45f, NoteHz(Melody[Bar][i]), 0.f, EWave::Sine, 0.16f, 2.2f));
+					Notes.Add(Tone(Start, 0.25f, NoteHz(Melody[Bar][i] + 12), 0.f, EWave::Triangle, 0.04f, 2.5f));
 				}
 				// 小さなチクタク（裏拍）
 				for (int32 BeatIndex = 0; BeatIndex < 4; ++BeatIndex)
@@ -372,7 +372,7 @@ namespace KakurenboSynth
 				{
 					const float Start = BarStart + i * Eighth;
 					// ベース：8 分で根音とオクターブを交互に
-					Notes.Add(Tone(Start, Eighth * 0.8f, Hz(Roots[Chord] + ((i % 2 == 1) ? 12 : 0)), 0.f, EWave::Triangle, 0.26f, 1.4f));
+					Notes.Add(Tone(Start, Eighth * 0.8f, NoteHz(Roots[Chord] + ((i % 2 == 1) ? 12 : 0)), 0.f, EWave::Triangle, 0.26f, 1.4f));
 					// ハイハット（裏）
 					if (i % 2 == 1)
 					{
@@ -382,7 +382,7 @@ namespace KakurenboSynth
 					const int32 Pitch = Lead[Chord][i];
 					if (Pitch != Rest)
 					{
-						Notes.Add(Tone(Start, Eighth * 0.6f, Hz(Pitch + (bSecondHalf ? 12 : 0)), 0.f, EWave::Square, 0.07f, 1.5f));
+						Notes.Add(Tone(Start, Eighth * 0.6f, NoteHz(Pitch + (bSecondHalf ? 12 : 0)), 0.f, EWave::Square, 0.07f, 1.5f));
 					}
 				}
 				// 太鼓：1・3 拍目にキック、2・4 拍目にスネア
@@ -399,7 +399,7 @@ namespace KakurenboSynth
 					}
 				}
 				// 小節の頭の鐘（揺れる高い音で、夜の館っぽく）
-				Notes.Add(Vibrato(Tone(BarStart, Beat * 2.5f, Hz(Bells[Chord]), 0.f, EWave::Sine, 0.06f, 1.f), 0.01f, 6.f));
+				Notes.Add(Vibrato(Tone(BarStart, Beat * 2.5f, NoteHz(Bells[Chord]), 0.f, EWave::Sine, 0.06f, 1.f), 0.01f, 6.f));
 			}
 			return Notes;
 		}

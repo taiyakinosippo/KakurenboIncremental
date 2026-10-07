@@ -308,12 +308,12 @@ void AOniCharacter::BuildTypeDecoration()
 	if (OniType == EOniType::Treasure)
 	{
 		// 金の王冠（輪と、ふちの宝石）
-		const FLinearColor Gold(1.f, 0.72f, 0.1f);
-		AddPart(Cylinder, FVector(0.f, 0.f, HeadZ + 10.f), FVector(0.5f, 0.5f, 0.22f), Gold);
+		const FLinearColor CrownGold(1.f, 0.72f, 0.1f);
+		AddPart(Cylinder, FVector(0.f, 0.f, HeadZ + 10.f), FVector(0.5f, 0.5f, 0.22f), CrownGold);
 		for (int32 i = 0; i < 5; ++i)
 		{
 			const float Angle = i * 2.f * UE_PI / 5.f;
-			AddPart(Sphere, FVector(FMath::Cos(Angle) * 23.f, FMath::Sin(Angle) * 23.f, HeadZ + 26.f), FVector(0.12f), i % 2 == 0 ? FLinearColor(1.f, 0.1f, 0.3f) : Gold);
+			AddPart(Sphere, FVector(FMath::Cos(Angle) * 23.f, FMath::Sin(Angle) * 23.f, HeadZ + 26.f), FVector(0.12f), i % 2 == 0 ? FLinearColor(1.f, 0.1f, 0.3f) : CrownGold);
 		}
 		TypeMarker->SetRelativeLocation(FVector(0.f, 0.f, HeadZ + 55.f));
 	}
