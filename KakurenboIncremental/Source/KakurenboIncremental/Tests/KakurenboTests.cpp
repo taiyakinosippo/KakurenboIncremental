@@ -272,8 +272,9 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		}
 		const FKakurenboPrestigeUpgradeRow* Jump = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Jump"), TEXT("Test"));
 		TestTrue(TEXT("jump is a one-time unlock"), Jump && Jump->MaxLevel == 1);
-		const FKakurenboPrestigeUpgradeRow* Cooldown = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("DashCooldown"), TEXT("Test"));
-		TestTrue(TEXT("dash cooldown gets shorter"), Cooldown && Cooldown->ValueGrowth < 1.0 && Cooldown->BaseValue > 0.0);
+		// 煙幕ダッシュは回数制（足し算）。最初から 1 回は使えて、レベルで増える
+		const FKakurenboPrestigeUpgradeRow* Smoke = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("SmokeCount"), TEXT("Test"));
+		TestTrue(TEXT("smoke uses start at 1 or more and grow"), Smoke && Smoke->BaseValue >= 1.0 && Smoke->ValueGrowth >= 1.0 && Smoke->MaxLevel > 0);
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{

@@ -80,33 +80,40 @@ public:
 	/** 設置パートのカメラを傾ける（プラスで横から見る向き、マイナスで真上に戻る向き） */
 	void AddTopDownTilt(float DeltaDegrees);
 
-	// ===== ダッシュ（かくれんぼ中に Shift。転生のお店で解放し、速さ・クールタイムも強化される） =====
+	// ===== 煙幕ダッシュ（かくれんぼ中に Shift。足元に煙幕を投げて走る。1 ラウンドに使える回数が決まっている。
+	//       転生のお店で解放し、速さ・回数も強化される） =====
 
-	/** ダッシュが使えるか（最初は使えない。GameMode が転生のお店のレベルから設定する） */
+	/** 煙幕ダッシュが使えるか（最初は使えない。GameMode が転生のお店のレベルから設定する） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
 	bool bDashUnlocked = false;
 
-	/** ダッシュ中の速さの倍率（歩く速さ 420 × これ） */
+	/** ダッシュ中の速さの倍率（歩く速さ 420 × これ。強化では変わらない。強化で伸びるのは煙幕が残る時間） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
-	float DashSpeedMultiplier = 1.8f;
+	float DashSpeedMultiplier = 1.4f;
 
 	/** ダッシュが続く時間（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
 	float DashDuration = 1.5f;
 
-	/** ダッシュしてから次にダッシュできるまでの時間（秒。ダッシュ中の時間も含む） */
+	/** 1 ラウンドに煙幕ダッシュを使える回数（GameMode が転生のお店の「煙幕の数」から設定する） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
-	float DashCooldown = 6.f;
+	int32 DashUsesPerRound = 1;
 
 	/** ダッシュの音の大きさ（1 = 連打と同じ距離まで届く） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Dash")
 	float DashNoiseLoudness = 1.5f;
 
-	/** ダッシュを始める。解放していない・クールタイム中なら false */
+	/** 煙幕ダッシュを始める。解放していない・回数が残っていない・ダッシュ中なら false */
 	bool TryStartDash();
 
-	/** ダッシュをやめてクールタイムも消す（ラウンドの始まり） */
+	/** ダッシュをやめて回数を元に戻す（ラウンドの始まり） */
 	void ResetDash();
+
+	/** このラウンドで残っている煙幕ダッシュの回数 */
+	int32 GetDashUsesLeft() const { return DashUsesLeft; }
+
+	/** 残りの回数を増やす・減らす（転生のお店で回数が変わったとき） */
+	void AddDashUses(int32 Delta) { DashUsesLeft = FMath::Max(0, DashUsesLeft + Delta); }
 
 	// ===== 足音・しのび足 =====
 
@@ -126,9 +133,6 @@ public:
 	int32 GetStepCount() const { return StepCount; }
 
 	bool IsDashing() const { return DashTimeRemaining > 0.f; }
-
-	/** 次にダッシュできるまでの残り秒数（0 ならすぐできる） */
-	float GetDashCooldownRemaining() const { return DashCooldownRemaining; }
 
 	// ===== 三人称カメラ =====
 
@@ -188,7 +192,7 @@ private:
 
 	float WalkSpeed = 420.f;
 	float DashTimeRemaining = 0.f;
-	float DashCooldownRemaining = 0.f;
+	int32 DashUsesLeft = 0;
 
 	bool bSneaking = false;
 	float StepDistance = 0.f;

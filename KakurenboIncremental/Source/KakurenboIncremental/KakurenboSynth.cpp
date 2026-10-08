@@ -178,6 +178,14 @@ namespace KakurenboSynth
 				Tone(0.00f, 0.20f, 90.f, 60.f, EWave::Sine, 0.40f, 2.f),
 			};
 
+		case EKakurenboSfx::Smoke:
+			// 煙幕「ボフッ…シューッ」
+			return {
+				Tone(0.00f, 0.18f, 150.f, 70.f, EWave::Sine, 0.45f, 2.f),
+				Noise(0.00f, 0.25f, 0.45f, 0.2f, 1.5f),
+				Noise(0.08f, 0.70f, 0.22f, 0.6f, 1.2f),
+			};
+
 		default:
 			return {};
 		}

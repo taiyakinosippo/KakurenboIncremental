@@ -9,7 +9,7 @@
 //   リザルト（俯瞰）      マウス / Q・E: カメラ回転 / ホイール: ズーム
 //   設置（真上から）       WASD: カメラを動かす / カーソル+左クリック: 壁・罠を置く / 右クリック: 回収 / T: スタート位置をカーソルのマスへ
 //                         数字キー・下の欄をクリック: 置く物（壁の種類 → 罠の種類の順） / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
-//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / Shift: ダッシュ / 左クリック・F: 連打 / ホイール: カメラの距離
+//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Space: ジャンプ / Shift: 煙幕ダッシュ（回数制） / 左クリック・F: 連打 / ホイール: カメラの距離
 
 #pragma once
 
@@ -174,7 +174,7 @@ public:
 	UFUNCTION(Exec)
 	void KakuPrestige();
 
-	/** ダッシュする（かくれんぼ中に Shift を押すのと同じ） */
+	/** 煙幕ダッシュする（かくれんぼ中に Shift を押すのと同じ） */
 	UFUNCTION(Exec)
 	void KakuDash();
 
@@ -196,7 +196,7 @@ public:
 	 *           Treasure（お宝） / Build（壁の設置・破壊・自動修復） / Camera（視点と操作）
 	 *           Entrance / Closed / Pocket / Spin / Breaker / Careful（鬼の移動と種類）
 	 *           Trap（罠） / Shop（商品の並び・壊れた数・罠の値段） / Fx（演出と効果音）
-	 *           Gate（鬼の出入り口） / Crowd（鬼どうしのすれ違い） / Quiet（消音壁） / Dash（ダッシュ） / Prestige（転生）
+	 *           Gate（鬼の出入り口） / Crowd（鬼どうしのすれ違い） / Quiet（消音壁） / Dash（煙幕ダッシュ） / Prestige（転生）
 	 *           BackToShop / Steps / TreasureOni / Detector / CarefulSweep / Maps / Sounds / Mood（M9）
 	 * 起動例: UnrealEditor.exe <uproject> -game -ExecCmds="KakuAutoTest Senses"
 	 * 実装は KakurenboAutoTest.cpp

@@ -11,6 +11,7 @@
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerInput.h"
 #include "HiderCharacter.h"
@@ -31,6 +32,7 @@
 #include "Misc/Paths.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
+#include "SmokeCloud.h"
 #include "TimerManager.h"
 #include "TrapActor.h"
 #include "TreasureActor.h"
@@ -2023,8 +2025,18 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Dash
 	else if (Scenario.Equals(TEXT("Dash"), ESearchCase::IgnoreCase))
 	{
-		// Shift でダッシュ：しばらく速くなり、大きな音が出る（連打より遠くまで届く）。クールタイムがある
+		// Shift で煙幕ダッシュ：足元に煙幕を投げて、しばらく速くなる。大きな音が出る（連打より遠くまで届く）。
+		// 1 ラウンドに使える回数が決まっている（クールタイムは無い）。煙の向こうは鬼から見えない
 		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		auto SmokeCount = [this]()
+		{
+			int32 Count = 0;
+			for (TActorIterator<ASmokeCloud> It(GetWorld()); It; ++It)
+			{
+				++Count;
+			}
+			return Count;
+		};
 		Steps.Add({ 0.3f, [=, this]
 		{
 			SetStageOniTypes({ EOniType::Balanced });
@@ -2046,24 +2058,40 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			{
 				Check(FString::Printf(TEXT("a mash does not reach the oni 13m away (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Investigate);
 				Check(TEXT("Shift does nothing before the dash is unlocked"), !GetHider()->IsDashing() && Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore);
-				// 転生のお店でダッシュの速さ Lv1 を買ったことにする（クールタイムは Lv0 のまま）
-				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::DashSpeed)] = 1;
+				// 煙幕が残る時間は「煙幕ダッシュ」のレベルで 1 秒〜7 秒
+				Check(FString::Printf(TEXT("smoke lasts 1s at Lv1 and 7s at most (Lv1 %.1f, Lv4 %.1f, Lv9 %.1f)"), GM->GetSmokeDuration(1), GM->GetSmokeDuration(4), GM->GetSmokeDuration(9)),
+					FMath::IsNearlyEqual(GM->GetSmokeDuration(1), 1.f) && FMath::IsNearlyEqual(GM->GetSmokeDuration(4), 7.f) && GM->GetSmokeDuration(9) <= 7.f
+					&& GM->GetSmokeDuration(2) > GM->GetSmokeDuration(1));
+				// 転生のお店で煙幕ダッシュを買ったことにする（煙幕の数は Lv0 = 1 ラウンドに 1 回）。
+				// 煙がすぐ消えると後の確認がしにくいので、残る時間は一番長い Lv4（7 秒）にする
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::SmokeDuration)] = 4;
 				GM->ApplyPrestigeToPlayer();
+				Check(FString::Printf(TEXT("unlocking gives this round's uses (%d left, %d per round)"), GetHider()->GetDashUsesLeft(), GM->GetSmokeUsesPerRound()),
+					GetHider()->GetDashUsesLeft() == GM->GetSmokeUsesPerRound() && GM->GetSmokeUsesPerRound() == 1);
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
 			const int32 SoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Dash);
+			const int32 SmokeSoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Smoke);
 			SimulateKey(EKeys::LeftShift, IE_Pressed);
 			SimulateKey(EKeys::LeftShift, IE_Released);
 			SimulateKey(EKeys::W, IE_Pressed);
 			NextTick([=, this]
 			{
 				AHiderCharacter* Hider = GetHider();
-				const float Expected = 420.f * static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashSpeed, 1));
+				const float Expected = 420.f * Hider->DashSpeedMultiplier;
 				Check(FString::Printf(TEXT("after unlocking, Shift starts a dash (speed %.0f, expected %.0f)"), Hider->GetCharacterMovement()->MaxWalkSpeed, Expected),
-					Hider->IsDashing() && FMath::IsNearlyEqual(Hider->GetCharacterMovement()->MaxWalkSpeed, Expected, 1.f));
+					Hider->IsDashing() && FMath::IsNearlyEqual(Hider->GetCharacterMovement()->MaxWalkSpeed, Expected, 1.f) && Expected > 500.f);
 				Check(TEXT("dash makes the dash sound"), Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore + 1);
+				float CloudDuration = -1.f;
+				for (TActorIterator<ASmokeCloud> It(GetWorld()); It; ++It)
+				{
+					CloudDuration = It->Duration;
+				}
+				Check(FString::Printf(TEXT("a smoke cloud is thrown at the feet (%d clouds, smoke sound %d, lasts %.1fs)"), SmokeCount(), Sound()->GetPlayCount(EKakurenboSfx::Smoke) - SmokeSoundBefore, CloudDuration),
+					SmokeCount() == 1 && Sound()->GetPlayCount(EKakurenboSfx::Smoke) == SmokeSoundBefore + 1 && FMath::IsNearlyEqual(CloudDuration, GM->GetSmokeDuration()));
+				Check(FString::Printf(TEXT("one use is spent (%d left)"), Hider->GetDashUsesLeft()), Hider->GetDashUsesLeft() == 0);
 				Check(FString::Printf(TEXT("the loud dash reaches the oni 13m away (intent=%s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())), TheOni()->GetIntent() == EOniState::Investigate);
 			});
 		} });
@@ -2072,15 +2100,6 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const float Speed = GetHider()->GetVelocity().Size2D();
 			Check(FString::Printf(TEXT("running faster while dashing (%.0f cm/s)"), Speed), Speed > 520.f);
 			Shot(TEXT("dash_01_dashing"));
-			// クールタイム中はもう一度押してもダッシュしない
-			const int32 SoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Dash);
-			SimulateKey(EKeys::LeftShift, IE_Pressed);
-			SimulateKey(EKeys::LeftShift, IE_Released);
-			NextTick([=, this]
-			{
-				Check(FString::Printf(TEXT("cooldown: no second dash right away (cooldown %.1fs)"), GetHider()->GetDashCooldownRemaining()),
-					Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore && GetHider()->GetDashCooldownRemaining() > 0.f);
-			});
 		} });
 		Steps.Add({ 1.2f, [=, this]
 		{
@@ -2088,13 +2107,56 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			AHiderCharacter* Hider = GetHider();
 			Check(FString::Printf(TEXT("the dash ends and the speed goes back (%.0f)"), Hider->GetCharacterMovement()->MaxWalkSpeed),
 				!Hider->IsDashing() && FMath::IsNearlyEqual(Hider->GetCharacterMovement()->MaxWalkSpeed, 420.f, 1.f));
-			Shot(TEXT("dash_02_cooldown"));
-			TheOni()->Deactivate();
+			// 回数を使い切ったら、もう一度押してもダッシュしない（クールタイムで戻ったりしない）
+			const int32 SoundBefore = Sound()->GetPlayCount(EKakurenboSfx::Dash);
+			SimulateKey(EKeys::LeftShift, IE_Pressed);
+			SimulateKey(EKeys::LeftShift, IE_Released);
+			NextTick([=, this]
+			{
+				Check(TEXT("no uses left: Shift does nothing"), !GetHider()->IsDashing() && Sound()->GetPlayCount(EKakurenboSfx::Dash) == SoundBefore && SmokeCount() == 1);
+			});
+			// 振り返って煙幕を撮る
+			SetControlRotation(FRotator(-15.f, -90.f, 0.f));
+			ShotLater(TEXT("dash_02_smoke"));
 		} });
-		Steps.Add({ 6.5f, [=, this]
+
+		// 煙幕の向こうは見えない：追いかけてくる鬼の前で煙幕ダッシュすると見失う
+		Steps.Add({ 1.0f, [=, this]
 		{
-			Check(FString::Printf(TEXT("after the cooldown (%.1fs), can dash again (%.1fs left)"), GetHider()->DashCooldown, GetHider()->GetDashCooldownRemaining()),
-				GetHider()->GetDashCooldownRemaining() <= 0.f && FMath::IsNearlyEqual(GetHider()->DashCooldown, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashCooldown, 0))));
+			// 1 回目の煙幕から離れた場所で。鬼はプレイヤーの後ろ 6m、プレイヤーは鬼に背を向ける
+			const FIntPoint Me(Grid()->GetSizeX() - 6, 5);
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			SetControlRotation(FRotator(-20.f, -90.f, 0.f));
+			AOniCharacter* Oni = TheOni();
+			Oni->SightRadius = 3000.f;
+			Oni->SightHalfAngle = 180.f;
+			Oni->CloseSenseRadius = 150.f;
+			Oni->HearingRadius = 0.f;
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Me + FIntPoint(0, 6)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// 「煙幕の数」を 1 つ上げたことにする（ラウンドの途中でも、増えた分は使える）
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::SmokeCount)] = 1;
+			GM->ApplyPrestigeToPlayer();
+			Check(FString::Printf(TEXT("buying one more smoke adds a use (%d left)"), GetHider()->GetDashUsesLeft()), GetHider()->GetDashUsesLeft() == 1);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the oni behind sees the player and chases (intent=%s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				TheOni()->GetIntent() == EOniState::Chase && TheOni()->IsTargetInSight());
+			SimulateKey(EKeys::LeftShift, IE_Pressed);
+			SimulateKey(EKeys::LeftShift, IE_Released);
+			SimulateKey(EKeys::W, IE_Pressed);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("smoke between them: the oni loses sight (in sight=%d, clouds=%d)"), TheOni()->IsTargetInSight() ? 1 : 0, SmokeCount()),
+				!TheOni()->IsTargetInSight() && SmokeCount() >= 1);
+			Check(TEXT("still hiding"), GS()->Phase == EKakurenboPhase::Hide);
+			ShotLater(TEXT("dash_03_smoke_blocks"));
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			SimulateKey(EKeys::W, IE_Released);
+			TheOni()->Deactivate();
 		} });
 	}
 	// ================================================================ Prestige（転生）
@@ -2202,17 +2264,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GS()->PrestigePoints += 20;
 				const double TreasureBefore = GM->GetTreasureValue();
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::DashSpeed) + 1);
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::DashCooldown) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeDuration) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1);
 				const int32 PointsAfter = GS()->PrestigePoints;
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
 				Check(FString::Printf(TEXT("treasure upgrade raises the treasure value (%.1f -> %.1f)"), TreasureBefore, GM->GetTreasureValue()),
 					FMath::IsNearlyEqual(GM->GetTreasureValue(), TreasureBefore * GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 1) / GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 0), 0.01));
-				Check(FString::Printf(TEXT("dash unlocked with its speed and cooldown (x%.2f, %.1fs)"), Hider->DashSpeedMultiplier, Hider->DashCooldown),
-					Hider->bDashUnlocked && FMath::IsNearlyEqual(Hider->DashSpeedMultiplier, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashSpeed, 1)), 0.001f)
-					&& FMath::IsNearlyEqual(Hider->DashCooldown, static_cast<float>(GM->GetPrestigeValue(EPrestigeUpgrade::DashCooldown, 1)), 0.001f));
+				Check(FString::Printf(TEXT("smoke dash unlocked with its smoke time and uses (%.1fs, %d per round)"), GM->GetSmokeDuration(), Hider->DashUsesPerRound),
+					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
+					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
 				Check(TEXT("jump unlocked"), Hider->JumpMaxCount == 1 && GM->IsJumpUnlocked());
 				Check(TEXT("jump is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Jump)].bMaxed);
 			});

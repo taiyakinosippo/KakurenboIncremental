@@ -76,8 +76,8 @@ enum class EPrestigeUpgrade : uint8
 {
 	WallHP       UMETA(DisplayName = "WallHP"),       // 壁の硬さ：すべての壁の耐久の倍率
 	Treasure     UMETA(DisplayName = "Treasure"),     // お宝の強化：お宝の価値の倍率
-	DashSpeed    UMETA(DisplayName = "DashSpeed"),    // ダッシュの速さ：Lv1 でダッシュが使えるようになる
-	DashCooldown UMETA(DisplayName = "DashCooldown"), // ダッシュの回復：クールタイム（秒）
+	SmokeDuration UMETA(DisplayName = "SmokeDuration"), // 煙幕ダッシュ：Lv1 で使えるようになる。上げると煙が長く残る（1〜7 秒）
+	SmokeCount   UMETA(DisplayName = "SmokeCount"),   // 煙幕の数：1 ラウンドに煙幕ダッシュを使える回数（1 + Lv）。セーブの並びを変えないよう、元の「ダッシュの回復」の場所
 	Jump         UMETA(DisplayName = "Jump"),         // ジャンプ：Lv1 でジャンプできるようになる
 	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
 	Count        UMETA(Hidden)
@@ -111,6 +111,7 @@ enum class EKakurenboSfx : uint8
 	OniStep       UMETA(DisplayName = "OniStep"),       // 鬼の足音（どたどた。その場所から聞こえる）
 	TreasureSparkle UMETA(DisplayName = "TreasureSparkle"), // お宝のキラキラ（その場所から聞こえる）
 	Summon        UMETA(DisplayName = "Summon"),        // 探知鬼が仲間を呼んだ
+	Smoke         UMETA(DisplayName = "Smoke"),         // 煙幕を投げた（ボフッ）
 	Count         UMETA(Hidden)
 };
 

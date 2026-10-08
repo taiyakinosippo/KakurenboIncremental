@@ -150,7 +150,6 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 			UpdateWalkSpeed();
 		}
 	}
-	DashCooldownRemaining = FMath::Max(0.f, DashCooldownRemaining - DeltaSeconds);
 
 	// 足音：地面を歩いた距離が 1 歩ぶんになるたびに鳴る（ダッシュ中は歩幅が広い）
 	const FVector Loc = GetActorLocation();
@@ -204,12 +203,13 @@ void AHiderCharacter::PlayMashFeedback()
 
 bool AHiderCharacter::TryStartDash()
 {
-	if (!bDashUnlocked || DashCooldownRemaining > 0.f)
+	// 回数制（クールタイムは無い）。ダッシュ中にもう一度押しても使わない
+	if (!bDashUnlocked || DashUsesLeft <= 0 || IsDashing())
 	{
 		return false;
 	}
+	--DashUsesLeft;
 	DashTimeRemaining = DashDuration;
-	DashCooldownRemaining = DashCooldown;
 	UpdateWalkSpeed();
 	return true;
 }
@@ -217,7 +217,7 @@ bool AHiderCharacter::TryStartDash()
 void AHiderCharacter::ResetDash()
 {
 	DashTimeRemaining = 0.f;
-	DashCooldownRemaining = 0.f;
+	DashUsesLeft = bDashUnlocked ? FMath::Max(0, DashUsesPerRound) : 0;
 	UpdateWalkSpeed();
 }
 

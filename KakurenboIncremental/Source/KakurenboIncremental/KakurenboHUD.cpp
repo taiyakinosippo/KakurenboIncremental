@@ -610,18 +610,21 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		}
 	}
 
-	// ダッシュ（下部中央の少し上）
+	// 煙幕ダッシュの残りの回数（下部中央の少し上）。1 回ぶんを 1 つの四角で表す
 	if (const AHiderCharacter* Hider = Cast<AHiderCharacter>(Pawn); Hider && Hider->bDashUnlocked)
 	{
-		const float GaugeW = 260, GaugeX = (CanvasW - GaugeW) * 0.5f, GaugeY = CanvasH - 150;
-		const float Cooldown = Hider->GetDashCooldownRemaining();
-		const float Ready = Hider->DashCooldown > 0.f ? 1.f - Cooldown / Hider->DashCooldown : 1.f;
-		Panel(GaugeX, GaugeY, GaugeW, 10, FLinearColor(0.f, 0.f, 0.f, 0.6f));
-		Panel(GaugeX, GaugeY, GaugeW * Ready, 10, Cooldown <= 0.f ? FLinearColor(0.4f, 1.f, 0.5f, 0.9f) : FLinearColor(0.6f, 0.6f, 0.6f, 0.8f));
-		const FString DashText = Hider->IsDashing() ? FString(TEXT("ダッシュ中！（大きな音が出た）"))
-			: Cooldown > 0.f ? FString::Printf(TEXT("ダッシュ あと %.1f 秒"), Cooldown)
-			: FString(TEXT("Shift: ダッシュできる（速いが大きな音が出る）"));
-		Text(DashText, 0, GaugeY - 30, 18, Hider->IsDashing() ? Warn : (Cooldown > 0.f ? Gray : Good), true);
+		const int32 Uses = FMath::Max(1, Hider->DashUsesPerRound);
+		const int32 Left = Hider->GetDashUsesLeft();
+		const float BoxW = 28, Gap = 8, RowW = Uses * BoxW + (Uses - 1) * Gap;
+		const float RowX = (CanvasW - RowW) * 0.5f, RowY = CanvasH - 152;
+		for (int32 i = 0; i < Uses; ++i)
+		{
+			Panel(RowX + i * (BoxW + Gap), RowY, BoxW, 12, i < Left ? FLinearColor(0.75f, 0.75f, 0.8f, 0.95f) : FLinearColor(0.f, 0.f, 0.f, 0.6f));
+		}
+		const FString DashText = Hider->IsDashing() ? FString(TEXT("煙幕ダッシュ！（大きな音が出た。煙の向こうは鬼から見えない）"))
+			: Left > 0 ? FString::Printf(TEXT("Shift: 煙幕ダッシュ　あと %d 回"), Left)
+			: FString(TEXT("煙幕はもう無い（次のラウンドで元に戻る）"));
+		Text(DashText, 0, RowY - 30, 18, Hider->IsDashing() ? Warn : (Left > 0 ? Good : Gray), true);
 	}
 
 	// 消音壁で囲まれていれば、音がどれだけ小さくなっているか
@@ -657,7 +660,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 	if (GM->IsDashUnlocked())
 	{
-		Controls += TEXT("Shift: ダッシュ　");
+		Controls += TEXT("Shift: 煙幕ダッシュ　");
 	}
 	Controls += FString::Printf(TEXT("左クリック / F: 連打 (+%s・音が出る)　マウス: カメラ"), *Stat(GM->GetMashIncome()));
 	Text(Controls, 0, CanvasH - 90, 22, FLinearColor::White, true);

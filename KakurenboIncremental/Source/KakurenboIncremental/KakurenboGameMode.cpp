@@ -29,6 +29,7 @@
 #include "Misc/FileHelper.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
+#include "SmokeCloud.h"
 #include "TrapActor.h"
 #include "TreasureActor.h"
 
@@ -119,8 +120,8 @@ AKakurenboGameMode::AKakurenboGameMode()
 	};
 	AddPrestigeUpgrade(TEXT("壁の硬さ"), 0, 1.0, 1.5, 1.0, 1.5);      // WallHP: 耐久 ×1.5^Lv
 	AddPrestigeUpgrade(TEXT("お宝の強化"), 0, 1.0, 1.5, 1.0, 1.5);    // Treasure: お宝の価値 ×1.5^Lv
-	AddPrestigeUpgrade(TEXT("ダッシュの速さ"), 4, 2.0, 1.6, 1.25, 1.12); // DashSpeed: Lv1 で解放（×1.4）
-	AddPrestigeUpgrade(TEXT("ダッシュの回復"), 6, 1.0, 1.5, 8.0, 0.85); // DashCooldown: 8 秒 ×0.85^Lv
+	AddPrestigeUpgrade(TEXT("煙幕ダッシュ"), 4, 2.0, 1.6, 1.0, 2.0);   // SmokeDuration: Lv1 で解放。煙が残る時間 1 + 2×(Lv-1) 秒
+	AddPrestigeUpgrade(TEXT("煙幕の数"), 3, 2.0, 2.0, 1.0, 1.0);       // SmokeCount: 1 ラウンドに 1 + Lv 回
 	AddPrestigeUpgrade(TEXT("ジャンプ"), 1, 2.0, 1.0, 1.0, 1.0);       // Jump: Lv1 で解放
 	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
 	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
@@ -575,17 +576,17 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 		case EPrestigeUpgrade::Treasure:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝の価値 ×{0} → ×{1}"), Fmt(Now), Fmt(Next));
 			break;
-		case EPrestigeUpgrade::DashSpeed:
-			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashMax", "ダッシュの速さ ×{0}"), Fmt(Now))
-				: Level == 0 ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashUnlock", "Shift でダッシュできるようになる（速さ ×{0}・大きな音が出る）"), Fmt(Next))
-				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashDesc", "ダッシュの速さ ×{0} → ×{1}"), Fmt(Now), Fmt(Next));
+		case EPrestigeUpgrade::SmokeDuration:
+			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeTimeMax", "煙幕が残る時間 {0} 秒"), Fmt(GetSmokeDuration(Level)))
+				: Level == 0 ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeDashUnlock", "Shift で煙幕を投げて走る（煙の向こうは鬼から見えない・煙 {0} 秒・大きな音）"), Fmt(GetSmokeDuration(1)))
+				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeTimeDesc", "煙幕が残る時間 {0} 秒 → {1} 秒"), Fmt(GetSmokeDuration(Level)), Fmt(GetSmokeDuration(Level + 1)));
 			break;
-		case EPrestigeUpgrade::DashCooldown:
-			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeCooldownMax", "ダッシュのクールタイム {0} 秒"), Fmt(Now))
-				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeCooldownDesc", "ダッシュのクールタイム {0} 秒 → {1} 秒"), Fmt(Now), Fmt(Next));
+		case EPrestigeUpgrade::SmokeCount:
+			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeMax", "煙幕ダッシュ 1 ラウンドに {0} 回"), GetSmokeUsesPerRound(Level))
+				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeDesc", "煙幕ダッシュ 1 ラウンドに {0} 回 → {1} 回"), GetSmokeUsesPerRound(Level), GetSmokeUsesPerRound(Level + 1));
 			if (!IsDashUnlocked())
 			{
-				Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeNeedDash", "{0}（ダッシュの速さを買うと使える）"), Item.Description);
+				Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeNeedDash", "{0}（煙幕ダッシュを買うと使える）"), Item.Description);
 			}
 			break;
 		case EPrestigeUpgrade::Jump:
@@ -653,11 +654,41 @@ void AKakurenboGameMode::ApplyPrestigeToPlayer()
 	{
 		return;
 	}
-	// ダッシュ・ジャンプは最初は使えない。転生のお店で解放する
+	// 煙幕ダッシュ・ジャンプは最初は使えない。転生のお店で解放する。
+	// かくれんぼの途中で回数が増えたら（テストなど）、増えた分だけ今のラウンドでも使えるようにする
+	const int32 OldUses = Hider->bDashUnlocked ? Hider->DashUsesPerRound : 0;
 	Hider->bDashUnlocked = IsDashUnlocked();
-	Hider->DashSpeedMultiplier = static_cast<float>(GetPrestigeValue(EPrestigeUpgrade::DashSpeed));
-	Hider->DashCooldown = static_cast<float>(GetPrestigeValue(EPrestigeUpgrade::DashCooldown));
+	Hider->DashUsesPerRound = GetSmokeUsesPerRound();
+	const int32 NewUses = Hider->bDashUnlocked ? Hider->DashUsesPerRound : 0;
+	Hider->AddDashUses(NewUses - OldUses);
 	Hider->JumpMaxCount = IsJumpUnlocked() ? 1 : 0; // JumpMaxCount: 空中も含めて続けて跳べる回数（0 なら跳べない）
+}
+
+int32 AKakurenboGameMode::GetSmokeUsesPerRound(int32 Level) const
+{
+	const int32 Index = static_cast<int32>(EPrestigeUpgrade::SmokeCount);
+	if (!PrestigeUpgrades.IsValidIndex(Index))
+	{
+		return 1 + Level;
+	}
+	const FKakurenboPrestigeUpgradeRow& Row = PrestigeUpgrades[Index];
+	// 古いセーブの「ダッシュの回復」のレベル（最大 6）を引き継いでも、最大レベルを超えないようにする
+	const int32 ClampedLevel = Row.MaxLevel > 0 ? FMath::Min(Level, Row.MaxLevel) : Level;
+	return FMath::Max(0, FMath::RoundToInt(Row.BaseValue + Row.ValueGrowth * ClampedLevel));
+}
+
+float AKakurenboGameMode::GetSmokeDuration(int32 Level) const
+{
+	// 「煙幕ダッシュ」の行も足し算：Lv1 で BaseValue 秒、1 Lv ごとに ValueGrowth 秒のびる（1〜7 秒に収める）
+	const int32 Index = static_cast<int32>(EPrestigeUpgrade::SmokeDuration);
+	float Seconds = 1.f + 2.f * (FMath::Max(Level, 1) - 1);
+	if (PrestigeUpgrades.IsValidIndex(Index))
+	{
+		const FKakurenboPrestigeUpgradeRow& Row = PrestigeUpgrades[Index];
+		const int32 ClampedLevel = Row.MaxLevel > 0 ? FMath::Min(FMath::Max(Level, 1), Row.MaxLevel) : FMath::Max(Level, 1);
+		Seconds = static_cast<float>(Row.BaseValue + Row.ValueGrowth * (ClampedLevel - 1));
+	}
+	return FMath::Clamp(Seconds, MinSmokeDuration, MaxSmokeDuration);
 }
 
 TArray<FWallTypeDef> AKakurenboGameMode::GetEffectiveWallTypes() const
@@ -1281,6 +1312,20 @@ void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness
 	// ダッシュは大きな音が出る（消音壁で囲まれていれば小さくなる）
 	MakePlayerNoise(NoiseLocation, Loudness, DashSoundDamage, FLinearColor(1.f, 0.45f, 0.2f), 22.f, EKakurenboNoise::Dash);
 	Sfx2D(this, EKakurenboSfx::Dash, 0.9f);
+
+	// 足元に煙幕を投げる：しばらくの間、煙の中・向こう側は鬼から見えない（追いかけている鬼は見失う）
+	if (const ACharacter* Player = GetPlayerCharacter())
+	{
+		const FVector Feet = Player->GetActorLocation() - FVector(0.f, 0.f, Player->GetSimpleCollisionHalfHeight());
+		// SpawnActorDeferred: 生成 → 残る時間を設定 → FinishSpawning（ここで BeginPlay が走る）
+		const FTransform At(Feet);
+		if (ASmokeCloud* Smoke = GetWorld()->SpawnActorDeferred<ASmokeCloud>(SmokeClass ? SmokeClass.Get() : ASmokeCloud::StaticClass(), At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn))
+		{
+			Smoke->Duration = GetSmokeDuration();
+			Smoke->FinishSpawning(At);
+		}
+		Sfx3D(this, EKakurenboSfx::Smoke, Feet + FVector(0.f, 0.f, 60.f));
+	}
 }
 
 float AKakurenboGameMode::MakePlayerNoise(const FVector& Location, float Loudness, double SoundDamage, const FLinearColor& RingColor, float RingThickness, EKakurenboNoise Kind)
@@ -1982,7 +2027,7 @@ void AKakurenboGameMode::StartHidePhase()
 	ApplyPrestigeToPlayer(); // ダッシュ・ジャンプ（転生のお店で解放）
 	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
 	{
-		Hider->ResetDash(); // ラウンドの始めはすぐダッシュできる
+		Hider->ResetDash(); // ラウンドの始めに煙幕ダッシュの回数を元に戻す
 	}
 
 	// お宝は最初から置いておく（鬼が来る前に取りに行ける）

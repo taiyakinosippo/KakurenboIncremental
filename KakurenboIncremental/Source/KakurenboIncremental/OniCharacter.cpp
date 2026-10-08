@@ -20,6 +20,7 @@
 #include "KakurenboOniBlackboard.h"
 #include "KakurenboSoundSubsystem.h"
 #include "PlaceableBlock.h"
+#include "SmokeCloud.h"
 #include "TreasureActor.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -1461,6 +1462,11 @@ bool AOniCharacter::CanSeeTarget() const
 			{
 				continue;
 			}
+		}
+		// 煙幕の中・向こう側は見えない
+		if (ASmokeCloud::IsSightBlocked(GetWorld(), Eye, P))
+		{
+			continue;
 		}
 		// 間に壁などがなければ見えている
 		if (!GetWorld()->LineTraceTestByChannel(Eye, P, ECC_Visibility, Params))

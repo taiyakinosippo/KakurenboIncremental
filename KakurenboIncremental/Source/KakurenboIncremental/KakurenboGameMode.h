@@ -176,6 +176,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	TSubclassOf<ATreasureActor> TreasureClass;
 
+	/** 煙幕ダッシュで投げる煙幕（BP の派生クラスで見た目を変えてよい。空なら ASmokeCloud） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dash")
+	TSubclassOf<class ASmokeCloud> SmokeClass;
+
 	// ===== 壁（Walls.csv で上書きされる） =====
 
 	/** 購入できる壁の種類（ショップの並び順）。耐久は転生の倍率をかける前の値（かけた後は GetEffectiveWallTypes） */
@@ -344,7 +348,22 @@ public:
 	void ApplyPrestigeToPlayer();
 
 	/** ダッシュ・ジャンプが使えるか（転生のお店で解放） */
-	bool IsDashUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::DashSpeed) > 0; }
+	bool IsDashUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::SmokeDuration) > 0; }
+
+	/** 1 ラウンドに煙幕ダッシュを使える回数（「煙幕の数」の行は足し算：BaseValue + ValueGrowth × レベル） */
+	int32 GetSmokeUsesPerRound(int32 Level) const;
+	int32 GetSmokeUsesPerRound() const { return GetSmokeUsesPerRound(GetPrestigeLevel(EPrestigeUpgrade::SmokeCount)); }
+
+	/** 煙幕が残る時間（秒）。「煙幕ダッシュ」のレベルで決まる（足し算。MinSmokeDuration〜MaxSmokeDuration に収める） */
+	float GetSmokeDuration(int32 Level) const;
+	float GetSmokeDuration() const { return GetSmokeDuration(GetPrestigeLevel(EPrestigeUpgrade::SmokeDuration)); }
+
+	/** 煙幕が残る時間の下限・上限（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dash")
+	float MinSmokeDuration = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dash")
+	float MaxSmokeDuration = 7.f;
 	bool IsJumpUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::Jump) > 0; }
 
 	/** 転生を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
@@ -567,7 +586,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void HandleMash(const FVector& NoiseLocation);
 
-	/** ダッシュした（大きな音を出す）。プレイヤーのダッシュが始まったときに呼ぶ */
+	/** 煙幕ダッシュした（大きな音を出し、足元に煙幕を投げる）。プレイヤーのダッシュが始まったときに呼ぶ */
 	void HandleDash(const FVector& NoiseLocation, float Loudness);
 
 	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。種類によって聞こえる距離が違う） */
