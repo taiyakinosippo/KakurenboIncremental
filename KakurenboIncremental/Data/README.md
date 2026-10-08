@@ -180,4 +180,4 @@ DefaultGame.ini の PlayerSurface・TreasureSurface に書きます。
 | Emissive | 自分で光る強さ（宝石 0.6。暗い館でも見える） |
 
 今の行：Wood01〜16（Fab「Substance Materials Vol 01 - Wood」）、Metal（Fab「Stylized Metallic Floor」）、Gem（Fab の宝石）、Player（プレイヤーの服の色の表）、
-置く壁用の WoodWall・StoneWall・IronWall・QuietWall。**石の模様は手元に無いので、StoneWall はざらざらした木（Wood15）を灰色にして代わりにしている**
+置く壁用の WoodWall・StoneWall・IronWall・QuietWall、Stone（Fab「Stylized Hand-Painted Stone Wall」。地下室・迷いの間の壁と石の壁）

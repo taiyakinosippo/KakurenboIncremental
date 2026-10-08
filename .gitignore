@@ -8,6 +8,9 @@ KakurenboIncremental/Content/Substance_Materials_Vol1_Wood/
 KakurenboIncremental/Content/Metallic_Floor/
 KakurenboIncremental/Content/Player/
 KakurenboIncremental/Content/Gem/
+# Fab stone wall texture (Stylized Hand-Painted Stone Wall) and the official UE mannequin animations (copied from the engine template by Tools/ImportSourceArt.ps1)
+KakurenboIncremental/Content/Materials_Bundle_Vol1/
+KakurenboIncremental/Content/Characters/
 # Downloaded FBX / textures (input of Tools/ImportSourceArt.ps1)
 KakurenboIncremental/SourceArt/
 # Editor-only per-user folders

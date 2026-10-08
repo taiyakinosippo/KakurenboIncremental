@@ -15,10 +15,12 @@
 #include "KakurenboTypes.h"
 #include "HiderCharacter.generated.h"
 
+class UAnimationAsset;
 class UCameraComponent;
 class UMaterialInterface;
 class UPoseableMeshComponent;
 class USkeletalMesh;
+class USkeletalMeshComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
 
@@ -67,8 +69,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
 	float ArmDownDegrees = 72.f;
 
+	/**
+	 * 公式のアニメーション（UE のマネキンの待機・歩く・走る・落ちる）で動かす。見えないマネキン（SourceMesh）にアニメーションを再生させ、
+	 * 同じ名前の骨の回転を毎フレーム、キャラクターのモデルへ写す（骨の名前がマネキンと同じモデルなら、そのまま動く）。
+	 * Move は待機〜走るのブレンドスペース（横軸が速さ）、Fall は空中のアニメーション。ApplyLook の後に呼ぶ
+	 */
+	void ApplyOfficialAnimation(USkeletalMesh* SourceMesh, UAnimationAsset* Move, UAnimationAsset* Fall);
+
+	/** 公式のアニメーションで動いているか（テスト用） */
+	bool HasOfficialAnimation() const { return AnimDriver != nullptr && DrivenBoneCount > 0; }
+	int32 GetDrivenBoneCount() const { return DrivenBoneCount; }
+
 	/** モデルを使っていて、手足を動かせる骨が見つかったか（テスト用） */
-	bool HasAnimatedLook() const { return LookMesh != nullptr && LeftThigh != NAME_None && RightThigh != NAME_None; }
+	bool HasAnimatedLook() const { return LookMesh != nullptr && (HasOfficialAnimation() || (LeftThigh != NAME_None && RightThigh != NAME_None)); }
+
+	/** 公式のアニメーションを再生する見えないマネキン */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
+	TObjectPtr<USkeletalMeshComponent> AnimDriver;
 
 	// ===== 俯瞰カメラ =====
 
@@ -245,4 +262,21 @@ private:
 	float WalkPhase = 0.f;
 	float WalkBlend = 0.f;
 	float IdleTime = 0.f;
+
+	/** 公式のアニメーション：再生するアセットと、モデルの骨ごとのマネキンの骨の番号（無ければ INDEX_NONE） */
+	UPROPERTY()
+	TObjectPtr<UAnimationAsset> MoveAnim;
+
+	UPROPERTY()
+	TObjectPtr<UAnimationAsset> FallAnim;
+
+	UPROPERTY()
+	TObjectPtr<UAnimationAsset> PlayingAnim;
+
+	TArray<int32> DriverBoneIndex;
+	int32 DrivenBoneCount = 0;
+	int32 PelvisBoneIndex = INDEX_NONE;
+	float DriverHeightRatio = 1.f;
+	/** マネキンの今のポーズを、モデルへ写す */
+	void CopyDriverPose();
 };

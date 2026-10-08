@@ -3090,6 +3090,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const bool bHasPlayer = FPackageName::DoesPackageExist(TEXT("/Game/Player/Male_002"));
 			Check(FString::Printf(TEXT("the player uses the character model with moving legs when it is imported (model %d, animated %d)"), bHasPlayer, GetHider()->HasAnimatedLook()),
 				!bHasPlayer || GetHider()->HasAnimatedLook());
+			const bool bHasMannequin = FPackageName::DoesPackageExist(TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple"));
+			Check(FString::Printf(TEXT("the player moves with the official mannequin animations when they are in the project (mannequin %d, official %d, %d bones)"), bHasMannequin, GetHider()->HasOfficialAnimation(), GetHider()->GetDrivenBoneCount()),
+				!bHasPlayer || !bHasMannequin || (GetHider()->HasOfficialAnimation() && GetHider()->GetDrivenBoneCount() >= 20));
 			int32 Gems = 0;
 			for (const ATreasureActor* Treasure : GM->GetTreasures())
 			{
@@ -3110,7 +3113,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		// プレイヤーの見た目を近くで（歩かせる）
 		Steps.Add({ 0.3f, [=, this] { SetControlRotation(FRotator(-10.f, 0.f, 0.f)); GetHider()->ThirdPersonDistance = 320.f; } });
 		Steps.Add({ 0.6f, [=, this] { Shot(TEXT("swatches_03_player_idle")); SimulateKey(EKeys::D, IE_Pressed); } });
-		Steps.Add({ 0.45f, [=, this] { Shot(TEXT("swatches_04_player_walk")); } });
+		Steps.Add({ 1.4f, [=, this] { Shot(TEXT("swatches_04_player_walk")); } });
 		Steps.Add({ 0.2f, [=, this] { Shot(TEXT("swatches_05_player_walk")); SimulateKey(EKeys::D, IE_Released); } });
 	}
 	// ================================================================ Hearing（M12：左右の聞こえ方・壁の向こう・気づいた音・心臓の音）

@@ -236,6 +236,8 @@ void AKakurenboGameMode::BeginPlay()
 		if (USkeletalMesh* PlayerMesh = UKakurenboLibrary::LoadIfExists(PlayerSkeletalMesh))
 		{
 			Hider->ApplyLook(PlayerMesh, MakeSurfaceMaterial(PlayerSurface), PlayerMeshYaw);
+			// 公式のアニメーション（無ければプログラムで作った簡単な動きのまま）
+			Hider->ApplyOfficialAnimation(UKakurenboLibrary::LoadIfExists(PlayerAnimSourceMesh), UKakurenboLibrary::LoadIfExists(PlayerAnimMove), UKakurenboLibrary::LoadIfExists(PlayerAnimFall));
 		}
 	}
 

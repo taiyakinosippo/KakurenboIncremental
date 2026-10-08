@@ -2,7 +2,10 @@
 
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
 #include "Components/PoseableMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -400,6 +403,24 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 	{
 		return;
 	}
+	if (HasOfficialAnimation())
+	{
+		// 公式のアニメーション：地面では速さに合わせて待機〜歩く〜走る、空中では落ちるアニメーション
+		const bool bOnGround = GetCharacterMovement()->IsMovingOnGround();
+		UAnimationAsset* Wanted = (bOnGround || !FallAnim) ? MoveAnim.Get() : FallAnim.Get();
+		if (Wanted && Wanted != PlayingAnim)
+		{
+			PlayingAnim = Wanted;
+			AnimDriver->PlayAnimation(Wanted, true);
+		}
+		if (UAnimSingleNodeInstance* Single = AnimDriver->GetSingleNodeInstance(); Single && PlayingAnim == MoveAnim)
+		{
+			// 公式のブレンドスペースは 横軸 = 向き（体は進む方を向くので 0）、縦軸 = 速さ（0〜600）
+			Single->SetBlendSpacePosition(FVector(0.f, GetVelocity().Size2D(), 0.f));
+		}
+		CopyDriverPose();
+		return;
+	}
 	// 歩く速さに合わせて足を交互に振る（止まると元に戻る）
 	const float Speed = GetVelocity().Size2D();
 	const bool bOnGround = GetCharacterMovement()->IsMovingOnGround();
@@ -462,4 +483,85 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 	// 歩くと上下に弾む・止まっているときはゆっくり息をする
 	const float Bob = FMath::Abs(FMath::Sin(WalkPhase)) * 4.f * WalkBlend + FMath::Sin(IdleTime * 2.2f) * 0.8f * (1.f - WalkBlend);
 	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, Bob));
+}
+
+void AHiderCharacter::ApplyOfficialAnimation(USkeletalMesh* SourceMesh, UAnimationAsset* Move, UAnimationAsset* Fall)
+{
+	if (!LookMesh || !SourceMesh || !Move)
+	{
+		return;
+	}
+	// 見えないマネキン。見えなくてもアニメーションと骨の計算は毎フレーム行う
+	AnimDriver = NewObject<USkeletalMeshComponent>(this, TEXT("AnimDriver"));
+	AnimDriver->SetupAttachment(RootComponent);
+	AnimDriver->SetSkeletalMeshAsset(SourceMesh);
+	AnimDriver->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	AnimDriver->SetCastShadow(false);
+	AnimDriver->SetHiddenInGame(true);
+	AnimDriver->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	AnimDriver->RegisterComponent();
+	AnimDriver->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	MoveAnim = Move;
+	FallAnim = Fall;
+	PlayingAnim = Move;
+	AnimDriver->PlayAnimation(Move, true);
+
+	// モデルの骨ごとに、同じ名前のマネキンの骨を探す
+	const FReferenceSkeleton& Ref = LookMesh->GetSkinnedAsset()->GetRefSkeleton();
+	const FReferenceSkeleton& DriverRef = SourceMesh->GetRefSkeleton();
+	DriverBoneIndex.Init(INDEX_NONE, Ref.GetNum());
+	DrivenBoneCount = 0;
+	for (int32 i = 0; i < Ref.GetNum(); ++i)
+	{
+		const FName Name = Ref.GetBoneName(i);
+		if (Name == TEXT("root"))
+		{
+			continue; // 根元は動かさない（体の位置はキャラクターが決める）
+		}
+		DriverBoneIndex[i] = DriverRef.FindBoneIndex(Name);
+		DrivenBoneCount += DriverBoneIndex[i] != INDEX_NONE ? 1 : 0;
+	}
+	PelvisBoneIndex = Ref.FindBoneIndex(TEXT("pelvis"));
+	// 腰の上下の動きは、モデルとマネキンの背の高さの比で縮める（モデルの単位で）
+	const float ModelHeight = LookMesh->GetSkinnedAsset()->GetBounds().BoxExtent.Z;
+	const float DriverHeight = SourceMesh->GetImportedBounds().BoxExtent.Z;
+	DriverHeightRatio = DriverHeight > 1.f ? ModelHeight / DriverHeight : 1.f;
+	LookMesh->SetRelativeLocation(LookBaseLocation);
+	UE_LOG(LogTemp, Log, TEXT("Player look: official animation %s on %d of %d bones (height ratio %.2f)"), *Move->GetName(), DrivenBoneCount, Ref.GetNum(), DriverHeightRatio);
+}
+
+void AHiderCharacter::CopyDriverPose()
+{
+	// マネキンの骨の回転（親から見た向き）をそのまま使い、骨の長さ（位置）はモデルのまま。腰だけは上下の動きも写す。
+	// 親 → 子の順に、部品の座標での姿勢を計算して設定する（子の骨は親に付いてくる）
+	const TArray<FTransform> Source = AnimDriver->GetBoneSpaceTransforms();
+	const TArray<FTransform>& DriverRefPose = AnimDriver->GetSkinnedAsset()->GetRefSkeleton().GetRefBonePose();
+	const FReferenceSkeleton& Ref = LookMesh->GetSkinnedAsset()->GetRefSkeleton();
+	const TArray<FTransform>& RefPose = Ref.GetRefBonePose();
+	if (Source.Num() == 0 || DriverBoneIndex.Num() != Ref.GetNum())
+	{
+		return;
+	}
+	TArray<FTransform> ComponentSpace;
+	ComponentSpace.SetNum(Ref.GetNum());
+	for (int32 i = 0; i < Ref.GetNum(); ++i)
+	{
+		FTransform Local = RefPose[i];
+		const int32 S = DriverBoneIndex[i];
+		const bool bDriven = Source.IsValidIndex(S);
+		if (bDriven)
+		{
+			Local.SetRotation(Source[S].GetRotation());
+			if (i == PelvisBoneIndex && DriverRefPose.IsValidIndex(S))
+			{
+				Local.SetTranslation(RefPose[i].GetTranslation() + (Source[S].GetTranslation() - DriverRefPose[S].GetTranslation()) * DriverHeightRatio);
+			}
+		}
+		const int32 Parent = Ref.GetParentIndex(i);
+		ComponentSpace[i] = Parent >= 0 ? Local * ComponentSpace[Parent] : Local;
+		if (bDriven)
+		{
+			LookMesh->SetBoneTransformByName(Ref.GetBoneName(i), ComponentSpace[i], EBoneSpaces::ComponentSpace);
+		}
+	}
 }

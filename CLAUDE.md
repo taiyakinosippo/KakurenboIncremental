@@ -12,7 +12,9 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - エンジン: `C:\Program Files\Epic Games\UE_5.8`（`Tools/EnginePath.ps1` が場所を自動で探す。別の場所なら環境変数 `UE_ROOT`）
 - エディタ: VSCode（ユーザー）。ビルドは MSVC（Visual Studio 2022・MSVC 14.44）
 - 複数のパソコンで開発している。作業の前に `git pull`、終わったら push。別のパソコンの環境構築は [docs/Setup.md](docs/Setup.md)
-- **pull したら必ず `Tools\Build.ps1` でビルドし直す**（Binaries は Git に入らないので、ビルドしないと古いゲームのまま動く）
+- **pull したら必ず `Tools\Build.ps1` でビルドし直す**（Binaries は Git に入らないので、ビルドしないと古いゲームのまま動く）。
+  `Tools\AutoBuild.ps1`（ダブルクリックは `Tools\AutoBuild.bat`）が pull → ビルド → FBX・マネキンの取り込み（必要なら）をまとめて行う。
+  `-InstallHook` で git pull の後に自動でビルドする（`.git/hooks/post-merge` に 1 行。このパソコンは設定済み）。`-Test` 単体テスト・`-Package` .exe・`-Watch` 定期的に pull
 
 ### コードの構成
 
@@ -22,7 +24,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル・転生ポイント）。HUD はここを読む |
 | `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、ダッシュ、転生の確認、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）。鬼・お宝の方向は出さない（音で探す） |
-| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・真上・三人称カメラ、ダッシュ、足音・しのび足。Fab のモデルを `ApplyLook` で PoseableMesh に付け、歩く動きはプログラムで骨を回す） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う：標準・スピード・パワー・慎重・宝物・探知。ぶつかったらアウト。鬼どうしはすり抜ける。歩くと足音。スケルタルメッシュに差し替え可） |
+| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・真上・三人称カメラ、ダッシュ、足音・しのび足。Fab のモデルを `ApplyLook` で PoseableMesh に付け、`ApplyOfficialAnimation` で見えない公式マネキンのアニメーションの骨の回転を写す。無ければプログラムで骨を回す） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う：標準・スピード・パワー・慎重・宝物・探知。ぶつかったらアウト。鬼どうしはすり抜ける。歩くと足音。スケルタルメッシュに差し替え可） |
 | `KakurenboOniBlackboard` | 慎重鬼どうしで共有する「調べたマス」と「向かっているマス」「調べている建物」（WorldSubsystem） |
 | `TreasureActor` | お宝（距離で取得。ときどきキラキラと鳴る。GameMode が宝石のメッシュと色を渡す） |
 | `SmokeCloud` | 煙幕（煙幕ダッシュで足元に投げる）。`IsSightBlocked` で煙の中・向こう側の視線をさえぎる（鬼の `CanSeeTarget` が使う）。煙幕ダッシュは回数制（`DashUsesPerRound`・転生のお店の「煙幕の数」） |
@@ -48,7 +50,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - 購入パート・設置パートの UI は HUD が毎フレーム `Buttons` に登録し、PlayerController の `HandleUIClick` が次のフレームのクリックで使う
 - 壁・罠の値段は持っている数で上がる（`GetWallCost` / `GetTrapCost`）。テストで値段を決め打ちしない
 - ステージ 1 の鬼は 1 体（Stages.csv）。2 体以上を前提にするテストは `SetStageOniTypes` で決める
-- **Fab アセット（鬼の見た目 `Content/CuteCreature`・館の家具 `Content/Stylized_Library`・木と鉄の模様 `Content/Substance_Materials_Vol1_Wood`・`Content/Metallic_Floor`・
+- **Fab アセット（鬼の見た目 `Content/CuteCreature`・館の家具 `Content/Stylized_Library`・木と鉄の模様 `Content/Substance_Materials_Vol1_Wood`・`Content/Metallic_Floor`・石 `Content/Materials_Bundle_Vol1`・公式のマネキン `Content/Characters`・
   FBX から取り込んだプレイヤーと宝石 `Content/Player`・`Content/Gem`・元の FBX `SourceArt/`）は Git に入れない**（公開リポジトリのため。`.gitignore` 済み）。
   パスは DefaultGame.ini（鬼・プレイヤー・宝石）と Data/Furniture.csv（家具）・Data/Surfaces.csv（模様）。アセットが無いパソコンでは円柱・箱・色で動く。テストは両方で通るように書く
 - FBX（プレイヤー・宝石）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
@@ -66,6 +68,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド（-Unity: コミット前の確認。全部まとめてビルド）
+powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -NoPull           # ビルド＋必要な取り込み（エディタが開いていたら何もしない）。結果は Saved/Logs/AutoBuild.log
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
 powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # 下の一覧のシナリオ
 powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）

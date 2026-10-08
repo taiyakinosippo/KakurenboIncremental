@@ -25,6 +25,7 @@ class APlaceableBlock;
 class ATrapActor;
 class ATreasureActor;
 class UAnimInstance;
+class UAnimationAsset;
 class UAnimSequence;
 class UDataTable;
 class UMaterialInstanceDynamic;
@@ -239,6 +240,21 @@ public:
 	/** メッシュの向き（度。正面が +Y を向いているモデルは -90） */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
 	float PlayerMeshYaw = -90.f;
+
+	/**
+	 * 公式のアニメーション（UE のマネキン。Tools/ImportSourceArt.ps1 がテンプレートからコピーする）。
+	 * 見えないマネキン（PlayerAnimSourceMesh）が再生し、同じ名前の骨の回転をモデルへ写す。無ければプログラムで作った簡単な動き
+	 */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	TSoftObjectPtr<USkeletalMesh> PlayerAnimSourceMesh;
+
+	/** 待機〜歩く〜走る（横軸が速さのブレンドスペース） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	TSoftObjectPtr<UAnimationAsset> PlayerAnimMove;
+
+	/** 空中（ジャンプ中・落ちている） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	TSoftObjectPtr<UAnimationAsset> PlayerAnimFall;
 
 	/** お宝（宝石）のメッシュ。何種類か書くと、お宝ごとに違う形になる */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Treasure|Look")
