@@ -99,9 +99,10 @@ function Test-FabAssets {
     $Checks = [ordered]@{
         "鬼の見た目（Fab: Cute Creature）"                 = "Content\CuteCreature"
         "館の家具（Fab: Stylized Library）"                = "Content\Stylized_Library"
-        "床・壁の木（Fab: Substance Materials Vol 01 - Wood）" = "Content\Substance_Materials_Vol1_Wood"
         "鉄の壁（Fab: Stylized Metallic Floor）"           = "Content\Metallic_Floor"
         "石の壁（Fab: Stylized Hand-Painted Stone Wall）"  = "Content\Materials_Bundle_Vol1"
+        "床・壁の木（Fab の木を縮めたもの）"            = "Content\Kakurenbo\Wood"
+        "消音壁（Fab: Stucco Wall）"                       = "Content\QuietWall"
     }
     foreach ($Name in $Checks.Keys) {
         if (-not (Test-Path (Join-Path $ProjectDir $Checks[$Name]))) { $Missing += $Name }

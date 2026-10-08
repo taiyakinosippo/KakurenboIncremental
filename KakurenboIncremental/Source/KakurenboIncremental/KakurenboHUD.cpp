@@ -446,7 +446,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	const float HelpY = BelowStatusY;
 	Panel(20, HelpY, 480, 224);
 	Text(TEXT("WASD: カメラを動かす"), 36, HelpY + 12, 18);
-	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, HelpY + 40, 18);
+	Text(TEXT("左クリック: 置く　右クリック: 回収　Delete: 全部回収"), 36, HelpY + 40, 18);
 	Text(TEXT("数字キー・下の欄をクリック: 置く物（壁・罠）"), 36, HelpY + 68, 18);
 	Text(TEXT("T: スタート位置（青い印）をカーソルのマスへ"), 36, HelpY + 96, 18, Blue);
 	Text(TEXT("Q/E: 回転　Z/X: 傾ける・真上に戻す"), 36, HelpY + 124, 18);
@@ -523,6 +523,10 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	// かくれんぼを始めるボタン（Enter と同じ）と、購入パートへ戻るボタン（B と同じ）
 	DrawButton(CanvasW - 420, CanvasH - 260, 390, 60, TEXT("かくれんぼ開始 ▶ [Enter]"), EKakurenboUIAction::NextPhase, 0, false, 22, Gold);
 	DrawButton(CanvasW - 420, CanvasH - 330, 390, 54, TEXT("◀ 購入パートへ戻る [B]"), EKakurenboUIAction::BackToShop, 0, false, 20, FLinearColor::White);
+	// 置いた壁・罠を全部回収（Delete と同じ。取り消せないので 2 回押す）
+	const bool bClearPending = PC && PC->IsClearAllConfirmPending();
+	DrawButton(CanvasW - 420, CanvasH - 400, 390, 54, bClearPending ? TEXT("もう一度押すと全部回収します") : TEXT("置いた壁・罠を全部回収 [Delete]"),
+		EKakurenboUIAction::ClearAll, 0, false, 20, bClearPending ? Bad : FLinearColor::White);
 
 	// 置けない理由をカーソルの下に出す
 	if (PC && PC->bHasBuildTarget && !PC->bCanPlaceAtTarget && !PC->BuildTargetReason.IsEmpty())
@@ -737,8 +741,11 @@ void AKakurenboHUD::DrawResult(AKakurenboGameState* State, AKakurenboGameMode* G
 		Text(TEXT("稼いだコインはそのまま持ち帰れます"), 0, Y + 110, 22, FLinearColor::White, true);
 	}
 
-	Text(FString::Printf(TEXT("今回の獲得: %s コイン（連打 %d 回）"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, Y + 200, 22, FLinearColor::White, true);
-	Text(FString::Printf(TEXT("お宝: %d / %d 個（+%s コイン）"), State->TreasuresCollectedThisRound, State->TreasuresThisRound, *Big(State->TreasureCoinsThisRound)), 0, Y + 236, 22, Gold, true);
+	Text(FString::Printf(TEXT("今回の獲得: %s コイン（連打 %d 回）"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, Y + 188, 22, FLinearColor::White, true);
+	// 内訳（時間だけ・連打・お宝・逃げ切り報酬。お金のバランスを見るため）
+	Text(FString::Printf(TEXT("内訳：時間 %s ／ 連打 %s ／ お宝 %s ／ 逃げ切り報酬 %s"), *Big(State->TimeCoinsThisRound), *Big(State->MashCoinsThisRound),
+		*Big(State->TreasureCoinsThisRound), *Big(State->LastClearReward)), 0, Y + 214, 16, Gray, true);
+	Text(FString::Printf(TEXT("お宝: %d / %d 個（+%s コイン）"), State->TreasuresCollectedThisRound, State->TreasuresThisRound, *Big(State->TreasureCoinsThisRound)), 0, Y + 240, 22, Gold, true);
 	if (State->LastRoundWallsDestroyed > 0 || State->TrapsTriggeredThisRound > 0)
 	{
 		Text(FString::Printf(TEXT("壊された壁: %d 個・使った罠: %d 個（在庫があれば次の設置パートで自動で直ります）"), State->LastRoundWallsDestroyed, State->TrapsTriggeredThisRound), 0, Y + 272, 18, Warn, true);

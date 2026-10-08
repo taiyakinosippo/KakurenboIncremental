@@ -22,7 +22,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 
 | ファイル | 役割 |
 |---|---|
-| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁と罠の設置・鬼のスポーン・転生・消音・足音・探知鬼の呼び寄せ・館のマップの切り替え・演出と効果音と BGM のきっかけ）。数値は UPROPERTY。`Config=Game` なので鬼の見た目のパスは DefaultGame.ini |
+| `KakurenboGameMode` | ルールと進行（パート遷移・収入・購入・壁と罠の設置と全部回収・鬼のスポーン・転生・消音・足音・探知鬼の呼び寄せ・館のマップの切り替え・演出と効果音と BGM のきっかけ）。数値は UPROPERTY。`Config=Game` なので鬼の見た目のパスは DefaultGame.ini |
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル・転生ポイント）。HUD はここを読む |
 | `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、ダッシュ、転生の確認、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）。鬼・お宝の方向は出さない（音で探す） |
@@ -52,12 +52,13 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - 購入パート・設置パートの UI は HUD が毎フレーム `Buttons` に登録し、PlayerController の `HandleUIClick` が次のフレームのクリックで使う
 - 壁・罠の値段は持っている数で上がる（`GetWallCost` / `GetTrapCost`）。テストで値段を決め打ちしない
 - ステージ 1 の鬼は 1 体（Stages.csv）。2 体以上を前提にするテストは `SetStageOniTypes` で決める
-- **Fab アセット（鬼の見た目 `Content/CuteCreature`・館の家具 `Content/Stylized_Library`・木と鉄の模様 `Content/Substance_Materials_Vol1_Wood`・`Content/Metallic_Floor`・石 `Content/Materials_Bundle_Vol1`・公式のマネキン `Content/Characters`・
-  FBX から取り込んだプレイヤーと宝石 `Content/Player`・`Content/Gem`・元の FBX `SourceArt/`）は Git に入れない**（公開リポジトリのため。`.gitignore` 済み）。
-  パスは DefaultGame.ini（鬼・プレイヤー・宝石）と Data/Furniture.csv（家具）・Data/Surfaces.csv（模様）。アセットが無いパソコンでは円柱・箱・色で動く。テストは両方で通るように書く
+- **アセットは Git（LFS）に入れる**（リポジトリは非公開。一覧は [docs/Assets.md](docs/Assets.md)）。Fab の木の元のパック `Content/Substance_Materials_Vol1_Wood`（2.8GB）だけは入れず、
+  ゲームは 1K に縮めたコピー `Content/Kakurenbo/Wood` を使う。**大きな素材（4K・8K のテクスチャ）は縮めてから入れる**（LFS の容量）。新しい素材を入れたら docs/Assets.md に書く。
+  パスは DefaultGame.ini（鬼・プレイヤー・宝石）と Data/Furniture.csv（家具）・Data/Surfaces.csv（模様）。アセットが無くても円柱・箱・色で動くようにしておく（テストは両方で通るように書く）。
+  `.uasset` は LFS の lockable で読み取り専用になる（ImportSourceArt.ps1 は自分が作るフォルダの読み取り専用を外す）
 - FBX（プレイヤー・宝石）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
   模様は共通のマテリアル `/Game/Kakurenbo/Materials/M_KakuSurface`（Git に入れる。同じスクリプトが作る）に実行時にテクスチャを差し込む（`UKakurenboLibrary::CreateSurfaceMaterial`）
-- **館の大きさはマップごとに違う**（間取りの文字数 × 行数。16×16〜31×29）。変わるときは `ApplyCurrentMap` が舞台とグリッドを作り直す。テストで座標を決め打ちしない（家具の無いテスト用の舞台は 24×24）
+- **館の大きさはマップごとに違う**（間取りの文字数 × 行数。ステージごとに大きくなる：16×16〜40×40）。変わるときは `ApplyCurrentMap` が舞台とグリッドを作り直す。テストで座標を決め打ちしない（家具の無いテスト用の舞台は 24×24）
 - **自動テストは家具の無い舞台で行う**（`KakuAutoTest` の最初に `bMapOverride` で切り替える。壁を置くマスが家具で塞がらないように）。
   マップを確かめる `Maps` / `Mood` と再起動セーブだけ本物のマップ。マップが変わると置いた壁・罠は在庫に戻る（`SwitchToMap`）
 - 慎重鬼は広い場所を見終わるまで空洞を調べない。空洞を調べさせたいテストは Blackboard の全マスを「調べた」にしておく（CarefulShare 参照）

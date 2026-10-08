@@ -388,6 +388,26 @@ void AKakurenboPlayerController::RequestPrestige()
 	}
 }
 
+void AKakurenboPlayerController::RequestClearAll()
+{
+	// 全部回収は取り返しがつかない（置き直しが大変）ので、2 回押して決める
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	if (!GM || GM->GetPhase() != EKakurenboPhase::Build)
+	{
+		return;
+	}
+	if (IsClearAllConfirmPending())
+	{
+		ClearAllConfirmUntil = -1.f;
+		GM->ClearAllPlaced();
+	}
+	else
+	{
+		ClearAllConfirmUntil = GetWorld()->GetTimeSeconds() + PrestigeConfirmSeconds;
+		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::CountdownBeep, 0.6f);
+	}
+}
+
 bool AKakurenboPlayerController::GetUICursorPosition(FVector2D& OutPosition) const
 {
 	if (bUseTestCursor)
@@ -423,6 +443,7 @@ bool AKakurenboPlayerController::HandleUIClick()
 	case EKakurenboUIAction::BuildSlot: SelectedBuildSlot = Button.Index; break;
 	case EKakurenboUIAction::RefillAll: GM->BuyAllMissing(); break;
 	case EKakurenboUIAction::BackToShop: GM->ReturnToShop(); break;
+	case EKakurenboUIAction::ClearAll:  RequestClearAll(); break;
 	default: break;
 	}
 	return true; // パネルの上のクリックは、後ろの床に壁を置かない
@@ -525,6 +546,11 @@ void AKakurenboPlayerController::HandleBuildInput()
 	if (WasInputKeyJustPressed(EKeys::B) || WasInputKeyJustPressed(EKeys::BackSpace))
 	{
 		GM->ReturnToShop();
+	}
+	// Delete: 置いた壁・罠を全部回収（2 回押す）
+	if (WasInputKeyJustPressed(EKeys::Delete))
+	{
+		RequestClearAll();
 	}
 }
 

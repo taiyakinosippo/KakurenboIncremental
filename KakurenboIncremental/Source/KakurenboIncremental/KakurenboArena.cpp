@@ -171,6 +171,13 @@ void AKakurenboArena::SetTallWallsVisible(bool bVisible)
 	{
 		TallWallPanels->SetHiddenInGame(!bVisible);
 	}
+	for (UStaticMeshComponent* Wall : TallRoomWalls)
+	{
+		if (Wall)
+		{
+			Wall->SetHiddenInGame(!bVisible);
+		}
+	}
 }
 
 void AKakurenboArena::BuildFloor()
@@ -386,6 +393,8 @@ void AKakurenboArena::ClearMap()
 	MapComponents.Reset();
 	WallPanels = nullptr;
 	TallWallPanels = nullptr;
+	TallRoomWalls.Reset();
+	MaxFurnitureOverhang = 0.f;
 	CurrentWallMaterial = nullptr;
 	bUseWallPanels = false;
 	FurniturePieces = 0;
@@ -500,6 +509,7 @@ void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps:
 	}
 
 	BuildWallLamps(Map, Layout);
+	SetTallWallsVisible(bTallWallsVisible);
 	UE_LOG(LogKakurenboArena, Log, TEXT("Map '%s': %d pieces (%d with meshes), %d blocked cells"),
 		*Map.DisplayName.ToString(), FurniturePieces, FurnitureMeshes, OutObstacles.Num());
 }
@@ -533,19 +543,34 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 	{
 		UStaticMeshComponent* Box = AddMapCube(Center + FVector(0.f, 0.f, Height * 0.5f), FVector(RectW, RectD, Height), Row.Color, true);
 		Box->SetHiddenInGame(Mesh != nullptr);
+		if (!bIsWall)
+		{
+			// 三人称カメラは家具をすり抜ける（家具の陰にしゃがんでも自分が見え、カメラが家具に当たってがくがくしない）
+			Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+		}
 		if (bIsWall)
 		{
 			// 部屋の壁の上の縁
 			const FLinearColor Trim = FLinearColor::LerpUsingHSV(Map.WallColor, FLinearColor(1.f, 0.85f, 0.5f), 0.45f);
 			AddMapCube(Center + FVector(0.f, 0.f, Height + 6.f), FVector(RectW + 12.f, RectD + 12.f, 12.f), Trim, false);
+			// 部屋の壁は外周の壁と同じ高さまで（上に乗って逃げられない・隣の部屋が見えない）。高い部分はかくれんぼ中だけ見せる
+			const float TallHeight = FMath::Max(OuterWallHeight - Height, 1.f);
+			UStaticMeshComponent* Tall = AddMapCube(Center + FVector(0.f, 0.f, Height + TallHeight * 0.5f), FVector(RectW, RectD, TallHeight), Row.Color, true);
+			Tall->SetCastShadow(false);
+			TallRoomWalls.Add(Tall);
 			// 外周の壁と同じ板を 4 つの面に貼る
 			if (bUseWallPanels && WallPanels)
 			{
 				const FVector Min(Center.X - RectW * 0.5f, Center.Y - RectD * 0.5f, 0.f);
-				AddFacePanels(WallPanels, Min, FVector(0, 1, 0), FVector(-1, 0, 0), RectD, 0.f, Height);
-				AddFacePanels(WallPanels, Min + FVector(RectW, 0.f, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), RectD, 0.f, Height);
-				AddFacePanels(WallPanels, Min, FVector(1, 0, 0), FVector(0, -1, 0), RectW, 0.f, Height);
-				AddFacePanels(WallPanels, Min + FVector(0.f, RectD, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), RectW, 0.f, Height);
+				for (UInstancedStaticMeshComponent* Panels : { WallPanels.Get(), TallWallPanels.Get() })
+				{
+					const float ZFrom = Panels == WallPanels ? 0.f : Height;
+					const float ZTo = Panels == WallPanels ? Height : OuterWallHeight;
+					AddFacePanels(Panels, Min, FVector(0, 1, 0), FVector(-1, 0, 0), RectD, ZFrom, ZTo);
+					AddFacePanels(Panels, Min + FVector(RectW, 0.f, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), RectD, ZFrom, ZTo);
+					AddFacePanels(Panels, Min, FVector(1, 0, 0), FVector(0, -1, 0), RectW, ZFrom, ZTo);
+					AddFacePanels(Panels, Min + FVector(0.f, RectD, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), RectW, ZFrom, ZTo);
+				}
 			}
 		}
 	}
@@ -654,6 +679,11 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			Comp->SetWorldLocation(FVector(Slot.X - Pivot.X, Slot.Y - Pivot.Y, Center.Z - Bounds.Min.Z * Scale3D.Z + (Row.bWalkable ? 0.5f : 0.f)));
 			Comp->RegisterComponent();
 			MapComponents.Add(Comp);
+			// マスからはみ出していないか（テスト用に一番大きなはみ出しを覚えておく）
+			const FBox World = Comp->Bounds.GetBox();
+			const float Overhang = FMath::Max(FMath::Max(Center.X - RectW * 0.5f - World.Min.X, World.Max.X - (Center.X + RectW * 0.5f)),
+				FMath::Max(Center.Y - RectD * 0.5f - World.Min.Y, World.Max.Y - (Center.Y + RectD * 0.5f)));
+			MaxFurnitureOverhang = FMath::Max(MaxFurnitureOverhang, Overhang);
 		}
 	}
 

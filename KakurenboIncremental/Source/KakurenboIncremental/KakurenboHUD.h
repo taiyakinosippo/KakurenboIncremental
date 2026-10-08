@@ -23,6 +23,7 @@ enum class EKakurenboUIAction : uint8
 	BuildSlot, // 置く物（Index は SelectedBuildSlot と同じ番号）
 	RefillAll, // 壊れた壁・使った罠をまとめて補充（R と同じ）
 	BackToShop, // 設置パートから購入パートへ戻る（B と同じ）
+	ClearAll,   // 置いた壁・罠をすべて回収する（Delete と同じ。2 回押して決める）
 };
 
 /** 画面上のボタン 1 つ（位置は実際のピクセル） */

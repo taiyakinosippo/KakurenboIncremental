@@ -111,6 +111,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	double TreasureCoinsThisRound = 0.0;
 
+	/** このラウンドの時間収入・連打収入（リザルトの内訳） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	double TimeCoinsThisRound = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	double MashCoinsThisRound = 0.0;
+
 	// ---- 壁の自動修復（設置パートの開始時） ----
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 LastRepairedWalls = 0;

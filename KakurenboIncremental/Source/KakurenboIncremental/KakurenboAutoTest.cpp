@@ -2553,6 +2553,27 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				SimulateKey(EKeys::B, IE_Released);
 			});
 		} });
+		// 全部回収ボタン：1 回目は確認だけ、2 回目で置いた壁が全部在庫に戻り、設計図も消える
+		Steps.Add({ 0.6f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(TEXT("the clear-all button is clickable"), ClickUI(EKakurenboUIAction::ClearAll, 0));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the first click only asks to confirm (blocks %d, pending %d)"), Grid()->GetBlockCount(), IsClearAllConfirmPending()),
+					Grid()->GetBlockCount() == 1 && IsClearAllConfirmPending());
+				Shot(TEXT("backtoshop_03_clear_confirm"));
+			});
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			ClickUI(EKakurenboUIAction::ClearAll, 0);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the second click picks up everything (blocks %d, design %d, wood stock %d)"), Grid()->GetBlockCount(), Grid()->GetTotalMissing(), GS()->WallStock[0]),
+					Grid()->GetBlockCount() == 0 && Grid()->GetTotalMissing() == 0 && GS()->WallStock[0] == 2);
+			});
+		} });
 	}
 	// ================================================================ Steps（足音・ジャンプの音・しのび足）
 	else if (Scenario.Equals(TEXT("Steps"), ESearchCase::IgnoreCase))
@@ -2727,6 +2748,49 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GM->GetTreasures().Num() == 0 && GM->GetTakenTreasureCells().Num() >= 2 && Patrol->Patrolling == Patrol->Samples && Patrol->Near * 10 >= Patrol->Samples * 5);
 		} });
 	}
+	// ================================================================ TreasureBreak（宝物鬼は、お宝への最短経路を塞ぐ壁を壊して進む）
+	else if (Scenario.Equals(TEXT("TreasureBreak"), ESearchCase::IgnoreCase))
+	{
+		const FIntPoint Center(8, 12);
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Treasure }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(2, 2)));
+			// お宝を全部、壁の箱（7×7 の外周）の中へ。箱には入り口が無い
+			const TArray<TObjectPtr<ATreasureActor>> All = GM->GetTreasures();
+			for (int32 i = 0; i < All.Num(); ++i)
+			{
+				All[i]->SetActorLocation(Grid()->CellFloorCenter(Center + FIntPoint(i % 2, i / 2)));
+			}
+			for (int32 D = -3; D <= 3; ++D)
+			{
+				for (const FIntPoint& Cell : { Center + FIntPoint(D, -3), Center + FIntPoint(D, 3), Center + FIntPoint(-3, D), Center + FIntPoint(3, D) })
+				{
+					if (Grid()->GetColumnHeight(Cell) == 0)
+					{
+						Grid()->PlaceBlock(Cell, 0, 0.1, GM->WallTypes[0].Color);
+					}
+				}
+			}
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+			}
+			Check(FString::Printf(TEXT("the treasures are walled in (pockets %d)"), Grid()->FindEnclosedPockets().Num()), Grid()->FindEnclosedPockets().Num() >= 1);
+		} });
+		Steps.Add({ 18.f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			const float Dist = FVector::Dist2D(Oni->GetActorLocation(), Grid()->CellFloorCenter(Center));
+			Check(FString::Printf(TEXT("the treasure oni broke through the walls to the treasures (walls destroyed %d, distance %.0f cm)"), GS()->LastRoundWallsDestroyed, Dist),
+				GS()->LastRoundWallsDestroyed >= 1 && Dist < 350.f);
+			LookAtOni();
+		} });
+		Steps.Add({ 0.5f, [=, this] { Shot(TEXT("treasurebreak_01")); } });
+	}
 	// ================================================================ Detector（探知鬼）
 	else if (Scenario.Equals(TEXT("Detector"), ESearchCase::IgnoreCase))
 	{
@@ -2886,13 +2950,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(FString::Printf(TEXT("maps are loaded (%d) and stage 1 uses %s (%dx%d)"), GM->MapOrder.Num(), *GM->GetCurrentMapName().ToString(), Grid()->GetSizeX(), Grid()->GetSizeY()),
 				GM->MapOrder.Num() >= 20 && GM->GetCurrentMapName() == GM->GetMapNameForStage(1) && Grid()->GetSizeX() == 16 && Grid()->GetSizeY() == 16);
-			// M12：ステージごとに違うマップ。表より後は大きい館（後ろの 6 つ）を 1 ステージずつ回る
-			Check(FString::Printf(TEXT("stages pick maps: 1 %s / 4 %s / 7 %s / 10 %s / 20 %s / 21 %s / 22 %s / 27 %s"), *GM->GetMapNameForStage(1).ToString(), *GM->GetMapNameForStage(4).ToString(),
-				*GM->GetMapNameForStage(7).ToString(), *GM->GetMapNameForStage(10).ToString(), *GM->GetMapNameForStage(20).ToString(), *GM->GetMapNameForStage(21).ToString(),
-				*GM->GetMapNameForStage(22).ToString(), *GM->GetMapNameForStage(27).ToString()),
-				GM->GetMapNameForStage(1) == FName(TEXT("Parlor")) && GM->GetMapNameForStage(4) == FName(TEXT("Library")) && GM->GetMapNameForStage(7) == FName(TEXT("Rooms"))
-				&& GM->GetMapNameForStage(10) == FName(TEXT("Hall")) && GM->GetMapNameForStage(20) == FName(TEXT("Throne")) && GM->GetMapNameForStage(21) == FName(TEXT("ClockHall"))
-				&& GM->GetMapNameForStage(22) == FName(TEXT("GuestWing")) && GM->GetMapNameForStage(27) == FName(TEXT("ClockHall")));
+			// M12：ステージごとに違うマップ（大きさもステージごとに大きくなる）。表より後は一番大きい館 3 つを 1 ステージずつ回る
+			Check(FString::Printf(TEXT("stages pick maps: 1 %s / 4 %s / 10 %s / 25 %s / 26 %s / 27 %s / 28 %s / 29 %s"), *GM->GetMapNameForStage(1).ToString(), *GM->GetMapNameForStage(4).ToString(),
+				*GM->GetMapNameForStage(10).ToString(), *GM->GetMapNameForStage(25).ToString(), *GM->GetMapNameForStage(26).ToString(), *GM->GetMapNameForStage(27).ToString(),
+				*GM->GetMapNameForStage(28).ToString(), *GM->GetMapNameForStage(29).ToString()),
+				GM->GetMapNameForStage(1) == FName(TEXT("Parlor")) && GM->GetMapNameForStage(4) == FName(TEXT("Library")) && GM->GetMapNameForStage(10) == FName(TEXT("Hall"))
+				&& GM->GetMapNameForStage(25) == FName(TEXT("Crown")) && GM->GetMapNameForStage(26) == FName(TEXT("Vault")) && GM->GetMapNameForStage(27) == FName(TEXT("Cloister"))
+				&& GM->GetMapNameForStage(28) == FName(TEXT("Crown")) && GM->GetMapNameForStage(29) == FName(TEXT("Vault")));
 			KakuSkipTime(1000.f);
 		} });
 		Steps.Add({ 1.f, [=, this] { KakuNext(); KakuAddCoins(500.0); BuyWall(0, 2); } });
@@ -2947,7 +3011,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					*Name.ToString(), Arena->GetFurniturePieceCount(), Arena->GetFurnitureMeshCount(), G->GetObstacleCount(), MainCells, bGateFree, bReach, G->IsWalkable(Me)),
 					Arena->GetFurniturePieceCount() > 5 && G->GetObstacleCount() > 10 && MainCells * 2 >= G->GetSizeX() * G->GetSizeY() && bGateFree && bReach && G->IsWalkable(Me));
 					// 館の大きさは間取りのとおり（グリッドと舞台の両方）。床・壁は Fab の木の模様（あれば）
-					const bool bHasWood = FPackageName::DoesPackageExist(TEXT("/Game/Substance_Materials_Vol1_Wood/Textures/T_Submat_V1_Wood01_Base_Color"));
+					const bool bHasWood = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Wood/Wood01_Base_Color"));
+					// 家具のメッシュはマスからはみ出さない（はみ出すと、空いて見えるマスに壁が置けない）
+					Check(FString::Printf(TEXT("map %s: furniture stays inside its cells (max overhang %.1f cm)"), *Name.ToString(), Arena->GetMaxFurnitureOverhang()), Arena->GetMaxFurnitureOverhang() < 8.f);
 					Check(FString::Printf(TEXT("map %s is %dx%d (arena %dx%d), wood floor %d, wood walls %d"), *Name.ToString(), G->GetSizeX(), G->GetSizeY(), Arena->GridSizeX, Arena->GridSizeY,
 						Arena->IsFloorUsingMaterial(), Arena->IsWallUsingPanels()),
 						G->GetSizeX() == Arena->GridSizeX && G->GetSizeY() == Arena->GridSizeY && (!bHasWood || (Arena->IsFloorUsingMaterial() && Arena->IsWallUsingPanels())));
@@ -2980,6 +3046,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 最初のマップに戻ると、設計図が戻る（壁は在庫から設置パートで直る）
+			// 部屋の壁のある館：部屋の壁は外周と同じ高さまである（上に乗れない・隣の部屋が見えない）
+			GM->MapOverride = TEXT("Rooms");
+			GM->SwitchToMap(TEXT("Rooms"));
+			Check(FString::Printf(TEXT("room walls go up to the ceiling (%d tall parts, overhang %.1f cm)"), GM->GetArena()->GetTallRoomWallCount(), GM->GetArena()->GetMaxFurnitureOverhang()),
+				GM->GetArena()->GetTallRoomWallCount() > 0 && GM->GetArena()->GetMaxFurnitureOverhang() < 8.f);
 			GM->MapOverride = MapState->FirstMap;
 			GM->SwitchToMap(MapState->FirstMap);
 			Check(FString::Printf(TEXT("the first map's design comes back (missing %d)"), Grid()->GetTotalMissing()), Grid()->GetTotalMissing() == 2);
@@ -3105,7 +3176,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Textured += UKakurenboLibrary::ApplySurface(Swatch->GetStaticMeshComponent(), GM->SurfaceRows[Names[i]]) ? 1 : 0;
 				UE_LOG(LogTemp, Display, TEXT("[AutoTest] swatch %d %s at (%d,%d)"), i, *Names[i].ToString(), Cell.X, Cell.Y);
 			}
-			const bool bHasFab = FPackageName::DoesPackageExist(TEXT("/Game/Substance_Materials_Vol1_Wood/Textures/T_Submat_V1_Wood01_Base_Color"));
+			const bool bHasFab = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Wood/Wood01_Base_Color"));
 			Check(FString::Printf(TEXT("surfaces load their textures when the Fab packs are in the project (%d of %d, fab %d)"), Textured, Names.Num(), bHasFab),
 				!bHasFab || Textured >= Names.Num() - 1);
 			// 置いた壁（木・石・鉄・消音）も並べる

@@ -19,3 +19,8 @@
 18,115,"(Scout,Scout,Breaker,Careful,Detector,Detector)",5,1717986918400,23612,2650,260,Labyrinth
 19,120,"(Scout,Scout,Breaker,Careful,Treasure,Detector)",5,6871947673600,37779,2700,270,Ballroom
 20,125,"(Scout,Scout,Breaker,Careful,Careful,Detector)",5,27487790694400,60446,2750,280,Throne
+21,130,"(Scout,Breaker,Careful,Careful,Treasure,Detector)",5,109951162777600,96714,2800,290,Observatory
+22,135,"(Balanced,Scout,Scout,Breaker,Careful,Detector)",5,439804651110400,154743,2850,300,Banquet
+23,140,"(Scout,Scout,Breaker,Careful,Detector,Detector)",5,1759218604441600,495176,3100,340,Vault
+24,145,"(Scout,Scout,Breaker,Careful,Treasure,Detector)",5,7036874417766400,792282,3150,350,Cloister
+25,150,"(Scout,Scout,Breaker,Breaker,Careful,Detector)",5,28147497671065600,1267651,3200,360,Crown

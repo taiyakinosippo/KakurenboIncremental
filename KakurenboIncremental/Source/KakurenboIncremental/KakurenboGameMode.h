@@ -102,9 +102,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
 	TArray<FName> MapOrder;
 
-	/** 表より後のステージで回るマップの数（Maps.csv の後ろから。大きい館だけを回す） */
+	/** 表より後のステージで回るマップの数（Maps.csv の後ろから。一番大きい館だけを回す） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
-	int32 MapsCycledAfterTable = 6;
+	int32 MapsCycledAfterTable = 3;
 
 	/** 床にテクスチャを使うとき、市松模様の暗い方のマスに掛ける明るさ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Look")
@@ -710,6 +710,13 @@ public:
 	/** 設置パートへ。壊れた壁は在庫があれば自動で修復する */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void StartBuildPhase();
+
+	/**
+	 * 設置パート：置いた壁・罠をすべて回収する（今あるものは在庫に戻し、設計図も消す。壊れて無くなっていた分は戻らない）。
+	 * @return 在庫に戻した数
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	int32 ClearAllPlaced();
 
 	/** 設置パートから購入パートへ戻る（置いた壁・罠はそのまま） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")

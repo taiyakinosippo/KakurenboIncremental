@@ -22,6 +22,14 @@ if (-not (Test-Path (Join-Path $Mannequins "Meshes\SKM_Manny_Simple.uasset"))) {
     }
 }
 
+# Git LFS の lockable 指定で、取ってきた .uasset は読み取り専用になっている。このスクリプトが作り直すフォルダだけ書き込めるようにする
+foreach ($Folder in "Kakurenbo", "Player", "Gem", "QuietWall") {
+    $Path = Join-Path $Root "KakurenboIncremental\Content\$Folder"
+    if (Test-Path $Path) {
+        Get-ChildItem $Path -Recurse -File | Where-Object { $_.IsReadOnly } | ForEach-Object { $_.IsReadOnly = $false }
+    }
+}
+
 $Log = & $Editor $Project -run=pythonscript -script="$Script" -unattended -nop4 -nosplash -stdout -FullStdOutLogOutput 2>&1
 $Log | Where-Object { $_ -match "\[ImportSourceArt\]|LogPython: Error" }
 # FBX の中の空のメッシュなどでエラーが出ても、最後まで動けば成功とする

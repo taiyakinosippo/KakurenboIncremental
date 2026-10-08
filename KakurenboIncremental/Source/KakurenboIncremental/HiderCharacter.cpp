@@ -553,7 +553,8 @@ void AHiderCharacter::ApplyCrouchPose(float DeltaSeconds, float Bob)
 		};
 		const FName LeftEnd = LeftFoot.IsNone() ? LeftCalf : LeftFoot;
 		const FName RightEnd = RightFoot.IsNone() ? RightCalf : RightFoot;
-		auto FootZ = [&]() { return (LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z + LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z) * 0.5f; };
+		// 床に付いている方（低い方）の足。歩いて上がった方の足で測ると、体が上下にがくがく揺れる
+		auto FootZ = [&]() { return FMath::Min(LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z, LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z); };
 		const float Before = FootZ();
 		const float Knee = ForwardSign(LeftThigh, LeftCalf);
 		RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
@@ -571,7 +572,9 @@ void AHiderCharacter::ApplyCrouchPose(float DeltaSeconds, float Bob)
 		}
 		Lift = (FootZ() - Before) * LookMesh->GetRelativeScale3D().Z;
 	}
-	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, CrouchMeshOffset + Bob - Lift));
+	// 下げる量はなめらかに変える（歩く動きで毎フレーム少しずつ変わっても、体ががくがくしない）
+	SmoothedCrouchLift = FMath::FInterpTo(SmoothedCrouchLift, Lift, DeltaSeconds, 5.f);
+	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, CrouchMeshOffset + Bob - SmoothedCrouchLift));
 }
 
 void AHiderCharacter::ApplyOfficialAnimation(USkeletalMesh* SourceMesh, UAnimationAsset* Move, UAnimationAsset* Fall)

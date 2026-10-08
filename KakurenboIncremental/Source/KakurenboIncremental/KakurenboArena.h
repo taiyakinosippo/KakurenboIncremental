@@ -180,6 +180,12 @@ public:
 	bool IsFloorUsingMaterial() const { return bFloorUsesMaterial; }
 	bool IsWallUsingPanels() const { return bUseWallPanels; }
 
+	/** 家具のメッシュが自分のマスから一番はみ出している長さ（cm。テスト用） */
+	float GetMaxFurnitureOverhang() const { return MaxFurnitureOverhang; }
+
+	/** 部屋の壁の高い部分の数（テスト用） */
+	int32 GetTallRoomWallCount() const { return TallRoomWalls.Num(); }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -243,6 +249,12 @@ private:
 	TObjectPtr<UMaterialInterface> CurrentWallMaterial;
 
 	bool bUseWallPanels = false;
+
+	/** 部屋の壁の高い部分（外周の壁の高い部分と一緒に見せる・隠す） */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> TallRoomWalls;
+
+	float MaxFurnitureOverhang = 0.f;
 	bool bFloorUsesMaterial = false;
 
 	/** マップごとに作った部品（家具・部屋の壁・ランプ） */

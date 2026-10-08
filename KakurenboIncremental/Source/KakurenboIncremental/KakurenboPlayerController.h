@@ -61,6 +61,9 @@ public:
 	/** 転生の確認待ち（もう一度 P を押すと転生する）か */
 	bool IsPrestigeConfirmPending() const;
 
+	/** 設置パートの「全部回収」も 2 回押して決める（1 回目から 3 秒以内） */
+	bool IsClearAllConfirmPending() const { return ClearAllConfirmUntil > 0.f && GetWorld() && GetWorld()->GetTimeSeconds() < ClearAllConfirmUntil; }
+
 	/** 購入パートで「転生のお店」を開いているか（false なら「コインのお店」） */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	bool bPrestigeShopTab = false;
@@ -239,6 +242,7 @@ protected:
 
 	/** 転生ボタン・P キー：1 回目は確認、確認中にもう一度で転生する */
 	void RequestPrestige();
+	void RequestClearAll();
 
 	/**
 	 * 左クリックが HUD のボタンの上なら、そのボタンの働きをする（購入パート・設置パート）。
@@ -275,4 +279,5 @@ private:
 
 	/** 転生の確認：このワールド時刻まで、もう一度 P を押すと転生する */
 	float PrestigeConfirmUntil = -1.f;
+	float ClearAllConfirmUntil = -1.f;
 };

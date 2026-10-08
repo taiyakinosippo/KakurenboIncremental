@@ -1,18 +1,8 @@
 
-# Fab asset (Cute Creature): its license does not allow putting the files in a public repo. Add it from Fab on each PC.
-KakurenboIncremental/Content/CuteCreature/
-# Fab asset (Stylized Library: mansion furniture). Same reason.
-KakurenboIncremental/Content/Stylized_Library/
-# Fab assets added in M12 (same reason): wood / metal materials, and the player and gem FBX imported by Tools/ImportSourceArt.ps1
+# The repository is private, so the Fab assets are in Git (Git LFS). See docs/Assets.md.
+# Only the original wood pack stays out: it is 2.8 GB, and the game uses 1K copies of the 16 woods
+# (Content/Kakurenbo/Wood, made by Tools/ImportSourceArt.ps1 from SourceArt/Wood).
 KakurenboIncremental/Content/Substance_Materials_Vol1_Wood/
-KakurenboIncremental/Content/Metallic_Floor/
-KakurenboIncremental/Content/Player/
-KakurenboIncremental/Content/Gem/
-# Fab stone wall texture (Stylized Hand-Painted Stone Wall) and the official UE mannequin animations (copied from the engine template by Tools/ImportSourceArt.ps1)
-KakurenboIncremental/Content/Materials_Bundle_Vol1/
-KakurenboIncremental/Content/Characters/
-# Downloaded FBX / textures (input of Tools/ImportSourceArt.ps1)
-KakurenboIncremental/SourceArt/
 # Editor-only per-user folders
 KakurenboIncremental/Content/Developers/
 KakurenboIncremental/Content/Collections/

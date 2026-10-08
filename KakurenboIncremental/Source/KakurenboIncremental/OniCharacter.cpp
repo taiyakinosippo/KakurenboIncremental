@@ -1333,8 +1333,8 @@ bool AOniCharacter::ChooseTreasurePatrolTarget()
 	{
 		const int32 Index = ((PatrolIndex + PatrolDirection * Try) % 8 + 8) % 8;
 		const FIntPoint Cell = ClampToGrid(Center + Ring[Index]);
-		// 壁を壊すのは苦手なので、歩いて行ける所だけ回る（お宝が壁に囲まれていても、その外側を回る）
-		if (Cell != Here && G->IsWalkable(Cell) && RequestPathTo(Cell, EPathMode::WalkOnly))
+		// お宝（のあった場所）へは最短で向かう。途中を壁で塞がれていれば壊して進む（壊す力は弱いので時間はかかる）
+		if (Cell != Here && G->IsWalkable(Cell) && RequestPathTo(Cell, EPathMode::Shortest))
 		{
 			PatrolIndex = ((Index + PatrolDirection) % 8 + 8) % 8;
 			PatrolSteps += Try + 1;
@@ -1673,7 +1673,18 @@ bool AOniCharacter::RequestPathTo(const FIntPoint& Goal, EPathMode Mode)
 		}
 	}
 	WalkGrid.SetExtra(Start, 0.f); // 自分のいるマスは常に通れる扱い
-	bool bFound = KakurenboPathfinding::FindPath(WalkGrid, Start, Goal, NewPath);
+	bool bFound = false;
+	if (Mode == EPathMode::Shortest)
+	{
+		// 最短経路：遠回りするより壊す方が近ければ、途中の壁を壊して進む（宝物鬼がお宝へまっすぐ向かう）
+		FKakurenboPathGrid ShortGrid = G->BuildPathGrid(AttackDamage, TreasurePathCostPerAttack);
+		ShortGrid.SetExtra(Start, 0.f);
+		bFound = KakurenboPathfinding::FindPath(ShortGrid, Start, Goal, NewPath);
+	}
+	else
+	{
+		bFound = KakurenboPathfinding::FindPath(WalkGrid, Start, Goal, NewPath);
+	}
 
 	// 2) 他に行く道が無いときだけ、壁を壊す経路を使う（目の前の壁から壊していく）
 	if (!bFound && Mode == EPathMode::BreakIfNeeded)

@@ -341,6 +341,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	float PathCostPerAttack = 4.f;
 
+	/** 宝物鬼がお宝へ向かうとき、攻撃 1 回を何マスぶんの回り道とみなすか（小さいほど、遠回りせずに壁を壊してまっすぐ進む） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	float TreasurePathCostPerAttack = 1.f;
+
 	/** 経路などをデバッグ表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Debug")
 	bool bDrawDebug = false;
@@ -437,6 +441,7 @@ private:
 	{
 		WalkOnly,      // 壁は通れない（入り口から入る）
 		BreakIfNeeded, // 壁を通れない経路が無いときだけ、壁を壊す経路を使う
+		Shortest,      // 最短の経路。途中の壁は壊して進む（宝物鬼がお宝へ向かうとき。壊す手間は TreasurePathCostPerAttack マスぶんとみなす）
 	};
 
 	// 感覚

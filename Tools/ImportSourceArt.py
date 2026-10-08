@@ -38,7 +38,7 @@ def import_file(path, dest, name=None):
     return paths
 
 
-def texture(path, dest, normal=False, linear=False):
+def texture(path, dest, normal=False, linear=False, max_size=0):
     # FBX を取り込むと、FBX が指している画像も一緒に取り込まれることがある。あればそれを使う（同じ画像を 2 つ作らない）
     existing = dest + "/" + os.path.splitext(os.path.basename(path))[0]
     if eal.does_asset_exist(existing):
@@ -49,6 +49,10 @@ def texture(path, dest, normal=False, linear=False):
             asset = unreal.load_asset(p)
             if isinstance(asset, unreal.Texture2D):
                 tex = asset
+    if tex and max_size > 0:
+        # 8K の写真のテクスチャはゲームには大きすぎるので、使う大きさを抑える（元の画像は SourceArt に残る）
+        tex.set_editor_property("max_texture_size", max_size)
+        eal.save_loaded_asset(tex)
     if tex and (normal or linear):
         if normal:
             tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
@@ -133,6 +137,37 @@ def import_player():
     log("player done")
 
 
+def import_quiet_wall():
+    # 消音壁の見た目（Fab「Stucco Wall」。しっくい壁の写真のテクスチャを 2K に縮めたもの）
+    folder = os.path.join(SOURCE, "QuietWall")
+    if not os.path.isdir(folder):
+        log("no quiet wall source")
+        return
+    dest = "/Game/QuietWall"
+    if eal.does_directory_exist(dest):
+        eal.delete_directory(dest)
+    texture(os.path.join(folder, "Stucco_Wall_vigrejf_2K_BaseColor.jpg"), dest)
+    texture(os.path.join(folder, "Stucco_Wall_vigrejf_2K_Normal.png"), dest, normal=True)
+    texture(os.path.join(folder, "Stucco_Wall_vigrejf_2K_Roughness.jpg"), dest, linear=True)
+    log("quiet wall done")
+
+
+def import_wood():
+    # 床・壁・木の壁の木の模様（Fab「Substance Materials Vol 01 - Wood」の 16 種類を 1K に縮めたもの。元のパックは 2.8GB あるので使わない）
+    folder = os.path.join(SOURCE, "Wood")
+    if not os.path.isdir(folder):
+        log("no wood source")
+        return
+    dest = "/Game/Kakurenbo/Wood"
+    if eal.does_directory_exist(dest):
+        eal.delete_directory(dest)
+    for i in range(1, 17):
+        name = "Wood%02d" % i
+        texture(os.path.join(folder, name + "_Base_Color.jpg"), dest)
+        texture(os.path.join(folder, name + "_Normal.png"), dest, normal=True)
+        texture(os.path.join(folder, name + "_Roughness.jpg"), dest, linear=True)
+    log("wood done")
+
 def create_surface_material():
     # どのテクスチャでも使える共通のマテリアル（Fab のアセットは参照しないので Git に入れる）。
     # ゲームが実行時に Data/Surfaces.csv のテクスチャを差し込み、Color で色を付ける（壁が傷つくと暗く赤くなる、など）
@@ -179,7 +214,7 @@ def create_surface_material():
 
 
 def report():
-    for folder in ("/Game/Gem", "/Game/Player", "/Game/Kakurenbo"):
+    for folder in ("/Game/Gem", "/Game/Player", "/Game/QuietWall"):
         for path in eal.list_assets(folder, recursive=True):
             asset = unreal.load_asset(path)
             log("asset %s (%s)" % (path, asset.get_class().get_name() if asset else "?"))
@@ -191,6 +226,8 @@ if "surface" in sys.argv[-1:] or "--surface-only" in sys.argv:
 else:
     import_gem()
     import_player()
+    import_quiet_wall()
+    import_wood()
     create_surface_material()
 report()
 log("done")

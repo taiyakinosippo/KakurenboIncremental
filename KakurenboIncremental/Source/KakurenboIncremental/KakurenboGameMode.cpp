@@ -298,6 +298,7 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 
 	// 時間収入（毎フレーム、経過時間ぶんだけ加算）
 	State->AddCoins(GetTimeIncomePerSecond() * DeltaSeconds, true);
+	State->TimeCoinsThisRound += GetTimeIncomePerSecond() * DeltaSeconds;
 
 	State->HideTimeRemaining -= DeltaSeconds;
 	TickCountdownSounds();
@@ -1370,6 +1371,7 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 		return;
 	}
 	State->AddCoins(GetMashIncome(), true);
+	State->MashCoinsThisRound += GetMashIncome();
 	State->MashCountThisRound++;
 
 	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなり、消音壁が少し傷む）
@@ -2095,6 +2097,42 @@ void AKakurenboGameMode::StartShopPhase()
 	SetPhase(EKakurenboPhase::Shop);
 }
 
+int32 AKakurenboGameMode::ClearAllPlaced()
+{
+	AKakurenboGameState* State = GS();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!State || !Grid || GetPhase() != EKakurenboPhase::Build)
+	{
+		return 0;
+	}
+	State->WallStock.SetNum(WallTypes.Num());
+	State->TrapStock.SetNum(TrapTypes.Num());
+	const TArray<int32> WallsBefore = State->WallStock;
+	const TArray<int32> TrapsBefore = State->TrapStock;
+	TArray<FIntPoint> Cells;
+	for (int32 Y = 0; Y < Grid->GetSizeY(); ++Y)
+	{
+		for (int32 X = 0; X < Grid->GetSizeX(); ++X)
+		{
+			Cells.Add(FIntPoint(X, Y));
+		}
+	}
+	Grid->ClearCells(Cells, State->WallStock, State->TrapStock);
+	int32 Returned = 0;
+	for (int32 i = 0; i < State->WallStock.Num(); ++i)
+	{
+		Returned += State->WallStock[i] - (WallsBefore.IsValidIndex(i) ? WallsBefore[i] : 0);
+	}
+	for (int32 i = 0; i < State->TrapStock.Num(); ++i)
+	{
+		Returned += State->TrapStock[i] - (TrapsBefore.IsValidIndex(i) ? TrapsBefore[i] : 0);
+	}
+	Sfx2D(this, EKakurenboSfx::PickUp, 1.f, 0.8f);
+	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeClearAll", "置いた壁と罠をすべて回収しました（{0} 個を在庫に戻しました）"), Returned));
+	UE_LOG(LogKakurenbo, Log, TEXT("Cleared all placed walls / traps (%d returned to stock)"), Returned);
+	return Returned;
+}
+
 void AKakurenboGameMode::ReturnToShop()
 {
 	if (GetPhase() == EKakurenboPhase::Build)
@@ -2129,6 +2167,8 @@ void AKakurenboGameMode::StartHidePhase()
 	State->SummonsThisRound = 0;
 	State->TreasuresCollectedThisRound = 0;
 	State->TreasureCoinsThisRound = 0.0;
+	State->TimeCoinsThisRound = 0.0;
+	State->MashCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
 	State->HideTimeRemaining = State->HideTimeLimit;
 	State->HideStartCountdown = HideStartDelay;

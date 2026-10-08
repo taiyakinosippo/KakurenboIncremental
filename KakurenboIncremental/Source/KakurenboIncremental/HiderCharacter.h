@@ -270,6 +270,7 @@ private:
 	/** しゃがんでカプセルが低くなった分、見た目を上げて足を床に置く（cm） */
 	float CrouchMeshOffset = 0.f;
 	float CrouchBlend = 0.f;
+	float SmoothedCrouchLift = 0.f;
 	FVector StandingBodyScale = FVector::OneVector;
 	FName LeftFoot, RightFoot;
 

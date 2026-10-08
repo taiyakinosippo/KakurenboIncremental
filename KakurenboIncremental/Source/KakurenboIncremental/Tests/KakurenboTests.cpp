@@ -428,6 +428,23 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Used.Add(Row->Map);
 		}
 		TestTrue(FString::Printf(TEXT("every stage uses a different map (%d maps for %d stages)"), Used.Num(), Rows.Num()), Rows.Num() >= 20 && Used.Num() == Rows.Num());
+		// ステージが進むごとに館が大きくなる（マス数が前のステージより多い）
+		if (UDataTable* Maps = Load(FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))
+		{
+			int32 PrevArea = 0;
+			for (int32 i = 0; i < Rows.Num(); ++i)
+			{
+				const FKakurenboMapRow* MapRow = Maps->FindRow<FKakurenboMapRow>(Rows[i]->Map, TEXT("Test"), false);
+				FString Text;
+				int32 SX = 0, SY = 0;
+				if (MapRow && FFileHelper::LoadFileToString(Text, *KakurenboBalance::GetDataFilePath(FString(TEXT("Maps")) / MapRow->LayoutFile)))
+				{
+					KakurenboMaps::MeasureLayout(Text, SX, SY);
+				}
+				TestTrue(FString::Printf(TEXT("stage %d map %s (%dx%d) is bigger than the previous stage"), i + 1, *Rows[i]->Map.ToString(), SX, SY), SX * SY > PrevArea);
+				PrevArea = SX * SY;
+			}
+		}
 		int32 Walls = 0;
 		for (int32 i = 1; i < Rows.Num(); ++i)
 		{
