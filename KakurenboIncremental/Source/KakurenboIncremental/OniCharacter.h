@@ -284,6 +284,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float StunImmunitySeconds = 3.f;
 
+	// ===== 飛び乗り（家具・壁の上に乗ったプレイヤーを追う） =====
+
+	/** この高さ（cm。相手と自分の足元の差）までの台なら、そばまで行って飛び乗る。これより高い積んだ壁は下から壊す */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Leap")
+	float LeapMaxHeight = 280.f;
+
+	/** 飛び乗るとき、台の上をどれだけ越える高さまで跳ぶか（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Leap")
+	float LeapClearance = 60.f;
+
+	/** 台の上に出てから相手へ向かう横の速さ（cm/秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Leap")
+	float LeapForwardSpeed = 450.f;
+
+	/** 飛び乗りに失敗したとき、次に跳ぶまでの待ち時間（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Leap")
+	float LeapCooldownSeconds = 1.f;
+
+	/** 飛び乗った回数（テスト用） */
+	int32 GetLeapCount() const { return LeapCount; }
+
 	// ===== 攻撃 =====
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
@@ -420,6 +441,15 @@ private:
 	void TickChase(float DeltaSeconds);
 	void TickStunned(float DeltaSeconds);
 
+	// 飛び乗り
+	/** 相手が台（家具・壁）の上に立っているか。OutHeight は自分の足元からの高さ */
+	bool IsTargetOnPlatform(float& OutHeight) const;
+	/** 台のマスのそばの、歩けるマスのうち相手に一番近いもの（そこまで歩いてから飛び乗る） */
+	bool FindApproachCell(const FIntPoint& PlatformCell, const FVector& TargetLocation, FIntPoint& OutCell) const;
+	/** 目の前が台なら真上に跳ぶ（台より上に出たら相手の方へ進む） */
+	bool TryStartLeap();
+	void TickLeap(float DeltaSeconds);
+
 	/** その場で左右を見渡す（くるくる回らないよう、元の向きを中心に往復する） */
 	void BeginLookAround();
 	void TickLookAround(float DeltaSeconds, float AmplitudeDegrees);
@@ -547,6 +577,13 @@ private:
 	/** 罠から抜け出した後、罠にかからない残り時間 */
 	float StunImmunityTimer = 0.f;
 	void SetStunStarsVisible(bool bVisible);
+
+	/** 飛び乗りの最中か・跳び越える台の上面の高さ・跳んでからの時間・次に跳べるまでの時間 */
+	bool bLeaping = false;
+	float LeapTopZ = 0.f;
+	float LeapElapsed = 0.f;
+	float LeapCooldown = 0.f;
+	int32 LeapCount = 0;
 
 	/** 引っかかり検出 */
 	FVector LastProgressLocation = FVector::ZeroVector;

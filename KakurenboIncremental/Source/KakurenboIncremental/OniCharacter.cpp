@@ -381,6 +381,7 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 void AOniCharacter::Deactivate()
 {
 	bActive = false;
+	bLeaping = false;
 	GetCharacterMovement()->StopMovementImmediately();
 	ResetBodyScale();
 	SetStunStarsVisible(false);
@@ -525,6 +526,14 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	if (IsTouchingTarget())
 	{
 		FoundTarget(TEXT("touch"));
+		return;
+	}
+
+	// 台へ飛び乗っている最中は、跳び終わるまでほかのことをしない
+	LeapCooldown = FMath::Max(0.f, LeapCooldown - DeltaSeconds);
+	if (bLeaping)
+	{
+		TickLeap(DeltaSeconds);
 		return;
 	}
 
@@ -882,11 +891,29 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 	// 相手は動くので、経路はこまめに作り直す
 	const FVector ChaseLocation = bTargetInSight ? Target->GetActorLocation() : LastKnownTargetLocation;
 	const FIntPoint TargetCell = ClampToGrid(Grid()->WorldToCell(ChaseLocation));
+
+	// 台（家具・積んだ壁）の上にいる相手には、そばまで歩いて行って飛び乗る。
+	// （下で待っているだけだと、乗られたら手が出せず無敵になってしまうため）。高すぎる積んだ壁は今まで通り下から壊す
+	FIntPoint PathGoal = TargetCell;
+	float PlatformHeight = 0.f;
+	if (bTargetInSight && IsTargetOnPlatform(PlatformHeight) && PlatformHeight <= LeapMaxHeight)
+	{
+		if (TryStartLeap())
+		{
+			return;
+		}
+		FIntPoint Approach;
+		if (FindApproachCell(TargetCell, ChaseLocation, Approach))
+		{
+			PathGoal = Approach;
+		}
+	}
+
 	ChaseRepathTimer -= DeltaSeconds;
-	if (!bHasGoal || TargetCell != GoalCell || ChaseRepathTimer <= 0.f)
+	if (!bHasGoal || PathGoal != GoalCell || ChaseRepathTimer <= 0.f)
 	{
 		ChaseRepathTimer = ChaseRepathInterval;
-		if (!RequestPathTo(TargetCell, EPathMode::BreakIfNeeded))
+		if (!RequestPathTo(PathGoal, EPathMode::BreakIfNeeded))
 		{
 			bHasGoal = false;
 		}
@@ -912,6 +939,133 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 	if (FollowPath(DeltaSeconds) == EFollowResult::Arrived)
 	{
 		AddMovementInput(ToTarget);
+	}
+}
+
+bool AOniCharacter::IsTargetOnPlatform(float& OutHeight) const
+{
+	OutHeight = 0.f;
+	const ACharacter* TargetChar = Target;
+	if (!TargetChar || !TargetChar->GetCharacterMovement() || !TargetChar->GetCharacterMovement()->IsMovingOnGround())
+	{
+		return false; // ジャンプ中（空中）は台に乗っているとはみなさない
+	}
+	const float MyFeet = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float TheirFeet = TargetChar->GetActorLocation().Z - TargetChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	OutHeight = TheirFeet - MyFeet;
+	return OutHeight > 40.f; // 段差（45cm 以下）は歩いて上れる
+}
+
+bool AOniCharacter::FindApproachCell(const FIntPoint& PlatformCell, const FVector& TargetLocation, FIntPoint& OutCell) const
+{
+	const UKakurenboGridSubsystem* G = Grid();
+	const FIntPoint Here = GetCurrentCell();
+	float BestScore = TNumericLimits<float>::Max();
+	// 近い順に探す（大きな家具の真ん中にいても、2 マス先までのそばのマスから選ぶ）
+	for (int32 Radius = 0; Radius <= 2 && BestScore == TNumericLimits<float>::Max(); ++Radius)
+	{
+		for (int32 DY = -Radius; DY <= Radius; ++DY)
+		{
+			for (int32 DX = -Radius; DX <= Radius; ++DX)
+			{
+				if (FMath::Max(FMath::Abs(DX), FMath::Abs(DY)) != Radius)
+				{
+					continue;
+				}
+				const FIntPoint Cell = PlatformCell + FIntPoint(DX, DY);
+				if (!G->IsWalkable(Cell) && Cell != Here)
+				{
+					continue;
+				}
+				// 相手に近いマスほどよい。同じくらいなら自分に近い方
+				const float Score = FVector::Dist2D(G->CellFloorCenter(Cell), TargetLocation)
+					+ 0.1f * FVector::Dist2D(G->CellFloorCenter(Cell), GetActorLocation());
+				if (Score < BestScore)
+				{
+					BestScore = Score;
+					OutCell = Cell;
+				}
+			}
+		}
+	}
+	return BestScore < TNumericLimits<float>::Max();
+}
+
+bool AOniCharacter::TryStartLeap()
+{
+	UKakurenboGridSubsystem* G = Grid();
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (!Target || !G || LeapCooldown > 0.f || !Move->IsMovingOnGround())
+	{
+		return false;
+	}
+	const FVector Me = GetActorLocation();
+	const FVector Goal = Target->GetActorLocation();
+	if (FVector::Dist2D(Me, Goal) > 320.f)
+	{
+		return false;
+	}
+
+	// 相手の方向のすぐ前が台のマスで、その縁まで来ているときだけ跳ぶ
+	const FVector Dir = (Goal - Me).GetSafeNormal2D();
+	const float Radius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const FIntPoint Here = G->WorldToCell(Me);
+	const FIntPoint Ahead = G->WorldToCell(Me + Dir * (Radius + 30.f));
+	if (Ahead == Here || !G->IsInside(Ahead) || G->IsWalkable(Ahead))
+	{
+		return false;
+	}
+
+	// 目の前の台の上面の高さを測る（家具の当たり判定の箱・積んだ壁）
+	const float FeetZ = Me.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector AheadCenter = G->CellFloorCenter(Ahead);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniLeap), false, this);
+	Params.AddIgnoredActor(Target);
+	FHitResult Hit;
+	const FVector From(AheadCenter.X, AheadCenter.Y, FeetZ + LeapMaxHeight + 100.f);
+	const FVector To(AheadCenter.X, AheadCenter.Y, FeetZ - 10.f);
+	if (!GetWorld()->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params))
+	{
+		return false;
+	}
+	const float Rise = Hit.ImpactPoint.Z - FeetZ;
+	if (Rise < 20.f || Rise > LeapMaxHeight)
+	{
+		return false; // 段差でない・高すぎる
+	}
+
+	// 真上に跳ぶ（台の縁にぶつからないよう、上に出てから前へ進む。TickLeap）
+	LeapTopZ = Hit.ImpactPoint.Z;
+	const float Gravity = FMath::Max(-Move->GetGravityZ(), 1.f);
+	LaunchCharacter(FVector(0.f, 0.f, FMath::Sqrt(2.f * Gravity * (Rise + LeapClearance))), true, true);
+	SetActorRotation(FRotator(0.f, Dir.Rotation().Yaw, 0.f));
+	bLeaping = true;
+	LeapElapsed = 0.f;
+	LeapCooldown = LeapCooldownSeconds;
+	++LeapCount;
+	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Me, 1.5f, 0.75f);
+	return true;
+}
+
+void AOniCharacter::TickLeap(float DeltaSeconds)
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	LeapElapsed += DeltaSeconds;
+
+	// 台の上面より上に出たら、相手の方へ進む
+	const float FeetZ = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	if (Target && FeetZ >= LeapTopZ + 5.f)
+	{
+		const FVector Dir = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		Move->Velocity.X = Dir.X * LeapForwardSpeed;
+		Move->Velocity.Y = Dir.Y * LeapForwardSpeed;
+	}
+
+	// 着地したら終わり（跳んだ直後のフレームはまだ地面にいる扱いなので少し待つ）。念のため 2 秒で打ち切る
+	if ((LeapElapsed > 0.15f && Move->IsMovingOnGround()) || LeapElapsed > 2.f)
+	{
+		bLeaping = false;
+		bHasGoal = false; // 乗った台の上から経路を作り直す
 	}
 }
 

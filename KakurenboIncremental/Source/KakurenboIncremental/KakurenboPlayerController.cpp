@@ -210,13 +210,27 @@ void AKakurenboPlayerController::HandleOverheadCamera(float DeltaTime, bool bMou
 		Hider->AddOverheadYaw(PlayerInput->GetRawKeyValue(EKeys::MouseX) * MouseSensitivity);
 	}
 
-	// ホイールを押しながらドラッグで回す（カーソルの移動量で判定）
+	// 設置パート（真上から）は Z / X で傾ける（Z: 斜め横から見る / X: 真上に戻す）。積んだ壁の高さが見やすくなる
+	const bool bTopDown = Hider->GetViewMode() == EHiderViewMode::TopDown;
+	if (bTopDown)
+	{
+		float Tilt = 0.f;
+		if (IsInputKeyDown(EKeys::Z)) Tilt += 1.f;
+		if (IsInputKeyDown(EKeys::X)) Tilt -= 1.f;
+		Hider->AddTopDownTilt(Tilt * OverheadRotateSpeed * 0.6f * DeltaTime);
+	}
+
+	// ホイールを押しながらドラッグで回す（カーソルの移動量で判定）。設置パートでは上下のドラッグで傾ける
 	float MouseX = 0.f, MouseY = 0.f;
 	if (IsInputKeyDown(EKeys::MiddleMouseButton) && GetMousePosition(MouseX, MouseY))
 	{
 		if (bDraggingCamera)
 		{
 			Hider->AddOverheadYaw((MouseX - LastDragMousePosition.X) * OverheadDragSensitivity);
+			if (bTopDown)
+			{
+				Hider->AddTopDownTilt(-(MouseY - LastDragMousePosition.Y) * OverheadDragSensitivity); // 上へドラッグで傾く
+			}
 		}
 		LastDragMousePosition = FVector2D(MouseX, MouseY);
 		bDraggingCamera = true;

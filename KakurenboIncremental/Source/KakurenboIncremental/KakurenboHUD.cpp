@@ -449,8 +449,8 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	Text(TEXT("左クリック: 置く　右クリック: 回収"), 36, HelpY + 40, 18);
 	Text(TEXT("数字キー・下の欄をクリック: 置く物（壁・罠）"), 36, HelpY + 68, 18);
 	Text(TEXT("T: スタート位置（青い印）をカーソルのマスへ"), 36, HelpY + 96, 18, Blue);
-	Text(TEXT("Q/E・ホイールを押してドラッグ: 回転"), 36, HelpY + 124, 18);
-	Text(TEXT("ホイール: ズーム"), 36, HelpY + 152, 18);
+	Text(TEXT("Q/E: 回転　Z/X: 傾ける・真上に戻す"), 36, HelpY + 124, 18);
+	Text(TEXT("ホイール: ズーム　押してドラッグ: 回転と傾き"), 36, HelpY + 152, 18);
 	Text(TEXT("Enter: かくれんぼ開始　B: 購入パートへ"), 36, HelpY + 184, 22, Gold);
 
 	// スタート位置と鬼の出入り口に名前を付ける

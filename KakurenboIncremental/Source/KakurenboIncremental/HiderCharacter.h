@@ -3,7 +3,7 @@
 //
 // カメラは 1 本のアーム（SpringArm）の先に付いていて、パートによって向きと長さを変える：
 //   俯瞰（Overhead）    : 購入・リザルト。斜め上から見下ろす。Q/E で回転、ホイールでズーム
-//   真上（TopDown）     : 設置。真上から見下ろす。プレイヤーは表示せず、アームの根元（注視点）を WASD で動かす
+//   真上（TopDown）     : 設置。真上から見下ろす（Z/X で斜めに傾けられる）。プレイヤーは表示せず、アームの根元（注視点）を WASD で動かす
 //   三人称（ThirdPerson）: かくれんぼ。自分の背後の少し上から見る。マウスで回す、ホイールで距離を変える
 // 置いたブロックはカメラがすり抜けるので、壁で囲まれても周りが見える。
 // 三人称では舞台の外周の壁には当たって手前に寄る（舞台の外へ出ない）。
@@ -68,6 +68,17 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float TopDownMaxDistance = 4000.f;
+
+	/** 見下ろす角度（度）。-90 で真上から。Z/X・ホイールを押して上下にドラッグで傾けられる（積んだ壁が見やすい） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TopDownPitch = -90.f;
+
+	/** 一番傾けたときの角度（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TopDownMaxTiltPitch = -25.f;
+
+	/** 設置パートのカメラを傾ける（プラスで横から見る向き、マイナスで真上に戻る向き） */
+	void AddTopDownTilt(float DeltaDegrees);
 
 	// ===== ダッシュ（かくれんぼ中に Shift。転生のお店で解放し、速さ・クールタイムも強化される） =====
 

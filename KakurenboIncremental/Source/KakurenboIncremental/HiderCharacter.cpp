@@ -115,6 +115,11 @@ void AHiderCharacter::AddOverheadYaw(float DeltaDegrees)
 	SetOverheadYaw(OverheadYaw + DeltaDegrees);
 }
 
+void AHiderCharacter::AddTopDownTilt(float DeltaDegrees)
+{
+	TopDownPitch = FMath::Clamp(TopDownPitch + DeltaDegrees, -90.f, TopDownMaxTiltPitch);
+}
+
 void AHiderCharacter::AddZoom(float DeltaCm)
 {
 	if (ViewMode == EHiderViewMode::Overhead)
@@ -169,9 +174,9 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 	}
 	else if (ViewMode == EHiderViewMode::TopDown)
 	{
-		// 真上から（ピッチ -90）。画面の上が OverheadYaw の方向になる
+		// 真上から（ピッチ -90。傾けると斜め上から）。画面の上が OverheadYaw の方向になる
 		CameraBoom->SetWorldLocation(TopDownFocus);
-		CameraBoom->SetWorldRotation(FRotator(-90.f, OverheadYaw, 0.f));
+		CameraBoom->SetWorldRotation(FRotator(TopDownPitch, OverheadYaw, 0.f));
 		CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, TopDownDistance, DeltaSeconds, 8.f);
 	}
 	else

@@ -9,6 +9,8 @@
 #include "Animation/AnimSequence.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerInput.h"
 #include "HiderCharacter.h"
@@ -428,6 +430,88 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("hovering player is not caught"), GS()->Phase == EKakurenboPhase::Hide);
 		} });
 	}
+	// ================================================================ Perch（家具・壁の上に乗ったプレイヤーへ鬼が飛び乗る）
+	else if (Scenario.Equals(TEXT("Perch"), ESearchCase::IgnoreCase))
+	{
+		// 1 回目: 3×3 マス・高さ 120cm の家具（壊せない）の真ん中に立つ → 縁からは届かないので、飛び乗って捕まえる
+		// 2 回目: 木の壁 1 段の上に立つ → 壁を壊さずに飛び乗って捕まえる
+		const FIntPoint Furniture(6, 12);
+		const FIntPoint Pillar(8, 5);
+		auto ReadyOni = [=, this](const FIntPoint& OniCell) -> AOniCharacter*
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			if (Oni)
+			{
+				Oni->SightRadius = 3000.f;
+				Oni->SightHalfAngle = 180.f;
+				Oni->SetActorLocation(Grid()->CellFloorCenter(OniCell) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			return Oni;
+		};
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			// 家具の代わり：当たり判定のある箱を置き、そのマスを通れない障害物にする（館の家具と同じ扱い）
+			UKakurenboGridSubsystem* G = Grid();
+			TArray<FIntPoint> Cells;
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					Cells.Add(Furniture + FIntPoint(DX, DY));
+				}
+			}
+			G->SetObstacles(Cells);
+			const FVector Center = G->CellFloorCenter(Furniture);
+			AStaticMeshActor* Box = GetWorld()->SpawnActor<AStaticMeshActor>(Center + FVector(0.f, 0.f, 60.f), FRotator::ZeroRotator);
+			Box->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Box->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+			Box->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+			Box->SetActorScale3D(FVector(G->GetCellSize() * 3.f / 100.f, G->GetCellSize() * 3.f / 100.f, 1.2f));
+			// 家具の真ん中の上に立つ
+			GetPawn()->SetActorLocation(Center + FVector(0.f, 0.f, 120.f + GetPawn()->GetSimpleCollisionHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 3.2f, [=, this]
+		{
+			AOniCharacter* Oni = ReadyOni(Furniture + FIntPoint(5, 0));
+			Check(TEXT("an oni came out"), Oni != nullptr);
+			const float Feet = GetPawn()->GetActorLocation().Z - GetPawn()->GetSimpleCollisionHalfHeight() - Grid()->CellFloorCenter(Furniture).Z;
+			Check(FString::Printf(TEXT("player stands on the furniture (feet %.0f cm above the floor)"), Feet), Feet > 100.f);
+			LookAtOni();
+		} });
+		Steps.Add({ 1.2f, [=] { ShotLater(TEXT("perch_01_leap")); } });
+		Steps.Add({ 4.5f, [=, this]
+		{
+			const AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("oni leaps onto the furniture and catches the player (phase=%s, reason=%s, leaps=%d)"),
+				*UEnum::GetValueAsString(GS()->Phase), *FoundReasonOfAny().ToString(), Oni ? Oni->GetLeapCount() : -1),
+				GS()->Phase == EKakurenboPhase::Result && FoundReasonOfAny() == FName(TEXT("touch")) && Oni && Oni->GetLeapCount() >= 1);
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			PlaceTestWall(Pillar);
+			KakuNext(); // → かくれんぼ
+			const FVector Top = Grid()->CellFloorCenter(Pillar) + FVector(0.f, 0.f, Grid()->GetBlockHeight());
+			GetPawn()->SetActorLocation(Top + FVector(0.f, 0.f, GetPawn()->GetSimpleCollisionHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 3.2f, [=, this]
+		{
+			AOniCharacter* Oni = ReadyOni(Pillar + FIntPoint(5, 2));
+			Check(TEXT("an oni came out (2nd round)"), Oni != nullptr);
+		} });
+		Steps.Add({ 5.5f, [=, this]
+		{
+			const AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("oni leaps onto the wall instead of breaking it (phase=%s, reason=%s, leaps=%d, walls broken=%d)"),
+				*UEnum::GetValueAsString(GS()->Phase), *FoundReasonOfAny().ToString(), Oni ? Oni->GetLeapCount() : -1, GS()->LastRoundWallsDestroyed),
+				GS()->Phase == EKakurenboPhase::Result && FoundReasonOfAny() == FName(TEXT("touch")) && Oni && Oni->GetLeapCount() >= 1 && GS()->LastRoundWallsDestroyed == 0);
+			Shot(TEXT("perch_02_caught_on_wall"));
+		} });
+	}
 	// ================================================================ Breaker
 	else if (Scenario.Equals(TEXT("Breaker"), ESearchCase::IgnoreCase))
 	{
@@ -700,6 +784,26 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				bUseTestCursor = false;
 			});
 			ShotLater(TEXT("camera_03_build_topdown"));
+		} });
+		// Z で斜めに傾ける（積んだ壁の高さが見える）→ X で真上に戻す
+		TSharedRef<float> PitchBefore = MakeShared<float>(0.f);
+		Steps.Add({ 0.6f, [=, this]
+		{
+			*PitchBefore = GetHider()->TopDownPitch;
+			SimulateKey(EKeys::Z, IE_Pressed);
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			SimulateKey(EKeys::Z, IE_Released);
+			Check(FString::Printf(TEXT("Z tilts the build camera (pitch %.1f -> %.1f)"), *PitchBefore, GetHider()->TopDownPitch),
+				*PitchBefore < -85.f && GetHider()->TopDownPitch > -60.f);
+			ShotLater(TEXT("camera_03b_build_tilted"));
+		} });
+		Steps.Add({ 0.6f, [=, this] { SimulateKey(EKeys::X, IE_Pressed); } });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			SimulateKey(EKeys::X, IE_Released);
+			Check(FString::Printf(TEXT("X brings it back to straight down (pitch %.1f)"), GetHider()->TopDownPitch), GetHider()->TopDownPitch < -89.f);
 		} });
 
 		// ---- 6. かくれんぼへ戻ると三人称。俯瞰カメラが向いていた方向を向いて始まる ----
