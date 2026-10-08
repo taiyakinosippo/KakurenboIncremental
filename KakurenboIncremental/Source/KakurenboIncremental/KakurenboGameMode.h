@@ -501,6 +501,10 @@ public:
 
 	// ===== 足音・ジャンプの音 =====
 
+	/** 連打（クリック）の音が届く距離の倍率（1 = Stages.csv の OniHearingRadius まで）。広すぎたので少し小さく */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
+	float MashNoiseLoudness = 0.75f;
+
 	/** 足音 1 歩・ジャンプ 1 回の音の大きさ（連打 = 1） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	float StepNoiseLoudness = 0.5f;

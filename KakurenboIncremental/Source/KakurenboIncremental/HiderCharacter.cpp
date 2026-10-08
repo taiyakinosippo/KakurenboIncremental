@@ -34,6 +34,11 @@ AHiderCharacter::AHiderCharacter()
 	Move->JumpZVelocity = 650.f; // ブロック 1 段（160cm）に飛び乗れる高さ
 	Move->AirControl = 0.5f;
 
+	// しのび足のときはしゃがむ（体が半分の高さになり、低い家具の陰に隠れられる）
+	Move->NavAgentProps.bCanCrouch = true;
+	Move->SetCrouchedHalfHeight(CrouchedHalfHeight);
+	Move->bCanWalkOffLedgesWhenCrouching = true;
+
 	// ジャンプは最初はできない（転生のお店で解放すると GameMode が 1 にする）
 	JumpMaxCount = 0;
 
@@ -66,6 +71,8 @@ void AHiderCharacter::BeginPlay()
 	Super::BeginPlay();
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	BodyBaseScale = BodyMesh->GetRelativeScale3D();
+	StandingBodyScale = BodyBaseScale;
+	GetCharacterMovement()->SetCrouchedHalfHeight(CrouchedHalfHeight);
 	OverheadYaw = GetActorRotation().Yaw;
 	WalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	TopDownFocus = GetActorLocation();
@@ -153,6 +160,7 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 		{
 			DashTimeRemaining = 0.f;
 			UpdateWalkSpeed();
+			UpdateCrouch();
 		}
 	}
 
@@ -225,6 +233,7 @@ bool AHiderCharacter::TryStartDash()
 	--DashUsesLeft;
 	DashTimeRemaining = DashDuration;
 	UpdateWalkSpeed();
+	UpdateCrouch(); // 煙幕ダッシュは立って走る
 	return true;
 }
 
@@ -241,7 +250,40 @@ void AHiderCharacter::SetSneaking(bool bInSneaking)
 	{
 		bSneaking = bInSneaking;
 		UpdateWalkSpeed();
+		UpdateCrouch();
 	}
+}
+
+void AHiderCharacter::UpdateCrouch()
+{
+	if (bSneaking && !IsDashing())
+	{
+		Crouch();
+	}
+	else
+	{
+		UnCrouch(); // 頭の上に何かあって立てないときは、しゃがんだまま（エンジンが判定する）
+	}
+}
+
+void AHiderCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	// カプセルが低くなり体の中心が下がるので、見た目を上げて足を床に置いたままにする
+	CrouchMeshOffset = ScaledHalfHeightAdjust;
+	const float Ratio = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() / FMath::Max(GetDefaultHalfHeight(), 1.f);
+	BodyBaseScale = FVector(StandingBodyScale.X, StandingBodyScale.Y, StandingBodyScale.Z * Ratio);
+	if (!LookMesh)
+	{
+		BodyMesh->SetRelativeLocation(FVector::ZeroVector);
+	}
+}
+
+void AHiderCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	CrouchMeshOffset = 0.f;
+	BodyBaseScale = StandingBodyScale;
 }
 
 void AHiderCharacter::UpdateWalkSpeed()
@@ -250,6 +292,7 @@ void AHiderCharacter::UpdateWalkSpeed()
 	GetCharacterMovement()->MaxWalkSpeed = IsDashing() ? WalkSpeed * DashSpeedMultiplier
 		: bSneaking ? WalkSpeed * SneakSpeedMultiplier
 		: WalkSpeed;
+	GetCharacterMovement()->MaxWalkSpeedCrouched = GetCharacterMovement()->MaxWalkSpeed; // しゃがんでいるときも同じ速さ
 }
 
 void AHiderCharacter::NotifyStep()
@@ -356,8 +399,13 @@ void AHiderCharacter::ApplyLook(USkeletalMesh* Model, UMaterialInterface* Materi
 			}
 		};
 		const bool bTwistOrEnd = Lower.Contains(TEXT("twist")) || Lower.Contains(TEXT("end")) || Lower.Contains(TEXT("roll"));
-		if (bTwistOrEnd)
+		if (bTwistOrEnd || Lower.StartsWith(TEXT("ik_")))
 		{
+			continue;
+		}
+		if (Lower.Contains(TEXT("foot")))
+		{
+			Pick(LeftFoot, RightFoot);
 			continue;
 		}
 		if (Lower.Contains(TEXT("thigh")) || Lower.Contains(TEXT("upleg")) || Lower.Contains(TEXT("upperleg")) || Lower.Contains(TEXT("up_leg")))
@@ -419,6 +467,7 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 			Single->SetBlendSpacePosition(FVector(0.f, GetVelocity().Size2D(), 0.f));
 		}
 		CopyDriverPose();
+		ApplyCrouchPose(DeltaSeconds, 0.f);
 		return;
 	}
 	// 歩く速さに合わせて足を交互に振る（止まると元に戻る）
@@ -482,7 +531,47 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 
 	// 歩くと上下に弾む・止まっているときはゆっくり息をする
 	const float Bob = FMath::Abs(FMath::Sin(WalkPhase)) * 4.f * WalkBlend + FMath::Sin(IdleTime * 2.2f) * 0.8f * (1.f - WalkBlend);
-	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, Bob));
+	ApplyCrouchPose(DeltaSeconds, Bob);
+}
+
+void AHiderCharacter::ApplyCrouchPose(float DeltaSeconds, float Bob)
+{
+	// しゃがむ：太ももを前へ、すねを後ろへ曲げ、背中を少し丸める。足が浮いた分だけモデルを下げて、足を床に付ける
+	CrouchBlend = FMath::FInterpTo(CrouchBlend, bIsCrouched ? 1.f : 0.f, DeltaSeconds, 12.f);
+	float Lift = 0.f;
+	if (CrouchBlend > 0.01f && !LeftThigh.IsNone() && !RightThigh.IsNone() && !LeftCalf.IsNone() && !RightCalf.IsNone())
+	{
+		const FRotator MeshRot = LookMesh->GetRelativeRotation();
+		const FVector Forward = MeshRot.UnrotateVector(FVector::ForwardVector);
+		const FVector Right = MeshRot.UnrotateVector(FVector::RightVector);
+		auto About = [&](float Degrees) { return FQuat(Right, FMath::DegreesToRadians(Degrees)); };
+		// 右を軸に + へ回すと、骨の先が前へ動くか（モデルによって骨の向きが違うので、実際の向きから決める）
+		auto ForwardSign = [&](FName Bone, FName Child) -> float
+		{
+			const FVector Dir = (LookMesh->GetBoneLocationByName(Child, EBoneSpaces::ComponentSpace) - LookMesh->GetBoneLocationByName(Bone, EBoneSpaces::ComponentSpace)).GetSafeNormal();
+			return FVector::DotProduct(About(10.f).RotateVector(Dir) - Dir, Forward) >= 0.f ? 1.f : -1.f;
+		};
+		const FName LeftEnd = LeftFoot.IsNone() ? LeftCalf : LeftFoot;
+		const FName RightEnd = RightFoot.IsNone() ? RightCalf : RightFoot;
+		auto FootZ = [&]() { return (LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z + LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z) * 0.5f; };
+		const float Before = FootZ();
+		const float Knee = ForwardSign(LeftThigh, LeftCalf);
+		RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
+		RotateBone(RightThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
+		if (!LeftEnd.IsNone() && LeftEnd != LeftCalf)
+		{
+			const float Shin = ForwardSign(LeftCalf, LeftEnd);
+			RotateBone(LeftCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
+			RotateBone(RightCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
+		}
+		const FName Head = LookMesh->GetBoneIndex(TEXT("head")) != INDEX_NONE ? FName(TEXT("head")) : NAME_None;
+		if (!Spine.IsNone() && !Head.IsNone())
+		{
+			RotateBone(Spine, About(ForwardSign(Spine, Head) * CrouchSpineDegrees * CrouchBlend));
+		}
+		Lift = (FootZ() - Before) * LookMesh->GetRelativeScale3D().Z;
+	}
+	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, CrouchMeshOffset + Bob - Lift));
 }
 
 void AHiderCharacter::ApplyOfficialAnimation(USkeletalMesh* SourceMesh, UAnimationAsset* Move, UAnimationAsset* Fall)

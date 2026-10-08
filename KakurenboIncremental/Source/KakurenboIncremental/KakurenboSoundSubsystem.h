@@ -26,6 +26,7 @@ struct FKakurenboSpatialDebug
 	float GainL = 0.f;
 	float GainR = 0.f;
 	bool bOccluded = false; // 壁・家具の向こう
+	float LowPass = 1.f;    // こもり具合（小さいほどこもる。遠い・後ろ・壁の向こう）
 	bool bBehind = false;
 };
 

@@ -649,11 +649,11 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 	if (HiderPawn && HiderPawn->IsSneaking())
 	{
-		Text(TEXT("しのび足（足音が小さい）"), 0, CanvasH - 124, 18, Blue, true);
+		Text(TEXT("しのび足：しゃがんでいる（足音が小さい・低い家具に隠れられる）"), 0, CanvasH - 124, 18, Blue, true);
 	}
 
 	// 操作説明（下部中央）
-	FString Controls = TEXT("WASD: 移動　Ctrl: しのび足　");
+	FString Controls = TEXT("WASD: 移動　Ctrl: しのび足（しゃがむ）　");
 	if (GM->IsJumpUnlocked())
 	{
 		Controls += TEXT("Space: ジャンプ　");

@@ -372,8 +372,22 @@ namespace KakurenboSynth
 		{
 			return 0.f;
 		}
+		// 耳は大きさの「比」で距離を感じるので、近い所ほど急に小さくなる減り方にする（距離が 2 倍で約 -7.5dB）。
+		// 最大距離の手前でなめらかに 0 へ
 		const float T = (Distance - FullDistance) / (MaxDistance - FullDistance);
-		return FMath::Pow(1.f - T, 1.5f);
+		const float Falloff = FMath::Pow(FullDistance / FMath::Max(Distance, 1.f), 1.25f);
+		return Falloff * (1.f - FMath::Pow(T, 4.f));
+	}
+
+	float DistanceLowPass(float Distance, float FullDistance, float MaxDistance)
+	{
+		// 遠い音ほど高い音が消えて、こもった「ドン」になる（近い音は「ザッ」まではっきり）
+		if (Distance <= FullDistance || MaxDistance <= FullDistance)
+		{
+			return 1.f;
+		}
+		const float T = FMath::Clamp((Distance - FullDistance) / (MaxDistance - FullDistance), 0.f, 1.f);
+		return FMath::Lerp(1.f, 0.15f, FMath::Pow(T, 0.6f));
 	}
 
 	// ---------------------------------------------------------------- BGM

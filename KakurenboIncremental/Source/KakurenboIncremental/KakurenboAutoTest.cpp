@@ -6,6 +6,8 @@
 // 疑似入力（SimulateKey / SimulateMouse）の結果は、次のフレームの入力処理で反映されるので NextTick で確かめる。
 
 #include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/PoseableMeshComponent.h"
 #include "Animation/AnimSequence.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
@@ -1963,7 +1965,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			if (AOniCharacter* Oni = KeepOnlyOni(0))
 			{
 				MakeBlindListener(Oni);
-				Oni->HearingRadius = 1000.f; // 連打がそのまま 10m まで届く鬼。消音壁 80% なら 2m
+				Oni->HearingRadius = 1000.f / GM->MashNoiseLoudness; // 連打がそのまま 10m まで届く鬼。消音壁 80% なら 2m
 			}
 		} });
 		Steps.Add({ 0.3f, [=] { MashNearOni(false, TEXT("soundproof walls: the oni 5m away does not hear the mash")); } });
@@ -2625,12 +2627,20 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(FString::Printf(TEXT("sneaking walks slowly (speed %.0f)"), GetHider()->GetCharacterMovement()->MaxWalkSpeed),
 				GetHider()->IsSneaking() && GetHider()->GetCharacterMovement()->MaxWalkSpeed < 300.f);
+			// しのび足はしゃがむ：体の高さが半分になり、鬼が狙う頭の点も低い家具（テーブル 80cm）より下になる
+			TArray<FVector> Points;
+			GetHider()->GetSightTargetPoints(Points);
+			const float Floor = GetHider()->GetActorLocation().Z - GetHider()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			Check(FString::Printf(TEXT("sneaking crouches (crouched %d, height %.0f, head point %.0f cm above the floor)"), GetHider()->bIsCrouched,
+				GetHider()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 2.f, Points.Num() > 0 ? Points[0].Z - Floor : -1.f),
+				GetHider()->bIsCrouched && Points.Num() > 0 && Points[0].Z - Floor < 80.f);
+			Shot(TEXT("steps_crouch"));
 			bTestSneak = false;
 		} });
 		// 4) ジャンプ（転生のお店で解放）で音が出る
 		Steps.Add({ 0.3f, [=, this]
 		{
-			Check(TEXT("sneaking stops when Ctrl is released"), !GetHider()->IsSneaking());
+			Check(FString::Printf(TEXT("sneaking stops when Ctrl is released and the player stands up (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->IsSneaking() && !GetHider()->bIsCrouched);
 			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1;
 			GM->ApplyPrestigeToPlayer();
 			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerJump);
@@ -2982,6 +2992,25 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			Check(FString::Printf(TEXT("walls rebuilt from stock (blocks %d, repaired %d)"), Grid()->GetBlockCount(), GS()->LastRepairedWalls), Grid()->GetBlockCount() == 2 && GS()->LastRepairedWalls == 2);
+			// 置いた木の壁が床（木）と見分けられるか、近くから斜めに撮る
+			for (int32 Y = 0; Y < Grid()->GetSizeY(); ++Y)
+			{
+				for (int32 X = 0; X < Grid()->GetSizeX(); ++X)
+				{
+					if (Grid()->GetColumnHeight(FIntPoint(X, Y)) > 0)
+					{
+						GetHider()->SetTopDownFocus(Grid()->CellFloorCenter(FIntPoint(X, Y)));
+						Y = Grid()->GetSizeY();
+						break;
+					}
+				}
+			}
+			GetHider()->TopDownDistance = 900.f;
+			GetHider()->AddTopDownTilt(45.f);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Shot(TEXT("maps_99_walls"));
 		} });
 	}
 	// ================================================================ Mood（館の見た目を三人称で撮る）
@@ -3116,6 +3145,64 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 1.4f, [=, this] { Shot(TEXT("swatches_04_player_walk")); } });
 		Steps.Add({ 0.2f, [=, this] { Shot(TEXT("swatches_05_player_walk")); SimulateKey(EKeys::D, IE_Released); } });
 	}
+	// ================================================================ Crouch（しのび足でしゃがむと、体の半分くらいの高さの物の陰に隠れられる）
+	else if (Scenario.Equals(TEXT("Crouch"), ESearchCase::IgnoreCase))
+	{
+		struct FCrouch { FIntPoint Me = FIntPoint::ZeroValue; bool bSeenStanding = false; };
+		TSharedRef<FCrouch> State = MakeShared<FCrouch>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			State->Me = FIntPoint(6, 12);
+			TeleportPlayer(Grid()->CellFloorCenter(State->Me));
+			// 高さ 80cm の箱（テーブルくらい）をプレイヤーのすぐ東に置き、鬼を 5 マス東から見させる
+			UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+			AStaticMeshActor* Box = GetWorld()->SpawnActor<AStaticMeshActor>(Grid()->CellFloorCenter(State->Me + FIntPoint(1, 0)) + FVector(0.f, 0.f, 40.f), FRotator::ZeroRotator);
+			Box->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Box->GetStaticMeshComponent()->SetStaticMesh(Cube);
+			Box->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+			Box->SetActorScale3D(FVector(1.f, 1.4f, 0.8f));
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->Activate(GetHider());
+				Oni->Deactivate(); // 動かさず、見えるかどうかだけ調べる
+				Oni->SetActorLocation(Grid()->CellFloorCenter(State->Me + FIntPoint(5, 0)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			}
+			SetControlRotation(FRotator(-15.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			State->bSeenStanding = GM->GetOnis()[0]->DebugCanSeeTarget();
+			Check(FString::Printf(TEXT("standing behind a waist-high box, the oni can see the player (%d)"), State->bSeenStanding), State->bSeenStanding);
+			Shot(TEXT("crouch_01_standing"));
+			bTestSneak = true;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("crouching behind the same box hides the player (crouched %d, seen %d)"), GetHider()->bIsCrouched, GM->GetOnis()[0]->DebugCanSeeTarget()),
+				GetHider()->bIsCrouched && !GM->GetOnis()[0]->DebugCanSeeTarget());
+			Shot(TEXT("crouch_02_crouched"));
+			SetControlRotation(FRotator(-10.f, 90.f, 0.f)); // 横から姿勢を見る
+		} });
+		Steps.Add({ 0.8f, [=, this]
+		{
+			// 足が床に付いている（モデルの一番下が床の近く）
+			const UPoseableMeshComponent* Look = GetHider()->LookMesh;
+			const float Floor = GetHider()->GetActorLocation().Z - GetHider()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			if (Look)
+			{
+				const float FootZ = FMath::Min(Look->GetSocketLocation(TEXT("foot_l")).Z, Look->GetSocketLocation(TEXT("foot_r")).Z);
+				Check(FString::Printf(TEXT("crouching keeps the feet on the floor (foot %.0f cm above the floor)"), FootZ - Floor), FMath::Abs(FootZ - Floor) < 25.f);
+			}
+			Shot(TEXT("crouch_03_side"));
+			bTestSneak = false;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("standing up again (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->bIsCrouched);
+		} });
+	}
 	// ================================================================ Hearing（M12：左右の聞こえ方・壁の向こう・気づいた音・心臓の音）
 	else if (Scenario.Equals(TEXT("Hearing"), ESearchCase::IgnoreCase))
 	{
@@ -3149,8 +3236,18 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const FKakurenboSpatialDebug Near = PlayFrom(Me + FVector(200.f, 0.f, -80.f));
 			const FKakurenboSpatialDebug Mid = PlayFrom(Me + FVector(1000.f, 0.f, -80.f));
 			const FKakurenboSpatialDebug Far = PlayFrom(Me + FVector(1700.f, 300.f, -80.f));
-			Check(FString::Printf(TEXT("oni steps can be heard from far, louder when near (2m %.2f / 10m %.2f / 17m %.2f)"), Near.Gain, Mid.Gain, Far.Gain),
-				Near.Gain >= 0.99f && Mid.Gain > 0.5f && Far.Gain > 0.2f && Far.Gain < Mid.Gain);
+			// 距離が 2 倍で約 -7.5dB（はっきり違う大きさ）。遠いほどこもる（高い音が消える）。それでも 17m 先でかすかに聞こえる
+			Check(FString::Printf(TEXT("oni steps get clearly quieter and duller with distance (gain 2m %.2f / 10m %.2f / 17m %.2f, lowpass %.2f / %.2f / %.2f)"),
+				Near.Gain, Mid.Gain, Far.Gain, Near.LowPass, Mid.LowPass, Far.LowPass),
+				Near.Gain >= 0.99f && Mid.Gain < 0.35f && Mid.Gain > 0.12f && Far.Gain < Mid.Gain * 0.7f && Far.Gain > 0.03f
+				&& Near.LowPass > 0.99f && Mid.LowPass < Near.LowPass && Far.LowPass < Mid.LowPass);
+			// お宝のキラキラも同じ。2m までが最大で、近づくほどはっきり大きくなる
+			auto SparkleFrom = [=](const FVector& Where) { Sound()->PlayAt(EKakurenboSfx::TreasureSparkle, Where); return Sound()->GetLastSpatial(EKakurenboSfx::TreasureSparkle); };
+			const FKakurenboSpatialDebug GemNear = SparkleFrom(Me + FVector(150.f, 0.f, -30.f));
+			const FKakurenboSpatialDebug GemMid = SparkleFrom(Me + FVector(600.f, 0.f, -30.f));
+			const FKakurenboSpatialDebug GemFar = SparkleFrom(Me + FVector(1500.f, 0.f, -30.f));
+			Check(FString::Printf(TEXT("the treasure sparkle gets clearly louder as you come close (1.5m %.2f / 6m %.2f / 15m %.2f)"), GemNear.Gain, GemMid.Gain, GemFar.Gain),
+				GemNear.Gain >= 0.99f && GemMid.Gain < 0.35f && GemFar.Gain < GemMid.Gain * 0.5f && GemFar.Gain > 0.02f && GemFar.LowPass < GemMid.LowPass);
 			// 壁の向こうの音はこもる
 			Grid()->PlaceBlock(Hear->Me + FIntPoint(2, 0), 0, 1.0, FLinearColor::White);
 			Grid()->PlaceBlock(Hear->Me + FIntPoint(2, 0), 0, 1.0, FLinearColor::White);

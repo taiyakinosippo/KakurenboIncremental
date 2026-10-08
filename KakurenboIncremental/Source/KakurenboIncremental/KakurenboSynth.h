@@ -88,4 +88,7 @@ namespace KakurenboSynth
 	 * 遠い音もかすかに聞こえるよう、なだらかに小さくなる
 	 */
 	float DistanceGain(float Distance, float FullDistance, float MaxDistance);
+
+	/** 距離によるこもり具合（1 = そのまま 〜 0.15 = 高い音が消える）。遠い音ほどこもる */
+	float DistanceLowPass(float Distance, float FullDistance, float MaxDistance);
 }

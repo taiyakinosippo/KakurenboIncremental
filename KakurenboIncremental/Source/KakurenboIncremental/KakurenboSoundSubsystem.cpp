@@ -39,7 +39,7 @@ namespace
 		switch (Sfx)
 		{
 		case EKakurenboSfx::OniStep:         OutFullCm = 300.f;  OutMaxCm = 3200.f; break;
-		case EKakurenboSfx::TreasureSparkle: OutFullCm = 300.f;  OutMaxCm = 2800.f; break;
+		case EKakurenboSfx::TreasureSparkle: OutFullCm = 200.f;  OutMaxCm = 2800.f; break; // 近づくほどはっきり大きくなる
 		case EKakurenboSfx::OniNotice:       OutFullCm = 600.f;  OutMaxCm = 4000.f; break;
 		case EKakurenboSfx::Alert:           OutFullCm = 800.f;  OutMaxCm = 6000.f; break;
 		case EKakurenboSfx::Summon:          OutFullCm = 1000.f; OutMaxCm = 6000.f; break;
@@ -296,7 +296,11 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		// カメラの向きで見た位置（X = 前、Y = 右）
 		const FVector Local = FRotator(0.f, ListenerRotation.Yaw, 0.f).UnrotateVector(ToSource);
 		Spatial = KakurenboSynth::ComputeSpatial(Local, bBlocked ? 1.f : 0.f);
-		Volume *= DistanceGain;
+		Spatial.LowPass *= KakurenboSynth::DistanceLowPass(ToSource.Size2D(), FullCm, MaxCm);
+		// 近くの音が割れて（頭打ちになって）遠くの音と同じ大きさに聞こえないよう、1 を超えないようにしてから距離で小さくする
+		// 鬼の足音は種類・走っているかで大きさが変わる（最大 ×2.5）ので、その差が残るよう先に小さくしておく
+		const float Headroom = Sfx == EKakurenboSfx::OniStep ? 0.55f : 1.f;
+		Volume = FMath::Min(Volume * Headroom, 1.f) * DistanceGain;
 
 		LastSpatial.SetNum(static_cast<int32>(EKakurenboSfx::Count));
 		FKakurenboSpatialDebug& Debug = LastSpatial[Index];
@@ -305,6 +309,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		Debug.GainL = Spatial.GainL;
 		Debug.GainR = Spatial.GainR;
 		Debug.bOccluded = bBlocked;
+		Debug.LowPass = Spatial.LowPass;
 		Debug.bBehind = Spatial.bBehind;
 		Debug.bValid = true;
 		if (Volume <= 0.001f)

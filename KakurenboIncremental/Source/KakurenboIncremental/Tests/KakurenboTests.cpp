@@ -576,6 +576,9 @@ bool FKakurenboSpatialSoundTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("full volume when near"), KakurenboSynth::DistanceGain(100.f, 300.f, 3000.f), 1.f);
 	TestTrue(TEXT("quieter when far"), KakurenboSynth::DistanceGain(1500.f, 300.f, 3000.f) < KakurenboSynth::DistanceGain(800.f, 300.f, 3000.f));
 	TestEqual(TEXT("silent past the max"), KakurenboSynth::DistanceGain(3500.f, 300.f, 3000.f), 0.f);
+	// 距離が 2 倍になると、はっきり小さくなる（半分より小さい）。遠いほどこもる
+	TestTrue(TEXT("doubling the distance more than halves the volume"), KakurenboSynth::DistanceGain(600.f, 300.f, 3000.f) < 0.5f && KakurenboSynth::DistanceGain(1200.f, 300.f, 3000.f) < KakurenboSynth::DistanceGain(600.f, 300.f, 3000.f) * 0.5f);
+	TestTrue(TEXT("far sounds are duller"), KakurenboSynth::DistanceLowPass(200.f, 300.f, 3000.f) == 1.f && KakurenboSynth::DistanceLowPass(2500.f, 300.f, 3000.f) < KakurenboSynth::DistanceLowPass(1000.f, 300.f, 3000.f));
 	return true;
 }
 

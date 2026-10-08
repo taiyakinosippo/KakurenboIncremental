@@ -60,7 +60,10 @@ def texture(path, dest, normal=False, linear=False):
 def new_material(name, dest):
     full = dest + "/" + name
     if eal.does_asset_exist(full):
-        eal.delete_asset(full)
+        # 作り直すときは、中のノードを全部消してから組み直す（同じアセットを使い続ける）
+        mat = unreal.load_asset(full)
+        mel.delete_all_material_expressions(mat)
+        return mat
     return tools.create_asset(name, dest, unreal.Material, unreal.MaterialFactoryNew())
 
 
@@ -154,7 +157,12 @@ def create_surface_material():
     normal = tex_param("NormalTex", "/Engine/EngineMaterials/DefaultNormal", unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL, -1000, 500)
     rough = tex_param("RoughnessTex", "/Engine/EngineMaterials/BaseFlattenLinearColor", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR, -1000, 250)
     tint = color_param(mat, "Color", unreal.LinearColor(1.0, 1.0, 1.0, 1.0), -1000, -300)
-    colored = multiply(mat, base, "RGB", tint, "", -650, -200)
+    # 模様の色を抜く（Desaturate 0〜1）。色の付いた木を「白く塗った板」などにしてから Color を掛ける
+    desat = mel.create_material_expression(mat, unreal.MaterialExpressionDesaturation, -800, -100)
+    mel.connect_material_expressions(base, "RGB", desat, "")
+    desat_amount = scalar_param(mat, "Desaturate", 0.0, -1000, -150)
+    mel.connect_material_expressions(desat_amount, "", desat, "Fraction")
+    colored = multiply(mat, desat, "", tint, "", -650, -200)
     mel.connect_material_property(colored, "", unreal.MaterialProperty.MP_BASE_COLOR)
     rough_scale = scalar_param(mat, "RoughnessScale", 1.0, -800, 400)
     rough_out = multiply(mat, rough, "R", rough_scale, "", -500, 300)

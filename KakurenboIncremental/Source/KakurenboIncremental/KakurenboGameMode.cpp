@@ -1373,8 +1373,8 @@ void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 	State->MashCountThisRound++;
 
 	// 連打の音が鬼に届く（消音壁で囲まれていれば小さくなり、消音壁が少し傷む）
-	const float Loudness = MakePlayerNoise(NoiseLocation, 1.f, MashSoundDamage, NoiseRingColor, 14.f, EKakurenboNoise::Mash);
-	Sfx2D(this, EKakurenboSfx::Mash, 0.6f * FMath::Max(Loudness, 0.4f), FMath::FRandRange(0.92f, 1.08f));
+	const float Loudness = MakePlayerNoise(NoiseLocation, MashNoiseLoudness, MashSoundDamage, NoiseRingColor, 14.f, EKakurenboNoise::Mash);
+	Sfx2D(this, EKakurenboSfx::Mash, 0.6f * FMath::Max(Loudness / FMath::Max(MashNoiseLoudness, 0.01f), 0.4f), FMath::FRandRange(0.92f, 1.08f));
 }
 
 void AKakurenboGameMode::HandleDash(const FVector& NoiseLocation, float Loudness)

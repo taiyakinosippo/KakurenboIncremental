@@ -111,6 +111,7 @@ UMaterialInstanceDynamic* UKakurenboLibrary::CreateSurfaceMaterial(UObject* Oute
 	MID->SetScalarParameterValue(TEXT("RoughnessScale"), Surface.RoughnessScale);
 	MID->SetScalarParameterValue(TEXT("UVScale"), Surface.UVScale);
 	MID->SetScalarParameterValue(TEXT("Emissive"), Surface.Emissive);
+	MID->SetScalarParameterValue(TEXT("Desaturate"), Surface.Desaturate);
 	return MID;
 }
 

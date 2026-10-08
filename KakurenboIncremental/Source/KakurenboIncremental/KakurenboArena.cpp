@@ -621,11 +621,22 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		}
 		else
 		{
-			// 縦横比を保ったまま、奥行きと高さに収まる大きさにする。長い家具（本棚の列）は同じメッシュを何個か並べる
+			// 縦横比を保ったまま、奥行きと高さに収まる大きさにする。長い家具（本棚の列）は同じメッシュを何個か並べる。
+			// 1 個のメッシュは必ずマスちょうど（1 マス・2 マス…）に収め、マスの境目にまたがらないようにする
+			// （またがると、空いて見えるマスに壁が置けない）。長い辺は少しだけ伸ばしてマスを埋める
 			float Scale = FMath::Min(RectShort * 0.96f / MeshShort, Height / FMath::Max(Ext.Z, 1.f));
-			Copies = FMath::Max(1, FMath::RoundToInt(RectLong / (MeshLong * Scale)));
-			Scale = FMath::Min(Scale, RectLong * 0.97f / (Copies * MeshLong));
+			const int32 LongCells = FMath::Max(1, FMath::RoundToInt(RectLong / CellSize));
+			int32 CellsPerCopy = FMath::Clamp(FMath::RoundToInt(MeshLong * Scale / CellSize), 1, LongCells);
+			while (LongCells % CellsPerCopy != 0)
+			{
+				--CellsPerCopy; // 割り切れる幅にする（1 マスなら必ず割り切れる）
+			}
+			Copies = LongCells / CellsPerCopy;
+			const float SlotLength = CellsPerCopy * CellSize;
+			Scale = FMath::Min(Scale, SlotLength * 0.97f / MeshLong);
+			const float LongStretch = FMath::Clamp(SlotLength * 0.92f / (MeshLong * Scale), 1.f, 1.5f);
 			Scale3D = FVector(Scale);
+			(bMeshLongX ? Scale3D.X : Scale3D.Y) *= LongStretch;
 		}
 
 		for (int32 k = 0; k < Copies; ++k)

@@ -84,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   Gate / Crowd / Quiet / Dash / Prestige（M6）、Look（鬼の見た目を近くで撮る）、
   GateWalled / Matchup / CarefulShare（M8：門を囲まれたとき・鬼と罠の相性・慎重鬼が建物を分け合う）、
   BackToShop / Steps / TreasureOni / Detector / CarefulSweep / Maps / Mood / Sounds（M9：購入パートへ戻る・足音・宝物鬼・探知鬼・慎重鬼の探し方・館のマップ・見た目・音と BGM）、
-  Perch（M10：家具・壁の上のプレイヤーへ鬼が飛び乗る）、Hearing / Swatches（M12：左右の聞こえ方・気づいた音・心臓の音 / 模様・プレイヤー・宝石の見た目）。仕様を変えたら全部流す
+  Perch（M10：家具・壁の上のプレイヤーへ鬼が飛び乗る）、Hearing / Swatches / Crouch（M12：左右の聞こえ方・距離・気づいた音・心臓の音 / 模様・プレイヤー・宝石の見た目 / しゃがんで低い物に隠れる）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`
 - カーソルを使うテスト（設置パートのマス・HUD のボタン）は `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）。

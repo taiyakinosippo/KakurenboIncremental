@@ -384,6 +384,9 @@ public:
 	/** 鳴らした足音の数（テスト用） */
 	int32 GetStepSoundCount() const { return StepSoundCount; }
 
+	/** 今プレイヤーが見えるか（テスト用） */
+	bool DebugCanSeeTarget() const { return CanSeeTarget(); }
+
 	/** 音に気づいて「ン？」と鳴らした回数（テスト用） */
 	int32 GetNoticeSoundCount() const { return NoticeSoundCount; }
 

@@ -245,6 +245,10 @@ struct FKakurenboSurfaceRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float UVScale = 1.f;
 
+	/** 模様の色を抜く割合（0〜1）。1 なら白黒の模様に Tint の色を付ける（塗った板など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	float Desaturate = 0.f;
+
 	/** 自分で光る強さ（暗い館でも見えるように。宝石など） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float Emissive = 0.f;

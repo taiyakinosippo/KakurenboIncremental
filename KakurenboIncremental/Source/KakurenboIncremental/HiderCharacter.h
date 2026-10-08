@@ -167,6 +167,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Step")
 	float StepStride = 120.f;
 
+	/**
+	 * しのび足のときはしゃがむ（体の高さがこの 2 倍＝70cm になる）。テーブル・椅子・つぼなど、体の半分くらいの高さの家具の陰に隠れられる。
+	 * 鬼が狙う頭・体・足の点も下がる
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Step")
+	float CrouchedHalfHeight = 35.f;
+
+	/** しゃがんだときの見た目：太もも・すね・背中を曲げる角度（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float CrouchThighDegrees = 80.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float CrouchCalfDegrees = 120.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float CrouchSpineDegrees = 20.f;
+
 	/** しのび足（Ctrl を押しながら歩く）の速さの倍率。足音が小さくなる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Step")
 	float SneakSpeedMultiplier = 0.5f;
@@ -244,6 +261,18 @@ private:
 	float StepDistance = 0.f;
 	FVector LastStepLocation = FVector::ZeroVector;
 	int32 StepCount = 0;
+	/** しのび足でダッシュしていなければしゃがむ・それ以外は立つ */
+	void UpdateCrouch();
+	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	/** しゃがんだ姿勢（ひざ・腰を曲げ、足が床に付くようにモデルを下げる） */
+	void ApplyCrouchPose(float DeltaSeconds, float Bob);
+	/** しゃがんでカプセルが低くなった分、見た目を上げて足を床に置く（cm） */
+	float CrouchMeshOffset = 0.f;
+	float CrouchBlend = 0.f;
+	FVector StandingBodyScale = FVector::OneVector;
+	FName LeftFoot, RightFoot;
+
 	/** 足音を GameMode に知らせる */
 	void NotifyStep();
 	/** 今の歩く速さ（しのび足・ダッシュを反映）にする */
