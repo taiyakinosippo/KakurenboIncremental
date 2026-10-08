@@ -13,8 +13,10 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - エディタ: VSCode（ユーザー）。ビルドは MSVC（Visual Studio 2022・MSVC 14.44）
 - 複数のパソコンで開発している。作業の前に `git pull`、終わったら push。別のパソコンの環境構築は [docs/Setup.md](docs/Setup.md)
 - **pull したら必ず `Tools\Build.ps1` でビルドし直す**（Binaries は Git に入らないので、ビルドしないと古いゲームのまま動く）。
-  `Tools\AutoBuild.ps1`（ダブルクリックは `Tools\AutoBuild.bat`）が pull → ビルド → FBX・マネキンの取り込み（必要なら）をまとめて行う。
-  `-InstallHook` で git pull の後に自動でビルドする（`.git/hooks/post-merge` に 1 行。このパソコンは設定済み）。`-Test` 単体テスト・`-Package` .exe・`-Watch` 定期的に pull
+  `Tools\AutoBuild.ps1`（ダブルクリックは `Tools\AutoBuild.bat`）が pull → ビルド → FBX・マネキンの取り込み（必要なら）→ **パッケージ化（Packaged/Windows の .exe）**をまとめて行う。
+  パッケージ化は前回と同じコミット・手元の変更なしなら飛ばす（`-Package` で必ず作り直す・`-NoPackage` でしない）。
+  `-InstallHook` で git pull の後に自動でビルド＋パッケージ化する（`.git/hooks/post-merge` に 1 行。このパソコンは設定済み。パッケージ化の分、pull が数分かかることがある）。`-Test` 単体テスト・`-Watch` 定期的に pull。
+  **Claude が自分の作業でビルドするときは `-NoPackage`（または Build.ps1）でよい**
 
 ### コードの構成
 
@@ -68,7 +70,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Tools\Build.ps1                       # ビルド（-Unity: コミット前の確認。全部まとめてビルド）
-powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -NoPull           # ビルド＋必要な取り込み（エディタが開いていたら何もしない）。結果は Saved/Logs/AutoBuild.log
+powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -NoPull           # ビルド＋必要な取り込み＋パッケージ化（エディタが開いていたら何もしない）。結果は Saved/Logs/AutoBuild.log
 powershell -ExecutionPolicy Bypass -File Tools\RunUnitTests.ps1                # 単体テスト（描画なし）
 powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera  # 下の一覧のシナリオ
 powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）

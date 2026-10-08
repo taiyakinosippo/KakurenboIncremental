@@ -1,9 +1,10 @@
-﻿# 自動ビルド：pull → ビルド → （FBX があれば）プレイヤーと宝石の取り込み → （指定があれば）テスト・配布用の .exe。
+﻿# 自動ビルド：pull → ビルド → （FBX があれば）プレイヤーと宝石の取り込み → 配布用の .exe（パッケージ化） → （指定があれば）テスト。
 # Binaries は Git に入らないので、pull した後にビルドしないと古いゲームのまま動く。これを 1 回で済ませる。
 #
-#   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1                 # pull してビルド（いつもはこれ）
+#   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1                 # pull してビルドとパッケージ化（いつもはこれ。.exe は Packaged/Windows）
+#   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -NoPackage      # パッケージ化はしない（エディタ用のビルドだけ。速い）
 #   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -Test           # 単体テストも流す
-#   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -Package        # 配布用の .exe も作る（Packaged/Windows）
+#   パッケージ化は、前回と同じコミットで手元に変更が無ければ飛ばす（-Package を付けると必ず作り直す）。初回は数十分かかる
 #   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -Unity          # 全部まとめてビルド（コミット前の確認と同じ）
 #   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -NoPull         # pull しないでビルドだけ
 #   powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -Watch          # 10 分ごとに GitHub を見て、新しいコミットがあれば pull してビルド（Ctrl+C で止める）
@@ -15,7 +16,8 @@
 param(
     [switch]$NoPull,
     [switch]$Test,
-    [switch]$Package,
+    [switch]$Package,   # 最新でも必ずパッケージ化する
+    [switch]$NoPackage, # パッケージ化しない
     [switch]$Unity,
     [switch]$Watch,
     [int]$IntervalMin = 10,
@@ -158,11 +160,37 @@ function Invoke-UnitTests {
     return $true
 }
 
+function Get-PackageStamp {
+    # 今のコミットと、手元の変更（未コミット・Git に入らない Fab のアセットの有無）をまとめた印。前回のパッケージ化と同じなら作り直さない
+    $Head = (git -C $Root rev-parse HEAD).Trim()
+    $Dirty = (git -C $Root status --porcelain | Out-String).Trim()
+    $Assets = (Get-ChildItem (Join-Path $ProjectDir "Content") -Directory -ErrorAction SilentlyContinue | ForEach-Object Name) -join ","
+    return "$Head|$Dirty|$Assets"
+}
+
 function Invoke-Package {
-    Say "配布用の .exe を作っています（初回は数十分かかる）..."
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "Package.ps1") *>&1 | Out-File -FilePath (Join-Path $LogDir "AutoBuild-Package.log") -Encoding UTF8
-    if ($LASTEXITCODE -ne 0) { Say "パッケージ化に失敗しました（$(Join-Path $LogDir 'AutoBuild-Package.log')）" "Red"; return $false }
-    Say "完成: $(Join-Path $Root 'Packaged\Windows\KakurenboIncremental.exe')" "Green"
+    $Exe = Join-Path $Root "Packaged\Windows\KakurenboIncremental.exe"
+    $StampFile = Join-Path $Root "Packaged\autobuild-stamp.txt"
+    $Stamp = Get-PackageStamp
+    if (-not $Package -and (Test-Path $Exe) -and (Test-Path $StampFile) -and ((Get-Content $StampFile -Raw -Encoding UTF8).Trim() -eq $Stamp.Trim())) {
+        Say "配布用の .exe は最新です（$Exe）" "Green"
+        return $true
+    }
+    $PackageLog = Join-Path $LogDir "AutoBuild-Package.log"
+    Say "配布用の .exe を作っています（初回は数十分、2 回目からは数分。ログ: $PackageLog）..."
+    $Start = Get-Date
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "Package.ps1") *>&1 | Out-File -FilePath $PackageLog -Encoding UTF8
+    $Code = $LASTEXITCODE
+    $Minutes = [Math]::Round(((Get-Date) - $Start).TotalMinutes, 1)
+    if ($Code -ne 0 -or -not (Test-Path $Exe)) {
+        Say "パッケージ化に失敗しました（$Minutes 分）。エラー：" "Red"
+        Select-String -Path $PackageLog -Pattern "Error:|error |: error|ERROR:" | Select-Object -First 15 | ForEach-Object { Say ("  " + $_.Line.Trim()) "Red" }
+        Say "  全文: $PackageLog" "Red"
+        return $false
+    }
+    Set-Content -Path $StampFile -Value $Stamp -Encoding UTF8
+    Say "配布用の .exe ができました（$Minutes 分）: $Exe" "Green"
+    Say "  配るときは Packaged\Windows フォルダごと渡す" "Green"
     return $true
 }
 
@@ -180,9 +208,10 @@ function Invoke-AutoBuild([bool]$DoPull) {
     if (-not (Invoke-Build)) { return 1 }
     if (-not (Invoke-ImportIfNeeded)) { return 1 }
     Test-FabAssets
+    if (-not $NoPackage -and -not (Invoke-Package)) { return 1 }
     if ($Test -and -not (Invoke-UnitTests)) { return 1 }
-    if ($Package -and -not (Invoke-Package)) { return 1 }
-    Say "==== 完了：最新のゲームで遊べます ====" "Green"
+    if ($NoPackage) { Say "==== 完了：最新のゲームで遊べます（エディタ）====" "Green" }
+    else { Say "==== 完了：最新のゲームで遊べます（エディタでも .exe でも）====" "Green" }
     return 0
 }
 

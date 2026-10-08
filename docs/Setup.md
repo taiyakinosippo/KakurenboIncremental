@@ -28,14 +28,15 @@
    git clone https://github.com/taiyakinosippo/KakurenboIncremental.git C:\KakurenboIncremental
    ```
 
-4. ビルドする（初回は時間がかかる）。`Tools\AutoBuild.bat` をダブルクリックでもよい（pull → ビルド → 必要なら取り込み、をまとめて行う）
+4. ビルドする（初回は時間がかかる）。`Tools\AutoBuild.bat` をダブルクリックでもよい（pull → ビルド → 必要なら取り込み → 配布用の .exe（`Packaged/Windows`）まで、をまとめて行う。
+   .exe は前回から変わっていなければ作り直さない。エディタ用のビルドだけでよいときは `-NoPackage`）
 
    ```powershell
    cd C:\KakurenboIncremental
    powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1
    ```
 
-   **git pull したら自動でビルドする**ようにしておくと、ビルドし忘れて古いゲームのまま動くことが無くなる（パソコンごとに 1 回）
+   **git pull したら自動でビルド（とパッケージ化）する**ようにしておくと、ビルドし忘れて古いゲームのまま動くことが無くなる（パソコンごとに 1 回）
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File Tools\AutoBuild.ps1 -InstallHook
