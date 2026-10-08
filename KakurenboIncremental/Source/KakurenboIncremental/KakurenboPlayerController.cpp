@@ -136,6 +136,14 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 		{
 			const FVector Center = (Grid->CellFloorCenter(FIntPoint(0, 0)) + Grid->CellFloorCenter(FIntPoint(Grid->GetSizeX() - 1, Grid->GetSizeY() - 1))) * 0.5f;
 			Hider->SetTopDownFocus(Center);
+			// 館の大きさが変わったら、全体が入る高さにする（24 マスで 2600cm。同じ大きさの間はズームを覚えておく）
+			const FIntPoint Size(Grid->GetSizeX(), Grid->GetSizeY());
+			if (Size != LastTopDownFitSize)
+			{
+				LastTopDownFitSize = Size;
+				Hider->TopDownMaxDistance = FMath::Max(Hider->TopDownMaxDistance, FMath::Max(Size.X, Size.Y) * Grid->GetCellSize() * 1.6f);
+				Hider->TopDownDistance = FMath::Clamp(FMath::Max(Size.X, Size.Y) * Grid->GetCellSize() * 1.08f, Hider->TopDownMinDistance, Hider->TopDownMaxDistance);
+			}
 		}
 		Hider->SetViewMode(EHiderViewMode::TopDown);
 	}

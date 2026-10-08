@@ -44,7 +44,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Block")
 	double MaxSoundHP = 0.0;
 
-	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP = 0.0);
+	/** Surface があれば（そのパソコンにテクスチャがあれば）その見た目、無ければ InColor の箱 */
+	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP = 0.0, const struct FKakurenboSurfaceRow* Surface = nullptr);
+
+	/** テクスチャの見た目になっているか（テスト用） */
+	bool IsTextured() const { return bTextured; }
 
 	/** ダメージを与える。壊れたら true（アクターの破棄はグリッド側が行う） */
 	bool ApplyBlockDamage(double Damage);
@@ -69,4 +73,8 @@ private:
 	void UpdateColor();
 
 	FLinearColor BaseColor = FLinearColor::White;
+
+	/** マテリアルの "Color" パラメータの傷ついていないときの値（色の箱なら BaseColor、テクスチャなら模様に掛ける色） */
+	FLinearColor MaterialTint = FLinearColor::White;
+	bool bTextured = false;
 };

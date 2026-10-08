@@ -236,6 +236,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float StepPitch = 1.f;
 
+	/** 追いかけてくる・音を調べに来るときの足音の大きさの倍率（向かってくるのが音でわかる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float ChaseStepVolumeScale = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float InvestigateStepVolumeScale = 1.25f;
+
+	/** 音に気づいたときの「ン？」を続けて鳴らさない間隔（秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float NoticeSoundCooldown = 4.f;
+
 	/** トリモチで動けない時間の倍率（スピード鬼は長く、パワー鬼は短い） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float StunScale = 1.f;
@@ -366,11 +377,15 @@ public:
 	void SetCarefulSector(int32 Index, int32 Count) { CarefulSector = Index; CarefulSectorCount = FMath::Max(1, Count); }
 	bool IsInCarefulSector(const FIntPoint& Cell) const;
 
-	/** 宝物鬼：今回っているお宝（無ければ null） */
-	ATreasureActor* GetPatrolTreasure() const { return PatrolTreasure.Get(); }
+	/** 宝物鬼：お宝（か、取られたお宝のあった場所）の周りを回っているか・その場所 */
+	bool IsPatrollingTreasure() const { return bHasPatrolCenter; }
+	FIntPoint GetPatrolCenter() const { return PatrolCenter; }
 
 	/** 鳴らした足音の数（テスト用） */
 	int32 GetStepSoundCount() const { return StepSoundCount; }
+
+	/** 音に気づいて「ン？」と鳴らした回数（テスト用） */
+	int32 GetNoticeSoundCount() const { return NoticeSoundCount; }
 
 	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
@@ -544,8 +559,9 @@ private:
 	int32 CarefulSector = 0;
 	int32 CarefulSectorCount = 1;
 
-	/** 宝物鬼：回っているお宝・次に向かう周りのマスの番号・回る向き・回ったマスの数 */
-	TWeakObjectPtr<ATreasureActor> PatrolTreasure;
+	/** 宝物鬼：回っているお宝の場所（取られた後の場所も回る）・次に向かう周りのマスの番号・回る向き・回ったマスの数 */
+	FIntPoint PatrolCenter = FIntPoint::ZeroValue;
+	bool bHasPatrolCenter = false;
 	int32 PatrolIndex = 0;
 	int32 PatrolDirection = 1;
 	int32 PatrolSteps = 0;
@@ -562,6 +578,10 @@ private:
 	FVector LastStepLocation = FVector::ZeroVector;
 	float StepDistance = 0.f;
 	int32 StepSoundCount = 0;
+
+	/** 音に気づいた「ン？」 */
+	float LastNoticeSoundTime = -100.f;
+	int32 NoticeSoundCount = 0;
 
 	/** 種類ごとの飾りの部品 */
 	UPROPERTY()

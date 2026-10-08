@@ -140,6 +140,12 @@ public:
 	const TArray<FIntPoint>& GetReservedCells() const { return ReservedCells; }
 	bool IsReservedCell(const FIntPoint& Cell) const { return ReservedCells.Contains(Cell); }
 
+	/** 壁の種類ごとの見た目（木・石・鉄の模様）。無い種類は色の箱 */
+	void SetWallSurface(int32 WallTypeIndex, const FKakurenboSurfaceRow* Surface)
+	{
+		if (Surface) { WallSurfaces.Add(WallTypeIndex, *Surface); } else { WallSurfaces.Remove(WallTypeIndex); }
+	}
+
 	/** 壁が攻撃されたとき（演出と音に使う） */
 	FOnKakurenboBlockHit OnBlockHit;
 
@@ -300,6 +306,8 @@ private:
 
 	/** 壁も罠も置けないマス（鬼の出入り口の前） */
 	TArray<FIntPoint> ReservedCells;
+
+	TMap<int32, FKakurenboSurfaceRow> WallSurfaces;
 
 	/** マスごとの「家具・部屋の壁がある」 */
 	TArray<bool> Obstacles;

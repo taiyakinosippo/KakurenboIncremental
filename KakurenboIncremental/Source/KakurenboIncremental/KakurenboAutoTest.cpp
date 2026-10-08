@@ -2340,9 +2340,20 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			KakuNext(); // → 設置
-			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
-			KakuPlaceWall(Me.X + 2, Me.Y, 0);
-			KakuPlaceWall(Me.X - 2, Me.Y, 0);
+			// 家具の無い、置けるマスを 2 つ探して置く（館には家具がある）
+			int32 Placed = 0;
+			for (int32 Y = 1; Y < Grid()->GetSizeY() - 1 && Placed < 2; ++Y)
+			{
+				for (int32 X = 1; X < Grid()->GetSizeX() - 4 && Placed < 2; ++X)
+				{
+					if (GM->CanPlaceWall(FIntPoint(X, Y), 0))
+					{
+						KakuPlaceWall(X, Y, 0);
+						++Placed;
+						X += 3;
+					}
+				}
+			}
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
@@ -2654,15 +2665,15 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		for (int32 i = 0; i < 28; ++i)
 		{
-			Steps.Add({ 0.5f, [=]
+			Steps.Add({ 0.5f, [=, this]
 			{
 				const AOniCharacter* Oni = GM->GetOnis()[0];
-				const ATreasureActor* Treasure = Oni->GetPatrolTreasure();
+				const bool bPatrolling = Oni->IsPatrollingTreasure();
 				if (i >= 12) // 門からお宝まで歩く時間を除いて数える
 				{
 					++Patrol->Samples;
-					Patrol->Patrolling += Treasure ? 1 : 0;
-					Patrol->Near += (Treasure && FVector::Dist2D(Oni->GetActorLocation(), Treasure->GetActorLocation()) <= 380.f) ? 1 : 0;
+					Patrol->Patrolling += bPatrolling ? 1 : 0;
+					Patrol->Near += (bPatrolling && FVector::Dist2D(Oni->GetActorLocation(), Grid()->CellFloorCenter(Oni->GetPatrolCenter())) <= 380.f) ? 1 : 0;
 				}
 			} });
 		}
@@ -2672,7 +2683,39 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Patrol->Patrolling == Patrol->Samples && Patrol->Near * 10 >= Patrol->Samples * 6);
 			LookAtOni();
 		} });
-		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("treasureoni_01")); } });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Shot(TEXT("treasureoni_01"));
+			// お宝を全部取る → 宝物鬼は取られたお宝のあった場所を見回り続ける
+			const TArray<TObjectPtr<ATreasureActor>> All = GM->GetTreasures();
+			for (ATreasureActor* Treasure : All)
+			{
+				GM->CollectTreasure(Treasure);
+			}
+			Patrol->Samples = 0;
+			Patrol->Patrolling = 0;
+			Patrol->Near = 0;
+		} });
+		for (int32 i = 0; i < 20; ++i)
+		{
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AOniCharacter* Oni = GM->GetOnis()[0];
+				const bool bPatrolling = Oni->IsPatrollingTreasure() && GM->GetTakenTreasureCells().Contains(Oni->GetPatrolCenter());
+				if (i >= 4)
+				{
+					++Patrol->Samples;
+					Patrol->Patrolling += bPatrolling ? 1 : 0;
+					Patrol->Near += (bPatrolling && FVector::Dist2D(Oni->GetActorLocation(), Grid()->CellFloorCenter(Oni->GetPatrolCenter())) <= 380.f) ? 1 : 0;
+				}
+			} });
+		}
+		Steps.Add({ 0.1f, [=, this]
+		{
+			Check(FString::Printf(TEXT("after all treasures are taken, the treasure oni keeps patrolling where they were (taken %d, patrolling %d, near %d of %d)"),
+				GM->GetTakenTreasureCells().Num(), Patrol->Patrolling, Patrol->Near, Patrol->Samples),
+				GM->GetTreasures().Num() == 0 && GM->GetTakenTreasureCells().Num() >= 2 && Patrol->Patrolling == Patrol->Samples && Patrol->Near * 10 >= Patrol->Samples * 5);
+		} });
 	}
 	// ================================================================ Detector（探知鬼）
 	else if (Scenario.Equals(TEXT("Detector"), ESearchCase::IgnoreCase))
@@ -2827,16 +2870,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Maps（館のマップ）
 	else if (Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase))
 	{
-		struct FMapState { int32 WoodBefore = 0; };
+		struct FMapState { int32 WoodBefore = 0; FName FirstMap; bool bChecked = false; };
 		TSharedRef<FMapState> MapState = MakeShared<FMapState>();
 		Steps.Add({ 0.5f, [=, this]
 		{
-			Check(FString::Printf(TEXT("maps are loaded (%d) and stage 1 uses %s"), GM->MapOrder.Num(), *GM->GetCurrentMapName().ToString()),
-				GM->MapOrder.Num() >= 5 && GM->GetCurrentMapName() == GM->GetMapNameForStage(1));
-			Check(FString::Printf(TEXT("stages pick maps: 1 %s / 4 %s / 7 %s / 10 %s / 13 %s / 16 %s"), *GM->GetMapNameForStage(1).ToString(), *GM->GetMapNameForStage(4).ToString(),
-				*GM->GetMapNameForStage(7).ToString(), *GM->GetMapNameForStage(10).ToString(), *GM->GetMapNameForStage(13).ToString(), *GM->GetMapNameForStage(16).ToString()),
-				GM->GetMapNameForStage(1) == FName(TEXT("Hall")) && GM->GetMapNameForStage(4) == FName(TEXT("Library")) && GM->GetMapNameForStage(7) == FName(TEXT("Rooms"))
-				&& GM->GetMapNameForStage(10) == FName(TEXT("Storeroom")) && GM->GetMapNameForStage(13) == FName(TEXT("Gallery")) && GM->GetMapNameForStage(16) == FName(TEXT("Hall")));
+			Check(FString::Printf(TEXT("maps are loaded (%d) and stage 1 uses %s (%dx%d)"), GM->MapOrder.Num(), *GM->GetCurrentMapName().ToString(), Grid()->GetSizeX(), Grid()->GetSizeY()),
+				GM->MapOrder.Num() >= 20 && GM->GetCurrentMapName() == GM->GetMapNameForStage(1) && Grid()->GetSizeX() == 16 && Grid()->GetSizeY() == 16);
+			// M12：ステージごとに違うマップ。表より後は大きい館（後ろの 6 つ）を 1 ステージずつ回る
+			Check(FString::Printf(TEXT("stages pick maps: 1 %s / 4 %s / 7 %s / 10 %s / 20 %s / 21 %s / 22 %s / 27 %s"), *GM->GetMapNameForStage(1).ToString(), *GM->GetMapNameForStage(4).ToString(),
+				*GM->GetMapNameForStage(7).ToString(), *GM->GetMapNameForStage(10).ToString(), *GM->GetMapNameForStage(20).ToString(), *GM->GetMapNameForStage(21).ToString(),
+				*GM->GetMapNameForStage(22).ToString(), *GM->GetMapNameForStage(27).ToString()),
+				GM->GetMapNameForStage(1) == FName(TEXT("Parlor")) && GM->GetMapNameForStage(4) == FName(TEXT("Library")) && GM->GetMapNameForStage(7) == FName(TEXT("Rooms"))
+				&& GM->GetMapNameForStage(10) == FName(TEXT("Hall")) && GM->GetMapNameForStage(20) == FName(TEXT("Throne")) && GM->GetMapNameForStage(21) == FName(TEXT("ClockHall"))
+				&& GM->GetMapNameForStage(22) == FName(TEXT("GuestWing")) && GM->GetMapNameForStage(27) == FName(TEXT("ClockHall")));
 			KakuSkipTime(1000.f);
 		} });
 		Steps.Add({ 1.f, [=, this] { KakuNext(); KakuAddCoins(500.0); BuyWall(0, 2); } });
@@ -2844,10 +2890,22 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → 設置（真上から）
 			GM->bMapOverride = true;
-			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
-			KakuPlaceWall(Me.X + 2, Me.Y, 0);
-			KakuPlaceWall(Me.X - 2, Me.Y, 0);
+			// 家具の無い、置けるマスを 2 つ探して置く（最初の館は家具が多い）
+			int32 Placed = 0;
+			for (int32 Y = 1; Y < Grid()->GetSizeY() - 1 && Placed < 2; ++Y)
+			{
+				for (int32 X = 1; X < Grid()->GetSizeX() - 4 && Placed < 2; ++X)
+				{
+					if (GM->CanPlaceWall(FIntPoint(X, Y), 0) && !Grid()->IsObstacle(FIntPoint(X + 1, Y)))
+					{
+						KakuPlaceWall(X, Y, 0);
+						++Placed;
+						X += 3;
+					}
+				}
+			}
 			MapState->WoodBefore = GS()->WallStock[0];
+			MapState->FirstMap = GM->GetCurrentMapName(); // ステージ 2 の館（ステージ 1 を逃げ切ったので変わっている）
 			Check(FString::Printf(TEXT("2 walls placed in the first map (blocks %d)"), Grid()->GetBlockCount()), Grid()->GetBlockCount() == 2);
 		} });
 		for (int32 m = 0; m < 5; ++m)
@@ -2877,7 +2935,12 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				const AKakurenboArena* Arena = GM->GetArena();
 				Check(FString::Printf(TEXT("map %s: %d furniture pieces (%d meshes), %d blocked cells, open %d, gate free %d, reachable %d, player cell walkable %d"),
 					*Name.ToString(), Arena->GetFurniturePieceCount(), Arena->GetFurnitureMeshCount(), G->GetObstacleCount(), MainCells, bGateFree, bReach, G->IsWalkable(Me)),
-					Arena->GetFurniturePieceCount() > 5 && G->GetObstacleCount() > 10 && MainCells >= 300 && bGateFree && bReach && G->IsWalkable(Me));
+					Arena->GetFurniturePieceCount() > 5 && G->GetObstacleCount() > 10 && MainCells * 2 >= G->GetSizeX() * G->GetSizeY() && bGateFree && bReach && G->IsWalkable(Me));
+					// 館の大きさは間取りのとおり（グリッドと舞台の両方）。床・壁は Fab の木の模様（あれば）
+					const bool bHasWood = FPackageName::DoesPackageExist(TEXT("/Game/Substance_Materials_Vol1_Wood/Textures/T_Submat_V1_Wood01_Base_Color"));
+					Check(FString::Printf(TEXT("map %s is %dx%d (arena %dx%d), wood floor %d, wood walls %d"), *Name.ToString(), G->GetSizeX(), G->GetSizeY(), Arena->GridSizeX, Arena->GridSizeY,
+						Arena->IsFloorUsingMaterial(), Arena->IsWallUsingPanels()),
+						G->GetSizeX() == Arena->GridSizeX && G->GetSizeY() == Arena->GridSizeY && (!bHasWood || (Arena->IsFloorUsingMaterial() && Arena->IsWallUsingPanels())));
 				const bool bHasFab = FPackageName::DoesPackageExist(TEXT("/Game/Stylized_Library/Meshes/SM_Bookcase_01"));
 				Check(FString::Printf(TEXT("map %s: furniture uses the Fab meshes when they are in the project (fab %d, meshes %d)"), *Name.ToString(), bHasFab, Arena->GetFurnitureMeshCount()),
 					!bHasFab || Arena->GetFurnitureMeshCount() > 0);
@@ -2907,8 +2970,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 最初のマップに戻ると、設計図が戻る（壁は在庫から設置パートで直る）
-			GM->MapOverride = GM->MapOrder[0];
-			GM->SwitchToMap(GM->MapOrder[0]);
+			GM->MapOverride = MapState->FirstMap;
+			GM->SwitchToMap(MapState->FirstMap);
 			Check(FString::Printf(TEXT("the first map's design comes back (missing %d)"), Grid()->GetTotalMissing()), Grid()->GetTotalMissing() == 2);
 			KakuShop();
 		} });
@@ -2989,6 +3052,153 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 1.f, [=, this]
 		{
 			Check(FString::Printf(TEXT("result plays the calm BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
+		} });
+	}
+	// ================================================================ Swatches（M12：Data/Surfaces.csv の見た目を並べて撮る・プレイヤーと宝石の見た目）
+	else if (Scenario.Equals(TEXT("Swatches"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const FIntPoint Me(4, 12);
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			// 見た目の表を 1 マスずつ並べる（東へ 2 マスおき、8 個ごとに次の列）
+			TArray<FName> Names;
+			GM->SurfaceRows.GetKeys(Names);
+			int32 Textured = 0;
+			UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+			for (int32 i = 0; i < Names.Num(); ++i)
+			{
+				const FIntPoint Cell = Me + FIntPoint(2 + (i % 8) * 2, -6 + (i / 8) * 3);
+				AStaticMeshActor* Swatch = GetWorld()->SpawnActor<AStaticMeshActor>(Grid()->CellToWorld(Cell, 0), FRotator::ZeroRotator);
+				Swatch->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+				Swatch->GetStaticMeshComponent()->SetStaticMesh(Cube);
+				Swatch->SetActorScale3D(FVector(1.f, 1.f, 1.6f));
+				Textured += UKakurenboLibrary::ApplySurface(Swatch->GetStaticMeshComponent(), GM->SurfaceRows[Names[i]]) ? 1 : 0;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] swatch %d %s at (%d,%d)"), i, *Names[i].ToString(), Cell.X, Cell.Y);
+			}
+			const bool bHasFab = FPackageName::DoesPackageExist(TEXT("/Game/Substance_Materials_Vol1_Wood/Textures/T_Submat_V1_Wood01_Base_Color"));
+			Check(FString::Printf(TEXT("surfaces load their textures when the Fab packs are in the project (%d of %d, fab %d)"), Textured, Names.Num(), bHasFab),
+				!bHasFab || Textured >= Names.Num() - 1);
+			// 置いた壁（木・石・鉄・消音）も並べる
+			for (int32 Type = 0; Type < GM->WallTypes.Num(); ++Type)
+			{
+				Grid()->PlaceBlock(Me + FIntPoint(2 + Type * 2, 4), Type, 10.0, GM->WallTypes[Type].Color);
+			}
+			const APlaceableBlock* Wood = Grid()->GetTopBlock(Me + FIntPoint(2, 4));
+			Check(FString::Printf(TEXT("placed walls use their surface when the textures exist (wood textured %d, surface '%s')"), Wood && Wood->IsTextured(), *GM->WallTypes[0].Surface.ToString()),
+				!bHasFab || GM->WallTypes[0].Surface.IsNone() || (Wood && Wood->IsTextured()));
+			const bool bHasPlayer = FPackageName::DoesPackageExist(TEXT("/Game/Player/Male_002"));
+			Check(FString::Printf(TEXT("the player uses the character model with moving legs when it is imported (model %d, animated %d)"), bHasPlayer, GetHider()->HasAnimatedLook()),
+				!bHasPlayer || GetHider()->HasAnimatedLook());
+			int32 Gems = 0;
+			for (const ATreasureActor* Treasure : GM->GetTreasures())
+			{
+				Gems += Treasure->HasGemLook() ? 1 : 0;
+			}
+			const bool bHasGem = FPackageName::DoesPackageExist(TEXT("/Game/Gem/Circle_001"));
+			Check(FString::Printf(TEXT("treasures are gems when imported (%d of %d, gem assets %d)"), Gems, GM->GetTreasures().Num(), bHasGem), !bHasGem || Gems == GM->GetTreasures().Num());
+			// 宝石を 1 つ目の前へ
+			if (GM->GetTreasures().Num() > 0)
+			{
+				GM->GetTreasures()[0]->SetActorLocation(Grid()->CellFloorCenter(Me + FIntPoint(2, 1)));
+			}
+			SetControlRotation(FRotator(-30.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 3.5f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } } });
+		Steps.Add({ 3.5f, [=, this] { Shot(TEXT("swatches_01_front")); SetControlRotation(FRotator(-55.f, 30.f, 0.f)); } });
+		Steps.Add({ 1.0f, [=, this] { Shot(TEXT("swatches_02_high")); } });
+		// プレイヤーの見た目を近くで（歩かせる）
+		Steps.Add({ 0.3f, [=, this] { SetControlRotation(FRotator(-10.f, 0.f, 0.f)); GetHider()->ThirdPersonDistance = 320.f; } });
+		Steps.Add({ 0.6f, [=, this] { Shot(TEXT("swatches_03_player_idle")); SimulateKey(EKeys::D, IE_Pressed); } });
+		Steps.Add({ 0.45f, [=, this] { Shot(TEXT("swatches_04_player_walk")); } });
+		Steps.Add({ 0.2f, [=, this] { Shot(TEXT("swatches_05_player_walk")); SimulateKey(EKeys::D, IE_Released); } });
+	}
+	// ================================================================ Hearing（M12：左右の聞こえ方・壁の向こう・気づいた音・心臓の音）
+	else if (Scenario.Equals(TEXT("Hearing"), ESearchCase::IgnoreCase))
+	{
+		struct FHear { FIntPoint Me = FIntPoint::ZeroValue; int32 Notices = 0; int32 Beats = 0; };
+		TSharedRef<FHear> Hear = MakeShared<FHear>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->Deactivate();
+			}
+			Hear->Me = FIntPoint(6, 12);
+			TeleportPlayer(Grid()->CellFloorCenter(Hear->Me));
+			SetControlRotation(FRotator(-10.f, 0.f, 0.f)); // +X（門の方）を向く。右は +Y
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const FVector Me = GetPawn()->GetActorLocation();
+			auto PlayFrom = [=](const FVector& Where) { Sound()->PlayAt(EKakurenboSfx::OniStep, Where); return Sound()->GetLastSpatial(EKakurenboSfx::OniStep); };
+			const FKakurenboSpatialDebug Right = PlayFrom(Me + FVector(0.f, 700.f, -80.f));
+			Check(FString::Printf(TEXT("a sound on the right is louder in the right ear (pan %.2f, L %.2f, R %.2f)"), Right.Pan, Right.GainL, Right.GainR),
+				Right.bValid && Right.Pan > 0.8f && Right.GainR > Right.GainL * 3.f);
+			const FKakurenboSpatialDebug Left = PlayFrom(Me + FVector(0.f, -700.f, -80.f));
+			Check(FString::Printf(TEXT("a sound on the left is louder in the left ear (pan %.2f, L %.2f, R %.2f)"), Left.Pan, Left.GainL, Left.GainR),
+				Left.Pan < -0.8f && Left.GainL > Left.GainR * 3.f);
+			const FKakurenboSpatialDebug Front = PlayFrom(Me + FVector(700.f, 0.f, -80.f));
+			const FKakurenboSpatialDebug Back = PlayFrom(Me + FVector(-500.f, 0.f, -80.f));
+			Check(FString::Printf(TEXT("front is centered and clear, behind is muffled (front pan %.2f behind %d / back behind %d)"), Front.Pan, Front.bBehind, Back.bBehind),
+				FMath::Abs(Front.Pan) < 0.1f && !Front.bBehind && Back.bBehind);
+			const FKakurenboSpatialDebug Near = PlayFrom(Me + FVector(200.f, 0.f, -80.f));
+			const FKakurenboSpatialDebug Mid = PlayFrom(Me + FVector(1000.f, 0.f, -80.f));
+			const FKakurenboSpatialDebug Far = PlayFrom(Me + FVector(1700.f, 300.f, -80.f));
+			Check(FString::Printf(TEXT("oni steps can be heard from far, louder when near (2m %.2f / 10m %.2f / 17m %.2f)"), Near.Gain, Mid.Gain, Far.Gain),
+				Near.Gain >= 0.99f && Mid.Gain > 0.5f && Far.Gain > 0.2f && Far.Gain < Mid.Gain);
+			// 壁の向こうの音はこもる
+			Grid()->PlaceBlock(Hear->Me + FIntPoint(2, 0), 0, 1.0, FLinearColor::White);
+			Grid()->PlaceBlock(Hear->Me + FIntPoint(2, 0), 0, 1.0, FLinearColor::White);
+			const FKakurenboSpatialDebug Behind = PlayFrom(Grid()->CellFloorCenter(Hear->Me + FIntPoint(4, 0)));
+			const FKakurenboSpatialDebug Open = PlayFrom(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 4)));
+			Check(FString::Printf(TEXT("a sound behind a wall is muffled, an open one is not (wall %d, open %d)"), Behind.bOccluded, Open.bOccluded), Behind.bOccluded && !Open.bOccluded);
+			Shot(TEXT("hearing_01"));
+		} });
+		// 鬼が連打に気づくと「ン？」と鳴る
+		Steps.Add({ 0.3f, [=, this]
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 8)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->Activate(GetHider());
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Hear->Notices = Oni->GetNoticeSoundCount();
+			KakuMash(3);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			const FKakurenboSpatialDebug Notice = Sound()->GetLastSpatial(EKakurenboSfx::OniNotice);
+			Check(FString::Printf(TEXT("the oni says \"hm?\" from its place when it hears mashing (%d, pan %.2f, state %s)"), Oni->GetNoticeSoundCount() - Hear->Notices, Notice.Pan, *UEnum::GetValueAsString(Oni->GetIntent())),
+				Oni->GetNoticeSoundCount() - Hear->Notices == 1 && Notice.bValid && Notice.Pan > 0.5f && Oni->GetIntent() == EOniState::Investigate);
+			KakuMash(3);
+			Hear->Beats = GM->GetHeartbeatCount();
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			// 捕まらないよう、3 マス手前で止まらせる（音を聞いて来ている途中のまま）
+			GM->GetOnis()[0]->DebugGoTo(Hear->Me + FIntPoint(0, 3));
+		} });
+		// 向かってくる鬼が近いと心臓の音が鳴る
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("only one \"hm?\" while it is already coming (%d)"), Oni->GetNoticeSoundCount() - Hear->Notices), Oni->GetNoticeSoundCount() - Hear->Notices == 1);
+			Check(FString::Printf(TEXT("the heart beats while an oni comes closer (danger %.2f, beats %d, dist %.0f)"), GM->GetCurrentDanger(), GM->GetHeartbeatCount() - Hear->Beats,
+				FVector::Dist2D(Oni->GetActorLocation(), GetPawn()->GetActorLocation())),
+				GS()->Phase == EKakurenboPhase::Hide && GM->GetCurrentDanger() > 0.4f && GM->GetHeartbeatCount() - Hear->Beats >= 2);
+			// 遠くへ行かせて止める → 鳴らない
+			AOniCharacter* Mutable = GM->GetOnis()[0];
+			Mutable->Deactivate();
+			Mutable->SetActorLocation(Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() - 3, 1)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 0.5f, [=, this] { Hear->Beats = GM->GetHeartbeatCount(); } });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("no heartbeat when no oni is near (danger %.2f, beats %d)"), GM->GetCurrentDanger(), GM->GetHeartbeatCount() - Hear->Beats),
+				GS()->Phase == EKakurenboPhase::Hide && GM->GetCurrentDanger() < 0.05f && GM->GetHeartbeatCount() == Hear->Beats);
 		} });
 	}
 	// ================================================================ Loop

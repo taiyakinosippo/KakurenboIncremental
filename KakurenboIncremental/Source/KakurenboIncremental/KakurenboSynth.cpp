@@ -154,20 +154,40 @@ namespace KakurenboSynth
 			return { Tone(0.f, 0.16f, 300.f, 720.f, EWave::Sine, 0.35f, 1.2f), Noise(0.f, 0.04f, 0.15f, 0.4f, 2.f) };
 
 		case EKakurenboSfx::OniStep:
-			// 重い「ドタッ」
+			// 重い「ドタッ」。低い音だけだと小さなスピーカーで聞こえず、方向もわからないので、
+			// 床をこする「ザッ」（高め）と板の鳴る「コッ」（中くらい）も混ぜる
 			return {
-				Tone(0.f, 0.17f, 95.f, 45.f, EWave::Sine, 0.80f, 1.8f),
-				Noise(0.f, 0.07f, 0.45f, 0.14f, 2.f),
-				Tone(0.f, 0.05f, 170.f, 90.f, EWave::Triangle, 0.30f, 2.f),
+				Tone(0.f, 0.17f, 95.f, 45.f, EWave::Sine, 0.70f, 1.8f),
+				Tone(0.f, 0.08f, 260.f, 150.f, EWave::Triangle, 0.45f, 2.f),
+				Noise(0.f, 0.06f, 0.55f, 0.35f, 2.f),
+				Noise(0.01f, 0.10f, 0.30f, 0.75f, 2.5f),
 			};
 
 		case EKakurenboSfx::TreasureSparkle:
-			// 小さく「キラキラッ」
+			// 「キラキラッ」（高い音は方向がわかりやすい）
 			return {
-				Tone(0.00f, 0.09f, C7, 0.f, EWave::Triangle, 0.16f, 1.5f),
-				Tone(0.05f, 0.09f, 2637.f, 0.f, EWave::Triangle, 0.16f, 1.5f),
-				Tone(0.10f, 0.09f, 3136.f, 0.f, EWave::Triangle, 0.16f, 1.5f),
-				Vibrato(Tone(0.15f, 0.30f, 4186.f, 0.f, EWave::Sine, 0.10f, 1.2f), 0.015f, 14.f),
+				Tone(0.00f, 0.10f, C7, 0.f, EWave::Triangle, 0.30f, 1.5f),
+				Tone(0.06f, 0.10f, 2637.f, 0.f, EWave::Triangle, 0.30f, 1.5f),
+				Tone(0.12f, 0.10f, 3136.f, 0.f, EWave::Triangle, 0.30f, 1.5f),
+				Vibrato(Tone(0.18f, 0.36f, 4186.f, 0.f, EWave::Sine, 0.20f, 1.2f), 0.015f, 14.f),
+				Tone(0.00f, 0.30f, E6, 0.f, EWave::Sine, 0.12f, 1.5f),
+			};
+
+		case EKakurenboSfx::Heartbeat:
+			// 「ドクン」（2 つ目は少し小さい）。低すぎると聞こえないので少し高めの成分も
+			return {
+				Tone(0.00f, 0.12f, 70.f, 45.f, EWave::Sine, 0.75f, 1.6f),
+				Tone(0.00f, 0.06f, 150.f, 90.f, EWave::Triangle, 0.40f, 2.f),
+				Tone(0.20f, 0.12f, 62.f, 40.f, EWave::Sine, 0.55f, 1.6f),
+				Tone(0.20f, 0.06f, 135.f, 80.f, EWave::Triangle, 0.28f, 2.f),
+			};
+
+		case EKakurenboSfx::OniNotice:
+			// 鬼が音に気づいた「ン？」（低いうなり声が上がる）
+			return {
+				Vibrato(Tone(0.00f, 0.38f, 180.f, 290.f, EWave::Saw, 0.30f, 0.7f), 0.04f, 9.f),
+				Tone(0.00f, 0.38f, 360.f, 580.f, EWave::Triangle, 0.20f, 0.8f),
+				Noise(0.00f, 0.08f, 0.18f, 0.4f, 2.f),
 			};
 
 		case EKakurenboSfx::Summon:
@@ -281,6 +301,79 @@ namespace KakurenboSynth
 	TArray<int16> RenderSfx(EKakurenboSfx Sfx, float PitchScale, int32 SampleRate)
 	{
 		return Render(GetRecipe(Sfx), PitchScale, SampleRate, 12345u + static_cast<uint32>(Sfx) * 7919u);
+	}
+
+	// ---------------------------------------------------------------- 左右の聞こえ方
+
+	FSpatial ComputeSpatial(const FVector& Local, float Occlusion, int32 SampleRate)
+	{
+		FSpatial S;
+		const FVector2D Dir(Local.X, Local.Y);
+		const float Len = Dir.Size();
+		Occlusion = FMath::Clamp(Occlusion, 0.f, 1.f);
+		if (Len > KINDA_SMALL_NUMBER)
+		{
+			// 右へ寄るほど左を小さく（真横なら反対の耳はほとんど聞こえない）。真ん中は両方そのまま
+			S.Pan = FMath::Clamp(Dir.Y / Len, -1.f, 1.f);
+			constexpr float MinGain = 0.12f;
+			S.GainL = FMath::Clamp(1.f - S.Pan * 0.88f, MinGain, 1.f);
+			S.GainR = FMath::Clamp(1.f + S.Pan * 0.88f, MinGain, 1.f);
+			// 反対側の耳には少し遅れて届く（最大 0.65ms。ヘッドホンで方向がはっきりわかる）
+			const int32 Delay = FMath::RoundToInt(FMath::Abs(S.Pan) * 0.00065f * SampleRate);
+			(S.Pan > 0.f ? S.DelayL : S.DelayR) = Delay;
+			// 後ろの音は高い音を少し削って「こもった」感じにする（前と後ろを聞き分けられるように）
+			const float Behind = FMath::Clamp(-Dir.X / Len, 0.f, 1.f);
+			S.bBehind = Behind > 0.3f;
+			S.LowPass = FMath::Lerp(1.f, 0.3f, Behind);
+		}
+		// 壁・家具の向こうの音はこもって小さい
+		S.LowPass *= FMath::Lerp(1.f, 0.35f, Occlusion);
+		const float OccludedGain = FMath::Lerp(1.f, 0.6f, Occlusion);
+		S.GainL *= OccludedGain;
+		S.GainR *= OccludedGain;
+		return S;
+	}
+
+	TArray<int16> MakeStereo(const TArray<int16>& Mono, const FSpatial& Spatial)
+	{
+		const int32 MaxDelay = FMath::Max(Spatial.DelayL, Spatial.DelayR);
+		const int32 Frames = Mono.Num() + MaxDelay;
+		TArray<int16> Out;
+		Out.SetNumZeroed(Frames * 2);
+		// こもらせる（1 次のローパス。LowPass が 1 ならそのまま）
+		const float A = FMath::Clamp(Spatial.LowPass, 0.02f, 1.f);
+		TArray<float> Filtered;
+		Filtered.SetNumUninitialized(Mono.Num());
+		float Y = 0.f;
+		for (int32 i = 0; i < Mono.Num(); ++i)
+		{
+			Y += A * (static_cast<float>(Mono[i]) - Y);
+			Filtered[i] = Y;
+		}
+		for (int32 f = 0; f < Frames; ++f)
+		{
+			const int32 IL = f - Spatial.DelayL;
+			const int32 IR = f - Spatial.DelayR;
+			const float L = Filtered.IsValidIndex(IL) ? Filtered[IL] * Spatial.GainL : 0.f;
+			const float R = Filtered.IsValidIndex(IR) ? Filtered[IR] * Spatial.GainR : 0.f;
+			Out[f * 2] = static_cast<int16>(FMath::Clamp(FMath::RoundToInt(L), -32767, 32767));
+			Out[f * 2 + 1] = static_cast<int16>(FMath::Clamp(FMath::RoundToInt(R), -32767, 32767));
+		}
+		return Out;
+	}
+
+	float DistanceGain(float Distance, float FullDistance, float MaxDistance)
+	{
+		if (Distance <= FullDistance)
+		{
+			return 1.f;
+		}
+		if (Distance >= MaxDistance || MaxDistance <= FullDistance)
+		{
+			return 0.f;
+		}
+		const float T = (Distance - FullDistance) / (MaxDistance - FullDistance);
+		return FMath::Pow(1.f - T, 1.5f);
 	}
 
 	// ---------------------------------------------------------------- BGM

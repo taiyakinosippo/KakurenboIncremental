@@ -2,7 +2,7 @@
 //
 // 間取りファイル（Data/Maps/*.txt）の書き方:
 //   1 行 = Y が同じマスの並び（上の行から Y = 0, 1, 2 …）、1 文字 = 1 マス（左から X = 0, 1, 2 …）。
-//   右端（X が一番大きい側）の真ん中に鬼の出入り口がある。
+//   右端（X が一番大きい側）の真ん中に鬼の出入り口がある。館の大きさは文字数・行数で決まる（マップごとに違ってよい）。
 //   '.' は何もない床。'#' は部屋の壁。それ以外の文字は Data/Furniture.csv の行の名前（家具）。
 //   ';' で始まる行と空の行は読み飛ばす（メモ用）。
 //   同じ文字が長方形に並んでいる所は 1 つの家具になる（例: "BB" は横に 2 マスの本棚）。
@@ -44,6 +44,12 @@ namespace KakurenboMaps
 	 * @param OutProblems 大きさが合わないなどの注意（読めはする）
 	 */
 	KAKURENBOINCREMENTAL_API FLayout ParseLayout(const FString& Text, int32 SizeX, int32 SizeY, TArray<FString>& OutProblems);
+
+	/**
+	 * 間取りの大きさ（一番長い行の文字数 × 行数。メモの行と空の行は数えない）。館の大きさはこれで決まる。
+	 * @return 間取りが書いてあれば true（空なら OutSizeX / OutSizeY はそのまま）
+	 */
+	KAKURENBOINCREMENTAL_API bool MeasureLayout(const FString& Text, int32& OutSizeX, int32& OutSizeY);
 
 	/**
 	 * 同じ文字のマスを長方形にまとめる（左上から順に、横に伸ばせるだけ伸ばし、次に同じ幅で下へ伸ばす）。

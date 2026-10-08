@@ -125,7 +125,7 @@ APlaceableBlock* UKakurenboGridSubsystem::SpawnBlockActor(const FIntPoint& Cell,
 	}
 	// 立方体メッシュは 100cm なので、マスの幅とブロックの高さに合わせて伸ばす
 	Block->SetActorScale3D(FVector(CellSize / 100.f, CellSize / 100.f, BlockHeight / 100.f));
-	Block->InitBlock(WallTypeIndex, MaxHP, Color, SoundHP);
+	Block->InitBlock(WallTypeIndex, MaxHP, Color, SoundHP, WallSurfaces.Find(WallTypeIndex));
 	Block->Cell = Cell;
 	Block->Level = Level;
 	return Block;

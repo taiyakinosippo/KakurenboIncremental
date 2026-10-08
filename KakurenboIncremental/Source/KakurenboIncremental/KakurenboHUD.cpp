@@ -47,7 +47,7 @@ namespace
 			OutColor = bJustCalled ? Bad : Purple;
 			return;
 		}
-		if (Oni->OniType == EOniType::Treasure && Oni->GetIntent() == EOniState::Wander && Oni->GetPatrolTreasure())
+		if (Oni->OniType == EOniType::Treasure && Oni->GetIntent() == EOniState::Wander && Oni->IsPatrollingTreasure())
 		{
 			OutText = TEXT("お宝の周りを回っている");
 			OutColor = Gold;

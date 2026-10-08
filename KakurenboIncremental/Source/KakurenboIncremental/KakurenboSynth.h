@@ -57,4 +57,35 @@ namespace KakurenboSynth
 
 	/** BGM の 1 周ぶんの波形（くり返し再生するとつながる） */
 	TArray<int16> RenderMusic(EKakurenboMusic Music, int32 SampleRate = MusicSampleRate);
+
+	// ---------------------------------------------------------------- 左右の聞こえ方（自前の立体音響）
+	// エンジンの 3D 音は左右の差が小さく、低い音は方向がわかりにくいので、
+	// 「どっちから来ているか」が画面を見なくてもわかるよう、左右の大きさ・耳に届く時間差・後ろや壁の向こうのこもり方を自分で付ける。
+
+	/** モノラルの音を左右に振り分ける設定 */
+	struct FSpatial
+	{
+		float GainL = 1.f;     // 左の大きさ（0〜1）
+		float GainR = 1.f;     // 右の大きさ（0〜1）
+		int32 DelayL = 0;      // 左耳に届くのが遅れるサンプル数（反対側の耳は少し遅れて聞こえる）
+		int32 DelayR = 0;
+		float LowPass = 1.f;   // こもり具合（1 = そのまま。小さいほど高い音が消えてこもる）
+		float Pan = 0.f;       // -1 = 真左 〜 +1 = 真右（テスト・表示用）
+		bool bBehind = false;  // 後ろから聞こえる
+	};
+
+	/**
+	 * 聞く人から見た音の向き（Local: X = 前、Y = 右）から、左右の振り分けを決める。
+	 * @param Occlusion 0〜1（1 = 壁・家具の向こう。こもって小さくなる）
+	 */
+	FSpatial ComputeSpatial(const FVector& Local, float Occlusion, int32 SampleRate = DefaultSampleRate);
+
+	/** モノラルの波形を、左右の振り分けをした 2ch（L, R, L, R…）の波形にする */
+	TArray<int16> MakeStereo(const TArray<int16>& Mono, const FSpatial& Spatial);
+
+	/**
+	 * 距離による大きさ（0〜1）。FullDistance までは 1、MaxDistance で 0。
+	 * 遠い音もかすかに聞こえるよう、なだらかに小さくなる
+	 */
+	float DistanceGain(float Distance, float FullDistance, float MaxDistance);
 }

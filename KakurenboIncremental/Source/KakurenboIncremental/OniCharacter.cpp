@@ -15,6 +15,7 @@
 #include "GridPathfinder.h"
 #include "HiderCharacter.h"
 #include "KakurenboFx.h"
+#include "KakurenboGameMode.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboOniBlackboard.h"
@@ -211,12 +212,13 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	// 足音（どたどた）の大きさと高さ：大きい鬼ほど低く重く、すばしこい鬼ほど軽く
 	switch (Type)
 	{
-	case EOniType::Breaker:  StepVolume = 1.3f; StepPitch = 0.75f; break;
-	case EOniType::Scout:    StepVolume = 0.8f; StepPitch = 1.3f; break;
-	case EOniType::Careful:  StepVolume = 0.7f; StepPitch = 1.1f; break;
-	case EOniType::Treasure: StepVolume = 0.9f; StepPitch = 1.18f; break;
-	case EOniType::Detector: StepVolume = 1.f; StepPitch = 0.9f; break;
-	default:                 StepVolume = 1.f; StepPitch = 1.f; break;
+	// （うろうろしているだけの鬼も、遠くからどっちにいるかわかる大きさにする）
+	case EOniType::Breaker:  StepVolume = 1.7f; StepPitch = 0.75f; break;
+	case EOniType::Scout:    StepVolume = 1.2f; StepPitch = 1.3f; break;
+	case EOniType::Careful:  StepVolume = 1.1f; StepPitch = 1.1f; break;
+	case EOniType::Treasure: StepVolume = 1.25f; StepPitch = 1.18f; break;
+	case EOniType::Detector: StepVolume = 1.35f; StepPitch = 0.9f; break;
+	default:                 StepVolume = 1.4f; StepPitch = 1.f; break;
 	}
 }
 
@@ -433,8 +435,8 @@ void AOniCharacter::StartChase()
 	{
 		LastKnownTargetLocation = Target->GetActorLocation();
 	}
-	// 見つかったことを音で知らせる（方向は画面の「！」で分かるので、画面全体で鳴らす）
-	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Alert, 0.9f);
+	// 見つかったことを音で知らせる。その鬼の場所から鳴らすので、画面を見なくてもどっちから来るかわかる
+	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Alert, GetActorLocation() + FVector(0.f, 0.f, 60.f), 1.1f);
 }
 
 void AOniCharacter::StartInspect(const FIntPoint& Cell)
@@ -712,7 +714,11 @@ void AOniCharacter::TickFootsteps()
 	++StepSoundCount;
 	const float Pitch = StepPitch * ((StepSoundCount % 2 == 0) ? 1.f : 0.9f) * FMath::FRandRange(0.97f, 1.03f);
 	const FVector Feet = Loc - FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Feet, StepVolume, Pitch);
+	// 走っている（音を調べに来る・追いかけてくる）ときは大きく、少し高く（向かってくるのが音でわかる）
+	const EOniState Intent = GetIntent();
+	const float Urgency = Intent == EOniState::Chase ? ChaseStepVolumeScale
+		: (Intent == EOniState::Investigate || Intent == EOniState::Inspect) ? InvestigateStepVolumeScale : 1.f;
+	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Feet, StepVolume * Urgency, Pitch * (Intent == EOniState::Chase ? 1.08f : 1.f));
 }
 
 void AOniCharacter::TickWander(float DeltaSeconds)
@@ -1251,36 +1257,64 @@ bool AOniCharacter::ChooseCarefulTarget()
 bool AOniCharacter::ChooseTreasurePatrolTarget()
 {
 	UKakurenboGridSubsystem* G = Grid();
-	TArray<ATreasureActor*> Treasures;
+	// 回る場所：今あるお宝と、このラウンドで取られたお宝のあった場所（取られた後も見回りに来る）
+	TArray<FIntPoint> Spots;
+	TArray<float> Weights;
 	for (TActorIterator<ATreasureActor> It(GetWorld()); It; ++It)
 	{
-		if (IsValid(*It))
+		const FIntPoint Cell = IsValid(*It) ? G->WorldToCell(It->GetActorLocation()) : FIntPoint::ZeroValue;
+		if (IsValid(*It) && !Spots.Contains(Cell))
 		{
-			Treasures.Add(*It);
+			Spots.Add(Cell);
+			Weights.Add(2.f); // 今あるお宝の方を少し多めに回る
 		}
 	}
-	if (Treasures.Num() == 0)
+	if (const AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
 	{
-		PatrolTreasure = nullptr;
-		return false; // お宝が全部取られた → 近場をうろうろ
+		for (const FIntPoint& Taken : GM->GetTakenTreasureCells())
+		{
+			if (!Spots.Contains(Taken))
+			{
+				Spots.Add(Taken);
+				Weights.Add(1.f);
+			}
+		}
+	}
+	if (Spots.Num() == 0)
+	{
+		bHasPatrolCenter = false;
+		return false; // お宝が無い → 近場をうろうろ
 	}
 
 	// 回る周りのマス（8 方向。角度の順）
 	const int32 R = FMath::Max(1, TreasurePatrolRadiusCells);
 	const FIntPoint Ring[8] = { { R, 0 }, { R, R }, { 0, R }, { -R, R }, { -R, 0 }, { -R, -R }, { 0, -R }, { R, -R } };
 
-	// 何周か回ったら（または取られたら）別のお宝へ。始めは自分に一番近い周りのマスから、ランダムな向きで回る
-	if (!PatrolTreasure.IsValid() || !Treasures.Contains(PatrolTreasure.Get()) || PatrolSteps >= TreasurePatrolLaps * 8)
+	// 何周か回ったら別の場所へ（今の場所とは違う所を重みつきで選ぶ）。始めは自分に一番近い周りのマスから、ランダムな向きで回る
+	if (!bHasPatrolCenter || !Spots.Contains(PatrolCenter) || PatrolSteps >= TreasurePatrolLaps * 8)
 	{
-		ATreasureActor* Next = Treasures[FMath::RandRange(0, Treasures.Num() - 1)];
-		if (Treasures.Num() > 1 && Next == PatrolTreasure.Get())
+		float Total = 0.f;
+		for (int32 i = 0; i < Spots.Num(); ++i)
 		{
-			Next = Treasures[(Treasures.IndexOfByKey(Next) + 1) % Treasures.Num()];
+			Total += (bHasPatrolCenter && Spots.Num() > 1 && Spots[i] == PatrolCenter) ? 0.f : Weights[i];
 		}
-		PatrolTreasure = Next;
+		float Pick = FMath::FRandRange(0.f, Total);
+		FIntPoint Next = Spots[0];
+		for (int32 i = 0; i < Spots.Num(); ++i)
+		{
+			const float W = (bHasPatrolCenter && Spots.Num() > 1 && Spots[i] == PatrolCenter) ? 0.f : Weights[i];
+			if (W > 0.f && Pick <= W)
+			{
+				Next = Spots[i];
+				break;
+			}
+			Pick -= W;
+		}
+		PatrolCenter = Next;
+		bHasPatrolCenter = true;
 		PatrolSteps = 0;
 		PatrolDirection = FMath::RandBool() ? 1 : -1;
-		const FIntPoint Center = G->WorldToCell(Next->GetActorLocation());
+		const FIntPoint Center = Next;
 		float BestDistSq = TNumericLimits<float>::Max();
 		for (int32 i = 0; i < 8; ++i)
 		{
@@ -1293,7 +1327,7 @@ bool AOniCharacter::ChooseTreasurePatrolTarget()
 		}
 	}
 
-	const FIntPoint Center = G->WorldToCell(PatrolTreasure->GetActorLocation());
+	const FIntPoint Center = PatrolCenter;
 	const FIntPoint Here = GetCurrentCell();
 	for (int32 Try = 0; Try < 8; ++Try)
 	{
@@ -1562,6 +1596,18 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 		return;
 	}
 	NoiseCell = Cell;
+
+	// プレイヤーの音に気づいた：「ン？」とその鬼の場所から鳴らす（どっちの鬼に気づかれたか、音でわかる）
+	if (Kind != EKakurenboNoise::Decoy && GetIntent() != EOniState::Investigate)
+	{
+		const float Now = GetWorld()->GetTimeSeconds();
+		if (Now - LastNoticeSoundTime > NoticeSoundCooldown)
+		{
+			LastNoticeSoundTime = Now;
+			++NoticeSoundCount;
+			UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniNotice, GetActorLocation() + FVector(0.f, 0.f, 60.f), 1.f, StepPitch);
+		}
+	}
 
 	if (State == EOniState::Attack)
 	{

@@ -16,6 +16,9 @@
 #include "HiderCharacter.generated.h"
 
 class UCameraComponent;
+class UMaterialInterface;
+class UPoseableMeshComponent;
+class USkeletalMesh;
 class USpringArmComponent;
 class UStaticMeshComponent;
 
@@ -40,6 +43,32 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider")
 	FLinearColor BodyColor = FLinearColor(0.1f, 0.4f, 1.f);
+
+	// ===== 見た目（Fab のキャラクター。GameMode が ApplyLook で設定する。無ければ円柱） =====
+
+	/**
+	 * キャラクターのモデルを使う。体の高さ（カプセル）に合わせて大きさを変え、足を床に置き、円柱は隠す。
+	 * モデルにはアニメーションが無いので、歩くと手足を振る動きをプログラムで付ける（骨の名前から脚・腕を探す）
+	 */
+	void ApplyLook(USkeletalMesh* Model, UMaterialInterface* Material, float MeshYaw);
+
+	/** キャラクターのモデル（骨を直接動かせるメッシュ） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
+	TObjectPtr<UPoseableMeshComponent> LookMesh;
+
+	/** 歩くときに脚・腕を振る角度（度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float LegSwingDegrees = 32.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float ArmSwingDegrees = 28.f;
+
+	/** 腕を下ろす角度（度。T ポーズのモデルの腕を体の横へ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Look")
+	float ArmDownDegrees = 72.f;
+
+	/** モデルを使っていて、手足を動かせる骨が見つかったか（テスト用） */
+	bool HasAnimatedLook() const { return LookMesh != nullptr && LeftThigh != NAME_None && RightThigh != NAME_None; }
 
 	// ===== 俯瞰カメラ =====
 
@@ -202,4 +231,18 @@ private:
 	void NotifyStep();
 	/** 今の歩く速さ（しのび足・ダッシュを反映）にする */
 	void UpdateWalkSpeed();
+
+	/** モデルの手足を動かす（歩く速さに合わせて振る・止まっているときは軽く揺れる） */
+	void UpdateLookPose(float DeltaSeconds);
+	/** 骨を部品の座標で回す（親から順に呼ぶ。子の骨は付いてくる） */
+	void RotateBone(FName Bone, const FQuat& DeltaComponentSpace);
+
+	/** 動かす骨（見つからなければ NAME_None） */
+	FName LeftThigh, RightThigh, LeftCalf, RightCalf, LeftUpperArm, RightUpperArm, LeftForearm, RightForearm, Spine;
+	/** モデルの元の位置と大きさ（体を縮める・弾ませるときの基準） */
+	FVector LookBaseLocation = FVector::ZeroVector;
+	FVector LookBaseScale = FVector::OneVector;
+	float WalkPhase = 0.f;
+	float WalkBlend = 0.f;
+	float IdleTime = 0.f;
 };

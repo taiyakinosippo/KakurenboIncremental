@@ -2,6 +2,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboTypes.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -19,7 +20,7 @@ APlaceableBlock::APlaceableBlock()
 	RootComponent = Mesh;
 }
 
-void APlaceableBlock::InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP)
+void APlaceableBlock::InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP, const FKakurenboSurfaceRow* Surface)
 {
 	WallTypeIndex = InWallTypeIndex;
 	MaxHP = FMath::Max(InMaxHP, 0.0001);
@@ -27,7 +28,17 @@ void APlaceableBlock::InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLi
 	MaxSoundHP = FMath::Max(InSoundHP, 0.0);
 	SoundHP = MaxSoundHP;
 	BaseColor = InColor;
-	UKakurenboLibrary::ApplyColor(Mesh, BaseColor);
+	// 木・石・鉄の模様（Data/Surfaces.csv）。無いパソコンでは色の箱
+	bTextured = Surface && UKakurenboLibrary::ApplySurface(Mesh, *Surface);
+	if (bTextured)
+	{
+		MaterialTint = Surface->Tint;
+	}
+	else
+	{
+		MaterialTint = BaseColor;
+		UKakurenboLibrary::ApplyColor(Mesh, BaseColor);
+	}
 }
 
 bool APlaceableBlock::ApplySoundDamage(double Amount)
@@ -83,7 +94,7 @@ void APlaceableBlock::UpdateColor()
 	{
 		Ratio = FMath::Min(Ratio, static_cast<float>(SoundHP / MaxSoundHP));
 	}
-	const FLinearColor Damaged = FMath::Lerp(FLinearColor(0.35f, 0.05f, 0.05f), BaseColor, Ratio);
+	const FLinearColor Damaged = FMath::Lerp(FLinearColor(0.35f, 0.05f, 0.05f), MaterialTint, Ratio);
 	if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mesh->GetMaterial(0)))
 	{
 		MID->SetVectorParameterValue(TEXT("Color"), Damaged);

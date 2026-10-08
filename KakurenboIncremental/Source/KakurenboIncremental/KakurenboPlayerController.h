@@ -263,6 +263,9 @@ private:
 	/** 自動テスト用：Ctrl を押しているのと同じ（しのび足） */
 	bool bTestSneak = false;
 
+	/** 設置パートのカメラの高さを最後に合わせた館の大きさ */
+	FIntPoint LastTopDownFitSize = FIntPoint::ZeroValue;
+
 	bool bViewInitialized = false;
 	EKakurenboPhase ViewPhase = EKakurenboPhase::Hide;
 

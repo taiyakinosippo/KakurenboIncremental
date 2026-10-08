@@ -353,7 +353,19 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 	if (UDataTable* Maps = Load(FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))
 	{
 		MapNames = Maps->GetRowNames();
-		TestTrue(TEXT("at least 5 maps"), MapNames.Num() >= 5);
+		TestTrue(TEXT("at least 20 maps (one per stage)"), MapNames.Num() >= 20);
+		// 床・壁の見た目は Surfaces.csv にある名前
+		TArray<FName> SurfaceNames;
+		if (UDataTable* Surfaces = Load(FKakurenboSurfaceRow::StaticStruct(), TEXT("Surfaces.csv")))
+		{
+			SurfaceNames = Surfaces->GetRowNames();
+		}
+		for (const FName& Name : MapNames)
+		{
+			const FKakurenboMapRow* Row = Maps->FindRow<FKakurenboMapRow>(Name, TEXT("Test"));
+			TestTrue(FString::Printf(TEXT("map %s surfaces exist (%s / %s)"), *Name.ToString(), Row ? *Row->FloorSurface.ToString() : TEXT("?"), Row ? *Row->WallSurface.ToString() : TEXT("?")),
+				Row && (Row->FloorSurface.IsNone() || SurfaceNames.Contains(Row->FloorSurface)) && (Row->WallSurface.IsNone() || SurfaceNames.Contains(Row->WallSurface)));
+		}
 		TSet<TCHAR> FurnitureKeys;
 		if (UDataTable* Furniture = Load(FKakurenboFurnitureRow::StaticStruct(), TEXT("Furniture.csv")))
 		{
@@ -370,19 +382,25 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			FString Text;
 			const bool bRead = Row && FFileHelper::LoadFileToString(Text, *KakurenboBalance::GetDataFilePath(FString(TEXT("Maps")) / Row->LayoutFile));
 			TestTrue(FString::Printf(TEXT("map %s layout file reads"), *Name.ToString()), bRead);
+			// 大きさは間取りの文字数・行数で決まる（マップごとに違ってよい）。すべての行が同じ長さ
+			int32 SizeX = 0;
+			int32 SizeY = 0;
+			TestTrue(FString::Printf(TEXT("map %s has a layout"), *Name.ToString()), KakurenboMaps::MeasureLayout(Text, SizeX, SizeY));
+			TestTrue(FString::Printf(TEXT("map %s size %dx%d is between 12 and 40"), *Name.ToString(), SizeX, SizeY), SizeX >= 12 && SizeY >= 12 && SizeX <= 40 && SizeY <= 40);
 			TArray<FString> Problems;
-			const KakurenboMaps::FLayout Layout = KakurenboMaps::ParseLayout(Text, 24, 24, Problems);
-			TestEqual(FString::Printf(TEXT("map %s layout is 24x24 (%s)"), *Name.ToString(), *FString::Join(Problems, TEXT(" / "))), Problems.Num(), 0);
-			for (int32 Y = 0; Y < 24; ++Y)
+			const KakurenboMaps::FLayout Layout = KakurenboMaps::ParseLayout(Text, SizeX, SizeY, Problems);
+			TestEqual(FString::Printf(TEXT("map %s layout is a rectangle (%s)"), *Name.ToString(), *FString::Join(Problems, TEXT(" / "))), Problems.Num(), 0);
+			const int32 GateY = SizeY / 2;
+			for (int32 Y = 0; Y < SizeY; ++Y)
 			{
-				for (int32 X = 0; X < 24; ++X)
+				for (int32 X = 0; X < SizeX; ++X)
 				{
 					const TCHAR C = Layout.Get(FIntPoint(X, Y));
 					if (C != KakurenboMaps::EmptyChar && C != KakurenboMaps::WallChar && !FurnitureKeys.Contains(C))
 					{
 						AddError(FString::Printf(TEXT("map %s: unknown furniture '%c' at (%d,%d)"), *Name.ToString(), C, X, Y));
 					}
-					if (X >= 21 && Y >= 10 && Y <= 14 && C != KakurenboMaps::EmptyChar)
+					if (X >= SizeX - 3 && FMath::Abs(Y - GateY) <= 2 && C != KakurenboMaps::EmptyChar)
 					{
 						AddError(FString::Printf(TEXT("map %s: (%d,%d) is in front of the oni gate"), *Name.ToString(), X, Y));
 					}
@@ -403,6 +421,34 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestTrue(FString::Printf(TEXT("stage %d map '%s' exists"), i + 1, *Rows[i]->Map.ToString()), Rows[i]->Map.IsNone() || MapNames.Contains(Rows[i]->Map));
 		}
 		TestTrue(TEXT("stage 1 names a map"), Rows.Num() > 0 && !Rows[0]->Map.IsNone());
+		// M12：ステージごとに違うマップ（表の中は全部違う）。転生しないときついステージ（鬼の数と攻撃力が跳ね上がる）がある
+		TSet<FName> Used;
+		for (const FKakurenboStageRow* Row : Rows)
+		{
+			Used.Add(Row->Map);
+		}
+		TestTrue(FString::Printf(TEXT("every stage uses a different map (%d maps for %d stages)"), Used.Num(), Rows.Num()), Rows.Num() >= 20 && Used.Num() == Rows.Num());
+		int32 Walls = 0;
+		for (int32 i = 1; i < Rows.Num(); ++i)
+		{
+			Walls += Rows[i]->OniDamage > Rows[i - 1]->OniDamage * 2.5 ? 1 : 0;
+		}
+		TestTrue(FString::Printf(TEXT("there are prestige walls (big jumps: %d)"), Walls), Walls >= 3);
+	}
+	if (UDataTable* Walls = Load(FWallTypeDef::StaticStruct(), TEXT("Walls.csv")))
+	{
+		// 壁の見た目は Surfaces.csv にある名前
+		TArray<FName> SurfaceNames;
+		if (UDataTable* Surfaces = Load(FKakurenboSurfaceRow::StaticStruct(), TEXT("Surfaces.csv")))
+		{
+			SurfaceNames = Surfaces->GetRowNames();
+		}
+		TArray<FWallTypeDef*> Rows;
+		Walls->GetAllRows<FWallTypeDef>(TEXT("Test"), Rows);
+		for (const FWallTypeDef* Row : Rows)
+		{
+			TestTrue(FString::Printf(TEXT("wall %s surface '%s' exists"), *Row->DisplayName.ToString(), *Row->Surface.ToString()), Row->Surface.IsNone() || SurfaceNames.Contains(Row->Surface));
+		}
 	}
 	return true;
 }
@@ -490,6 +536,46 @@ bool FKakurenboMapLayoutTest::RunTest(const FString& Parameters)
 	TArray<FString> Ignore;
 	const TArray<KakurenboMaps::FPiece> Square = KakurenboMaps::FindPieces(KakurenboMaps::ParseLayout(TEXT("TT.\nTT.\n..."), 3, 3, Ignore));
 	TestTrue(TEXT("2x2 table is one piece"), Square.Num() == 1 && Square[0].Size == FIntPoint(2, 2));
+
+	// 大きさは一番長い行 × 行数（メモ・空行は数えない）。空なら変えない
+	int32 SX = 24;
+	int32 SY = 24;
+	TestTrue(TEXT("measure a layout"), KakurenboMaps::MeasureLayout(TEXT("; memo\n.....\n...\n\n.......\n"), SX, SY) && SX == 7 && SY == 3);
+	SX = 24;
+	TestTrue(TEXT("an empty layout keeps the size"), !KakurenboMaps::MeasureLayout(TEXT("; only memo\n"), SX, SY) && SX == 24);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboSpatialSoundTest, "Kakurenbo.Sound.Spatial", TestFlags)
+bool FKakurenboSpatialSoundTest::RunTest(const FString& Parameters)
+{
+	// 右の音は右耳が大きく、左耳には少し遅れて届く。左はその逆。正面は両方同じ
+	const KakurenboSynth::FSpatial Right = KakurenboSynth::ComputeSpatial(FVector(0.f, 500.f, 0.f), 0.f);
+	TestTrue(FString::Printf(TEXT("right: L %.2f R %.2f, delay L %d"), Right.GainL, Right.GainR, Right.DelayL), Right.GainR > 0.99f && Right.GainL < 0.2f && Right.DelayL > 10 && Right.DelayR == 0);
+	const KakurenboSynth::FSpatial Left = KakurenboSynth::ComputeSpatial(FVector(0.f, -500.f, 0.f), 0.f);
+	TestTrue(TEXT("left is the mirror"), Left.GainL > 0.99f && Left.GainR < 0.2f && Left.DelayR > 10);
+	const KakurenboSynth::FSpatial Front = KakurenboSynth::ComputeSpatial(FVector(500.f, 0.f, 0.f), 0.f);
+	TestTrue(TEXT("front is centered and clear"), FMath::IsNearlyEqual(Front.GainL, Front.GainR) && Front.LowPass > 0.99f && !Front.bBehind);
+	const KakurenboSynth::FSpatial Back = KakurenboSynth::ComputeSpatial(FVector(-500.f, 0.f, 0.f), 0.f);
+	TestTrue(TEXT("behind is muffled"), Back.bBehind && Back.LowPass < 0.5f);
+	const KakurenboSynth::FSpatial Wall = KakurenboSynth::ComputeSpatial(FVector(500.f, 0.f, 0.f), 1.f);
+	TestTrue(TEXT("behind a wall is quieter and muffled"), Wall.GainL < Front.GainL && Wall.LowPass < Front.LowPass);
+
+	// 2ch にすると、右の音は右のほうが大きい
+	const TArray<int16> Mono = KakurenboSynth::RenderSfx(EKakurenboSfx::OniStep);
+	const TArray<int16> Stereo = KakurenboSynth::MakeStereo(Mono, Right);
+	double SumL = 0.0, SumR = 0.0;
+	for (int32 i = 0; i + 1 < Stereo.Num(); i += 2)
+	{
+		SumL += FMath::Abs(static_cast<double>(Stereo[i]));
+		SumR += FMath::Abs(static_cast<double>(Stereo[i + 1]));
+	}
+	TestTrue(FString::Printf(TEXT("stereo has 2 channels and the right is louder (%.0f vs %.0f)"), SumR, SumL), Stereo.Num() >= Mono.Num() * 2 && SumR > SumL * 4.0);
+
+	// 距離：近くは最大、遠くほど小さく、最大距離で 0
+	TestEqual(TEXT("full volume when near"), KakurenboSynth::DistanceGain(100.f, 300.f, 3000.f), 1.f);
+	TestTrue(TEXT("quieter when far"), KakurenboSynth::DistanceGain(1500.f, 300.f, 3000.f) < KakurenboSynth::DistanceGain(800.f, 300.f, 3000.f));
+	TestEqual(TEXT("silent past the max"), KakurenboSynth::DistanceGain(3500.f, 300.f, 3000.f), 0.f);
 	return true;
 }
 

@@ -63,7 +63,9 @@ setx UE_ROOT "D:\Epic Games\UE_5.8"
 - Git に入らないもの
   - `Binaries/`・`Intermediate/`（ビルドの結果）: pull した後はビルドし直す
   - `Saved/`（セーブデータ・ログ・テストのスクリーンショット）: セーブを持っていきたいときは `KakurenboIncremental/Saved/SaveGames/Kakurenbo.sav` をコピーする
-  - `Content/CuteCreature/`（鬼の見た目）・`Content/Stylized_Library/`（館の家具）: Fab のアセットは公開リポジトリに置けないため。下の手順でそのパソコンでも追加する
+  - `Content/CuteCreature/`（鬼の見た目）・`Content/Stylized_Library/`（館の家具）・`Content/Substance_Materials_Vol1_Wood/`・`Content/Metallic_Floor/`（床と壁の模様）・
+    `Content/Player/`・`Content/Gem/`（プレイヤーと宝石。FBX から取り込んだもの）・`SourceArt/`（ダウンロードした FBX）:
+    Fab のアセットは公開リポジトリに置けないため。下の手順でそのパソコンでも追加する
 
 ## 鬼の見た目（Cute Creature）と館の家具（Stylized Library）を入れる
 
@@ -73,5 +75,21 @@ setx UE_ROOT "D:\Epic Games\UE_5.8"
 2. メニューの「ウィンドウ」→「Fab」（無ければ「編集」→「プラグイン」で Fab を有効にして再起動）
 3. 「Cute Creature」を検索して「プロジェクトに追加」。`Content/CuteCreature` ができれば完了（パスの設定は Git に入っているので何もしなくてよい）
 4. 同じように「Stylized Library」（48 Cozy Interior Props）を「プロジェクトに追加」。`Content/Stylized_Library` ができれば完了（家具のパスは `Data/Furniture.csv`）
-5. エディタを閉じる
+5. 同じように「Substance Materials Vol 01 - Wood」（床・壁・木の壁）と「Stylized Metallic Floor」（鉄の壁）を「プロジェクトに追加」。
+   `Content/Substance_Materials_Vol1_Wood`・`Content/Metallic_Floor` ができれば完了（テクスチャのパスは `Data/Surfaces.csv`）
+6. エディタを閉じる
+
+## プレイヤーの見た目と宝石（FBX）を入れる（M12）
+
+この 2 つは Fab からは FBX（zip）でダウンロードするので、取り込みはスクリプトで行う（エディタは閉じておく）。無くても動く（青い円柱・金色の立方体）。
+
+1. Fab で「Cartoon Male Character Rigged 002」と「Diamond Gem Shape Set - 2 Collectibles」をダウンロードして展開する
+2. 中身を次の場所に置く（`SourceArt/` は Git に入らない）
+   - `KakurenboIncremental/SourceArt/Player/` に `Male_002.fbx`・`CharacterTexture_BaseColor.png`・`CharacterTexture_Roughness.png`
+   - `KakurenboIncremental/SourceArt/Gem/` に `Diamond_Shape2.fbx`・`Diamond_Master2_*.jpeg`・`Diamond_Shape2_Diamond_Master2_Normal.png`
+3. 取り込む（`Content/Player`・`Content/Gem` ができる。共通のマテリアル `Content/Kakurenbo/Materials/M_KakuSurface` も作り直す）
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File Tools\ImportSourceArt.ps1
+   ```
 - Claude との会話の履歴と、コマンドの許可の設定はパソコンごと。ルールと仕様は CLAUDE.md と docs/GameDesign.md に書いてあるので、別のパソコンの Claude もそこから続けられる

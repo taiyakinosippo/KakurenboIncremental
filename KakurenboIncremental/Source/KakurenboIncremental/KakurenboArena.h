@@ -1,8 +1,9 @@
 ﻿// かくれんぼの舞台（館）を C++ だけで組み立てるアクター。
 // レベルに何も置いていなくても遊べるよう、GameMode が自動でスポーンする。
 //
-//   BeginPlay: 床（市松模様）・外周の壁・鬼の出入り口・夜の明かり（月・空・霧）・画面の色味
-//   ApplyMap : マップごとの家具・部屋の壁・ランプ（マップが変わるたびに作り直す）
+//   BeginPlay   : 夜の明かり（月・空・霧）・画面の色味・外側の地面
+//   RebuildShell: 床（市松模様）・外周の壁・鬼の出入り口（マップの大きさが変わるたびに作り直す）
+//   ApplyMap    : マップごとの家具・部屋の壁・ランプ（マップが変わるたびに作り直す）
 
 #pragma once
 
@@ -13,6 +14,7 @@
 #include "KakurenboArena.generated.h"
 
 class UInstancedStaticMeshComponent;
+class UMaterialInterface;
 class UPostProcessComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -37,9 +39,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
 	float CellSize = 100.f;
 
-	/** 外周の壁の高さ（cm）。壊せない */
+	/** 部屋の壁の高さ（cm）。外周の壁のランプ・飾りの縁もこの高さ。壊せない */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
 	float BorderHeight = 250.f;
+
+	/**
+	 * 外周の壁の本当の高さ（cm）。外の世界が見えないよう高くする（かくれんぼ中だけ。BorderHeight より上の部分は、
+	 * 上から見下ろす購入・設置・リザルトでは隠す。そうしないと壁際のプレイヤーが壁に隠れて見えなくなる）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
+	float OuterWallHeight = 1000.f;
+
+	/** 壁にマテリアル（木の板など）を貼るときの板 1 枚の高さ（cm）。幅は 1 マス。模様が引き伸ばされないよう、小さな板を並べて貼る */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
+	float WallPanelHeight = 125.f;
 
 	/** レベルにライトが無い場合、月・空・環境光・霧を自動で作る */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
@@ -138,9 +151,24 @@ public:
 	 * @param Furniture 文字ごとの家具（'#' が無ければ部屋の壁として作る）
 	 * @param KeepClear 何も置かないマス（鬼の出入り口の前）
 	 * @param OutObstacles 通れないマス（グリッドに渡す）
+	 * @param FloorMaterial / FloorMaterialAlt / WallMaterial 床（市松模様の 2 色）と壁の見た目。null なら Map の色
 	 */
 	void ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps::FLayout& Layout, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
-		const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles);
+		const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles,
+		UMaterialInterface* FloorMaterial = nullptr, UMaterialInterface* FloorMaterialAlt = nullptr, UMaterialInterface* WallMaterial = nullptr);
+
+	/**
+	 * 床・外周の壁・見えない柵・鬼の出入り口を、SizeX × SizeY マスの大きさで作り直す（舞台の真ん中はこのアクターの位置のまま）。
+	 * グリッドの大きさも合わせて変えること（GameMode がする）
+	 */
+	void RebuildShell(int32 InSizeX, int32 InSizeY);
+
+	/** 外周の壁の高い部分を見せる（かくれんぼ中）/ 隠す（上から見下ろすパート） */
+	void SetTallWallsVisible(bool bVisible);
+	bool AreTallWallsVisible() const { return bTallWallsVisible; }
+
+	/** 外周の壁の高い部分（テスト用） */
+	const TArray<TObjectPtr<UStaticMeshComponent>>& GetTallWalls() const { return TallWalls; }
 
 	/** 今のマップで作った家具（メッシュか箱）の数（テスト用） */
 	int32 GetFurniturePieceCount() const { return FurniturePieces; }
@@ -148,11 +176,21 @@ public:
 	/** 家具のうち、メッシュ（Fab のアセット）で表示できた数（テスト用） */
 	int32 GetFurnitureMeshCount() const { return FurnitureMeshes; }
 
+	/** 床・壁にマテリアル（Fab の木の床・壁）を使えているか（テスト用） */
+	bool IsFloorUsingMaterial() const { return bFloorUsesMaterial; }
+	bool IsWallUsingPanels() const { return bUseWallPanels; }
+
 protected:
 	virtual void BeginPlay() override;
 
 private:
 	UStaticMeshComponent* AddCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color);
+	/** 大きさが変わるたびに作り直す部品として足す（RebuildShell で消える） */
+	UStaticMeshComponent* AddShellCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color);
+	/** マップの部品として、マテリアルを貼った板の集まりを作る */
+	UInstancedStaticMeshComponent* MakePanelSet(UMaterialInterface* Material);
+	/** 壁の面（FaceStart から Along の方向に Length、高さ ZFrom〜ZTo。Normal は面の外向き）に板を並べる */
+	void AddFacePanels(UInstancedStaticMeshComponent* Panels, const FVector& FaceStart, const FVector& Along, const FVector& Normal, float Length, float ZFrom, float ZTo);
 	/** マップごとに作り直す部品として足す（ApplyMap で消える） */
 	UStaticMeshComponent* AddMapCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color, bool bCollision);
 	void AddMapLight(const FVector& Location, const FLinearColor& Color, float Intensity, float Radius);
@@ -180,9 +218,32 @@ private:
 	UPROPERTY()
 	TObjectPtr<UInstancedStaticMeshComponent> FloorTilesB;
 
-	/** 外周の壁（マップの色に塗り替える） */
+	/** 外周の壁（マップの色に塗り替える。下の部分と高い部分） */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> BorderWalls;
+
+	/** 外周の壁の高い部分（BorderHeight より上） */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> TallWalls;
+
+	/** 大きさに合わせて作った部品（床・外周の壁・柵・門） */
+	UPROPERTY()
+	TArray<TObjectPtr<USceneComponent>> ShellComponents;
+
+	bool bTallWallsVisible = true;
+
+	/** 壁に貼った板（下の部分・部屋の壁 / 外周の壁の高い部分） */
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> WallPanels;
+
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> TallWallPanels;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> CurrentWallMaterial;
+
+	bool bUseWallPanels = false;
+	bool bFloorUsesMaterial = false;
 
 	/** マップごとに作った部品（家具・部屋の壁・ランプ） */
 	UPROPERTY()

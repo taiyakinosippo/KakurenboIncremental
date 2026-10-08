@@ -1,7 +1,9 @@
 ﻿#include "KakurenboSoundSubsystem.h"
 
 #include "Components/AudioComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboSynth.h"
 #include "Kismet/GameplayStatics.h"
@@ -17,14 +19,54 @@ namespace
 	/** 鬼の足音・お宝のキラキラ：場所の手がかりになる音（何体ぶん重なってもよい。近いほど大きい減り方） */
 	bool IsCueSfx(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon;
+		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
+			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert;
 	}
 
 	/** 重なってもよい音（間隔を空けない） */
 	bool AllowsOverlap(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep;
+		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
+			|| Sfx == EKakurenboSfx::OniNotice;
 	}
+
+	/**
+	 * その場所から聞こえる音の距離：FullCm までは最大の大きさ、MaxCm で聞こえなくなる。
+	 * 手がかりの音（鬼の足音・お宝）は遠くからでもかすかに聞こえるように長めにする
+	 */
+	void GetDistanceRange(EKakurenboSfx Sfx, float& OutFullCm, float& OutMaxCm)
+	{
+		switch (Sfx)
+		{
+		case EKakurenboSfx::OniStep:         OutFullCm = 300.f;  OutMaxCm = 3200.f; break;
+		case EKakurenboSfx::TreasureSparkle: OutFullCm = 300.f;  OutMaxCm = 2800.f; break;
+		case EKakurenboSfx::OniNotice:       OutFullCm = 600.f;  OutMaxCm = 4000.f; break;
+		case EKakurenboSfx::Alert:           OutFullCm = 800.f;  OutMaxCm = 6000.f; break;
+		case EKakurenboSfx::Summon:          OutFullCm = 1000.f; OutMaxCm = 6000.f; break;
+		default:                             OutFullCm = 500.f;  OutMaxCm = 4000.f; break;
+		}
+	}
+}
+
+bool UKakurenboSoundSubsystem::GetListener(FVector& OutLocation, FRotator& OutRotation) const
+{
+	const UWorld* World = GetWorld();
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	if (!PC || !PC->PlayerCameraManager)
+	{
+		return false;
+	}
+	// 向きはカメラ（画面の左右 = 耳の左右）。距離は自分の体から測る（三人称のカメラは体の後ろにあるので）
+	OutRotation = PC->PlayerCameraManager->GetCameraRotation();
+	const APawn* Pawn = PC->GetPawn();
+	OutLocation = (Pawn && !Pawn->IsHidden()) ? Pawn->GetActorLocation() + FVector(0.f, 0.f, 50.f) : PC->PlayerCameraManager->GetCameraLocation();
+	return true;
+}
+
+FKakurenboSpatialDebug UKakurenboSoundSubsystem::GetLastSpatial(EKakurenboSfx Sfx) const
+{
+	const int32 Index = static_cast<int32>(Sfx);
+	return LastSpatial.IsValidIndex(Index) ? LastSpatial[Index] : FKakurenboSpatialDebug();
 }
 
 void UKakurenboSoundSubsystem::Play2D(const UObject* WorldContext, EKakurenboSfx Sfx, float VolumeScale, float PitchScale)
@@ -219,10 +261,56 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	LastPlayTimes[Index] = Now;
 	PlayCounts[Index]++;
 
-	const float Volume = FMath::Clamp(MasterVolume * VolumeScale, 0.f, 4.f);
+	float Volume = FMath::Clamp(MasterVolume * VolumeScale, 0.f, 4.f);
+	const float BaseVolume = Volume; // 音アセットで鳴らすときは、距離の減り方をエンジンに任せる
 	if (Volume <= 0.f)
 	{
 		return;
+	}
+
+	// その場所から聞こえる音：聞く人（自分）から見た向き・距離・間の壁で、左右の大きさとこもり具合を決める
+	KakurenboSynth::FSpatial Spatial;
+	bool bSpatial = false;
+	FVector ListenerLocation;
+	FRotator ListenerRotation;
+	if (Location && GetListener(ListenerLocation, ListenerRotation))
+	{
+		bSpatial = true;
+		float FullCm = 0.f;
+		float MaxCm = 0.f;
+		GetDistanceRange(Sfx, FullCm, MaxCm);
+		const FVector ToSource = *Location - ListenerLocation;
+		const float DistanceGain = KakurenboSynth::DistanceGain(ToSource.Size2D(), FullCm, MaxCm);
+
+		// 間に壁・家具があるか（置いた壁・部屋の壁・家具の当たり判定は WorldStatic）
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(KakurenboSoundOcclusion), false);
+		if (const APlayerController* PC = World->GetFirstPlayerController(); PC && PC->GetPawn())
+		{
+			Params.AddIgnoredActor(PC->GetPawn());
+		}
+		FHitResult Hit;
+		const FVector Target = *Location + FVector(0.f, 0.f, 40.f);
+		const bool bBlocked = World->LineTraceSingleByObjectType(Hit, ListenerLocation, Target, FCollisionObjectQueryParams(ECC_WorldStatic), Params)
+			&& FVector::Dist(Hit.ImpactPoint, Target) > 60.f;
+
+		// カメラの向きで見た位置（X = 前、Y = 右）
+		const FVector Local = FRotator(0.f, ListenerRotation.Yaw, 0.f).UnrotateVector(ToSource);
+		Spatial = KakurenboSynth::ComputeSpatial(Local, bBlocked ? 1.f : 0.f);
+		Volume *= DistanceGain;
+
+		LastSpatial.SetNum(static_cast<int32>(EKakurenboSfx::Count));
+		FKakurenboSpatialDebug& Debug = LastSpatial[Index];
+		Debug.Pan = Spatial.Pan;
+		Debug.Gain = DistanceGain;
+		Debug.GainL = Spatial.GainL;
+		Debug.GainR = Spatial.GainR;
+		Debug.bOccluded = bBlocked;
+		Debug.bBehind = Spatial.bBehind;
+		Debug.bValid = true;
+		if (Volume <= 0.001f)
+		{
+			return; // 遠すぎて聞こえない
+		}
 	}
 
 	// 音アセットが設定されていればそれを鳴らす
@@ -234,11 +322,11 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 			{
 				if (Location)
 				{
-					UGameplayStatics::PlaySoundAtLocation(World, *Override, *Location, Volume, PitchScale, 0.f, IsCueSfx(Sfx) ? GetCueAttenuation() : GetAttenuation());
+					UGameplayStatics::PlaySoundAtLocation(World, *Override, *Location, BaseVolume, PitchScale, 0.f, IsCueSfx(Sfx) ? GetCueAttenuation() : GetAttenuation());
 				}
 				else
 				{
-					UGameplayStatics::PlaySound2D(World, *Override, Volume, PitchScale);
+					UGameplayStatics::PlaySound2D(World, *Override, BaseVolume, PitchScale);
 				}
 				return;
 			}
@@ -252,15 +340,18 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	{
 		return;
 	}
+	// その場所から聞こえる音は、左右に振り分けた 2ch の波形にして画面全体で鳴らす（左右の差・こもり具合は自前で付けた）
+	const TArray<int16> Data = bSpatial ? KakurenboSynth::MakeStereo(Samples, Spatial) : Samples;
+	const int32 Channels = bSpatial ? 2 : 1;
 	USoundWaveProcedural* Wave = NewObject<USoundWaveProcedural>(this);
 	Wave->SetSampleRate(KakurenboSynth::DefaultSampleRate);
-	Wave->NumChannels = 1;
+	Wave->NumChannels = Channels;
 	Wave->Duration = INDEFINITELY_LOOPING_DURATION;
 	Wave->SoundGroup = SOUNDGROUP_Default;
 	Wave->bLooping = false;
-	Wave->QueueAudio(reinterpret_cast<const uint8*>(Samples.GetData()), Samples.Num() * sizeof(int16));
+	Wave->QueueAudio(reinterpret_cast<const uint8*>(Data.GetData()), Data.Num() * sizeof(int16));
 
-	UAudioComponent* Component = Location
+	UAudioComponent* Component = (Location && !bSpatial)
 		? UGameplayStatics::SpawnSoundAtLocation(World, Wave, *Location, FRotator::ZeroRotator, Volume, 1.f, 0.f, IsCueSfx(Sfx) ? GetCueAttenuation() : GetAttenuation())
 		: UGameplayStatics::SpawnSound2D(World, Wave, Volume);
 	if (!Component)
@@ -270,7 +361,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	++StartedCount;
 
 	// 波形を流し終わっても自分では止まらない（無音を出し続ける）ので、長さぶん経ったら止める（止まると自動で消える）
-	const float Seconds = static_cast<float>(Samples.Num()) / KakurenboSynth::DefaultSampleRate + 0.1f;
+	const float Seconds = static_cast<float>(Data.Num() / Channels) / KakurenboSynth::DefaultSampleRate + 0.1f;
 	FTimerHandle Handle;
 	World->GetTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(Component, [Component]() { Component->Stop(); }), Seconds, false);
 }

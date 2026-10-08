@@ -27,8 +27,10 @@ class ATreasureActor;
 class UAnimInstance;
 class UAnimSequence;
 class UDataTable;
+class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class USkeletalMesh;
+class UStaticMesh;
 class USoundBase;
 
 UCLASS(Config = Game)
@@ -80,6 +82,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> FurnitureTable;
 
+	/** 見た目（テクスチャ）。Data/Surfaces.csv の代わりに使う DataTable（行の型: KakurenboSurfaceRow） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> SurfaceTable;
+
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
 	TMap<EOniType, FKakurenboOniTypeRow> OniTypeRows;
@@ -95,9 +101,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
 	TArray<FName> MapOrder;
 
+	/** 表より後のステージで回るマップの数（Maps.csv の後ろから。大きい館だけを回す） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
+	int32 MapsCycledAfterTable = 6;
+
+	/** 床にテクスチャを使うとき、市松模様の暗い方のマスに掛ける明るさ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Look")
+	float FloorCheckerDarken = 0.8f;
+
+	/** 見た目（テクスチャ）。Data/Surfaces.csv（行の名前 → 設定）。壁・床・宝石・プレイヤーで使う */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Look")
+	TMap<FName, FKakurenboSurfaceRow> SurfaceRows;
+
+	/** 見た目の行を探す（無ければ null） */
+	const FKakurenboSurfaceRow* FindSurface(FName Name) const { return Name.IsNone() ? nullptr : SurfaceRows.Find(Name); }
+
+	/** 見た目の動的マテリアルを作る（テクスチャがそのパソコンに無ければ null） */
+	UMaterialInstanceDynamic* MakeSurfaceMaterial(FName Name, const FLinearColor& Tint = FLinearColor::White);
+
 	/** 表より後のステージで、何ステージごとに次のマップへ移るか */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
-	int32 StagesPerMapAfterTable = 3;
+	int32 StagesPerMapAfterTable = 1;
 
 	/** 表より後のステージで、1 ステージごとに伸ばす量 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
@@ -202,6 +226,32 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sound")
 	TMap<EKakurenboMusic, TObjectPtr<USoundBase>> MusicOverrides;
 
+	// ===== プレイヤー・お宝の見た目（Fab の FBX を Tools/ImportSourceArt.ps1 で取り込んだもの。無ければ円柱・箱） =====
+
+	/** プレイヤーの見た目のスケルタルメッシュ。体の高さ（160cm）に自動で合わせる。動きはプログラムで付ける（歩くと手足を振る） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	TSoftObjectPtr<USkeletalMesh> PlayerSkeletalMesh;
+
+	/** プレイヤーの見た目のテクスチャ（Data/Surfaces.csv の行） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	FName PlayerSurface = TEXT("Player");
+
+	/** メッシュの向き（度。正面が +Y を向いているモデルは -90） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
+	float PlayerMeshYaw = -90.f;
+
+	/** お宝（宝石）のメッシュ。何種類か書くと、お宝ごとに違う形になる */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Treasure|Look")
+	TArray<TSoftObjectPtr<UStaticMesh>> TreasureMeshes;
+
+	/** 宝石のテクスチャ（Data/Surfaces.csv の行）。色はお宝の色（金）を掛ける */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Treasure|Look")
+	FName TreasureSurface = TEXT("Gem");
+
+	/** 宝石の大きさ（cm。一番長い辺） */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Treasure|Look")
+	float TreasureMeshSize = 55.f;
+
 	// ===== 鬼 =====
 
 	/** スポーンする鬼のクラス（BP の派生クラスで見た目を変えてよい） */
@@ -270,6 +320,31 @@ public:
 	/** 連打したとき、音の届く範囲を床に表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	bool bShowNoiseRing = true;
+
+	// ===== 危ないときの心臓の音（画面を見なくても鬼が来ているとわかる） =====
+
+	/** 鬼がこの距離（cm）より近いと一番危ない。DangerMaxDistance より遠い鬼は数えない（追いかけてくる鬼は別） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float DangerFullDistance = 250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float DangerMaxDistance = 1600.f;
+
+	/** 危なさ（0〜1）がこれ以上で心臓の音が鳴り始める */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatMinDanger = 0.2f;
+
+	/** 心臓の音の間隔（秒）：危なさが小さいとき / 一番危ないとき */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatSlowInterval = 1.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatFastInterval = 0.38f;
+
+	/** 今の危なさ（0〜1）と、鳴らした心臓の音の数（テスト用） */
+	float GetCurrentDanger() const { return CurrentDanger; }
+	int32 GetHeartbeatCount() const { return HeartbeatCount; }
+	float ComputeDanger() const;
 
 	/** 鬼の経路などをデバッグ表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -517,6 +592,9 @@ public:
 	/** 今あるお宝（かくれんぼ中のみ） */
 	const TArray<TObjectPtr<ATreasureActor>>& GetTreasures() const { return Treasures; }
 
+	/** このラウンドで取られたお宝のあったマス（宝物鬼が見回りに来る） */
+	const TArray<FIntPoint>& GetTakenTreasureCells() const { return TakenTreasureCells; }
+
 	// ===== 購入 =====
 
 	/** 購入パートの商品一覧（表示順＝番号キー順） */
@@ -683,6 +761,8 @@ protected:
 	KakurenboMaps::FLayout LoadMapLayout(const FKakurenboMapRow& Row) const;
 	/** 家具の上に壁・罠が残っていたら在庫に戻して消す（古いセーブ・間取りを変えたとき） */
 	void ClearLayoutOnObstacles();
+	/** 今の館の外になったマスの壁・罠を在庫に戻して、列から取り除く */
+	void RefundColumnsOutsideGrid(TArray<struct FKakurenboSavedColumn>& Columns);
 	/** プレイヤーが家具の中や囲まれた場所にいたら、広い場所のマスへ移す */
 	void EnsurePlayerOnFreeCell();
 
@@ -700,6 +780,7 @@ protected:
 
 	/** 開始前のカウントダウン・残り時間の秒読みの音 */
 	void TickCountdownSounds();
+	void TickDangerHeartbeat(float DeltaSeconds);
 
 	/** 画面の点滅・大きな文字（HUD に頼む） */
 	void FlashScreen(const FLinearColor& Color, float Duration) const;
@@ -748,6 +829,7 @@ protected:
 
 	UPROPERTY()
 	TArray<TObjectPtr<ATreasureActor>> Treasures;
+	TArray<FIntPoint> TakenTreasureCells;
 
 	/** CSV から作った一時的な DataTable（GC で消えないように持っておく） */
 	UPROPERTY()
@@ -759,4 +841,7 @@ protected:
 	/** 最後に音を鳴らしたカウントダウン・秒読みの秒数（同じ秒で何度も鳴らさないため） */
 	int32 LastCountdownSecond = 0;
 	int32 LastTimeTickSecond = 0;
+	float CurrentDanger = 0.f;
+	float HeartbeatTimer = 0.f;
+	int32 HeartbeatCount = 0;
 };

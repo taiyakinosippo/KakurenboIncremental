@@ -2,6 +2,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PoseableMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -189,11 +191,20 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 	// 外周の壁際でカメラが体のすぐ後ろまで寄ったときは、自分の体で前が見えなくならないよう体を映さない
 	const float CameraDistance = FVector::Dist(Camera->GetComponentLocation(), GetActorLocation());
 	BodyMesh->SetOwnerNoSee(ViewMode == EHiderViewMode::ThirdPerson && CameraDistance < 150.f);
+	if (LookMesh)
+	{
+		LookMesh->SetOwnerNoSee(ViewMode == EHiderViewMode::ThirdPerson && CameraDistance < 150.f);
+	}
 
 	// 連打の反応は体を縮めるだけ（カメラは動かさない）
 	MashPulse = FMath::Max(0.f, MashPulse - DeltaSeconds * 8.f);
 	const float Squash = 1.f - 0.15f * MashPulse;
 	BodyMesh->SetRelativeScale3D(FVector(BodyBaseScale.X / Squash, BodyBaseScale.Y / Squash, BodyBaseScale.Z * Squash));
+	if (LookMesh)
+	{
+		LookMesh->SetRelativeScale3D(FVector(LookBaseScale.X / Squash, LookBaseScale.Y / Squash, LookBaseScale.Z * Squash));
+		UpdateLookPose(DeltaSeconds);
+	}
 }
 
 void AHiderCharacter::PlayMashFeedback()
@@ -271,4 +282,184 @@ void AHiderCharacter::GetSightTargetPoints(TArray<FVector>& OutPoints) const
 	OutPoints.Add(Center + FVector(0, 0, HalfHeight * 0.8f)); // 頭
 	OutPoints.Add(Center);                                   // 体
 	OutPoints.Add(Center - FVector(0, 0, HalfHeight * 0.7f)); // 足
+}
+
+// ---------------------------------------------------------------- 見た目（キャラクターのモデル）
+
+namespace
+{
+	/** 骨の名前が左右どちらか（"_l" "Left" "l_" など、よくある書き方） */
+	int32 BoneSide(const FString& Lower)
+	{
+		if (Lower.Contains(TEXT("left")) || Lower.EndsWith(TEXT("_l")) || Lower.EndsWith(TEXT(".l")) || Lower.StartsWith(TEXT("l_")) || Lower.Contains(TEXT("_l_")))
+		{
+			return -1;
+		}
+		if (Lower.Contains(TEXT("right")) || Lower.EndsWith(TEXT("_r")) || Lower.EndsWith(TEXT(".r")) || Lower.StartsWith(TEXT("r_")) || Lower.Contains(TEXT("_r_")))
+		{
+			return 1;
+		}
+		return 0;
+	}
+}
+
+void AHiderCharacter::ApplyLook(USkeletalMesh* Model, UMaterialInterface* Material, float MeshYaw)
+{
+	if (!Model)
+	{
+		return;
+	}
+	// 骨を直接動かせるメッシュ（PoseableMesh）で表示する（アニメーションが無いモデルでも手足を動かせる）
+	LookMesh = NewObject<UPoseableMeshComponent>(this, TEXT("LookMesh"));
+	LookMesh->SetupAttachment(RootComponent);
+	LookMesh->SetSkinnedAssetAndUpdate(Model);
+	LookMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	LookMesh->RegisterComponent();
+	if (Material)
+	{
+		for (int32 i = 0; i < LookMesh->GetNumMaterials(); ++i)
+		{
+			LookMesh->SetMaterial(i, Material);
+		}
+	}
+	// 体（カプセル）の高さに合わせて大きさを変え、足を床に置く
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FBoxSphereBounds Bounds = Model->GetImportedBounds();
+	const float MeshHeight = FMath::Max(Bounds.BoxExtent.Z * 2.f, 1.f);
+	const float MeshBottom = Bounds.Origin.Z - Bounds.BoxExtent.Z;
+	const float Fit = HalfHeight * 2.f / MeshHeight;
+	LookBaseScale = FVector(Fit);
+	LookBaseLocation = FVector(0.f, 0.f, -HalfHeight - MeshBottom * Fit);
+	LookMesh->SetRelativeScale3D(LookBaseScale);
+	LookMesh->SetRelativeLocation(LookBaseLocation);
+	LookMesh->SetRelativeRotation(FRotator(0.f, MeshYaw, 0.f));
+	BodyMesh->SetHiddenInGame(true);
+
+	// 脚・腕の骨を名前で探す（モデルによって名前の付け方が違うので、よくある書き方を順に試す）
+	const FReferenceSkeleton& Ref = Model->GetRefSkeleton();
+	TArray<FString> Names;
+	for (int32 i = 0; i < Ref.GetNum(); ++i)
+	{
+		const FName Name = Ref.GetBoneName(i);
+		Names.Add(Name.ToString());
+		const FString Lower = Name.ToString().ToLower();
+		const int32 Side = BoneSide(Lower);
+		auto Pick = [&](FName& Left, FName& Right)
+		{
+			FName& Slot = Side < 0 ? Left : Right;
+			if (Side != 0 && Slot.IsNone())
+			{
+				Slot = Name;
+			}
+		};
+		const bool bTwistOrEnd = Lower.Contains(TEXT("twist")) || Lower.Contains(TEXT("end")) || Lower.Contains(TEXT("roll"));
+		if (bTwistOrEnd)
+		{
+			continue;
+		}
+		if (Lower.Contains(TEXT("thigh")) || Lower.Contains(TEXT("upleg")) || Lower.Contains(TEXT("upperleg")) || Lower.Contains(TEXT("up_leg")))
+		{
+			Pick(LeftThigh, RightThigh);
+		}
+		else if (Lower.Contains(TEXT("calf")) || Lower.Contains(TEXT("shin")) || Lower.Contains(TEXT("lowerleg")) || Lower.Contains(TEXT("knee"))
+			|| (Lower.Contains(TEXT("leg")) && !Lower.Contains(TEXT("up"))))
+		{
+			Pick(LeftCalf, RightCalf);
+		}
+		else if (Lower.Contains(TEXT("forearm")) || Lower.Contains(TEXT("lowerarm")) || Lower.Contains(TEXT("elbow")))
+		{
+			Pick(LeftForearm, RightForearm);
+		}
+		else if (Lower.Contains(TEXT("upperarm")) || Lower.Contains(TEXT("uparm")) || (Lower.Contains(TEXT("arm")) && !Lower.Contains(TEXT("hand"))))
+		{
+			Pick(LeftUpperArm, RightUpperArm);
+		}
+		else if (Spine.IsNone() && Lower.Contains(TEXT("spine")))
+		{
+			Spine = Name;
+		}
+	}
+	UE_LOG(LogTemp, Log, TEXT("Player look: %s, %d bones [%s] -> thigh %s/%s calf %s/%s arm %s/%s forearm %s/%s spine %s"),
+		*Model->GetName(), Ref.GetNum(), *FString::Join(Names, TEXT(",")), *LeftThigh.ToString(), *RightThigh.ToString(), *LeftCalf.ToString(), *RightCalf.ToString(),
+		*LeftUpperArm.ToString(), *RightUpperArm.ToString(), *LeftForearm.ToString(), *RightForearm.ToString(), *Spine.ToString());
+}
+
+void AHiderCharacter::RotateBone(FName Bone, const FQuat& DeltaComponentSpace)
+{
+	if (Bone.IsNone() || !LookMesh)
+	{
+		return;
+	}
+	const FQuat Current = LookMesh->GetBoneRotationByName(Bone, EBoneSpaces::ComponentSpace).Quaternion();
+	LookMesh->SetBoneRotationByName(Bone, (DeltaComponentSpace * Current).Rotator(), EBoneSpaces::ComponentSpace);
+}
+
+void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
+{
+	if (!LookMesh || IsHidden())
+	{
+		return;
+	}
+	// 歩く速さに合わせて足を交互に振る（止まると元に戻る）
+	const float Speed = GetVelocity().Size2D();
+	const bool bOnGround = GetCharacterMovement()->IsMovingOnGround();
+	WalkBlend = FMath::FInterpTo(WalkBlend, (bOnGround && Speed > 30.f) ? 1.f : 0.f, DeltaSeconds, 10.f);
+	WalkPhase = FMath::Fmod(WalkPhase + DeltaSeconds * Speed / FMath::Max(StepStride, 1.f) * UE_PI, 2.f * UE_PI);
+	IdleTime += DeltaSeconds;
+	const float Swing = FMath::Sin(WalkPhase) * WalkBlend;
+
+	// 部品の座標での向き：体の前・右（モデルの向き MeshYaw を戻して求める）
+	const FRotator MeshRot = LookMesh->GetRelativeRotation();
+	const FVector Forward = MeshRot.UnrotateVector(FVector::ForwardVector);
+	const FVector Right = MeshRot.UnrotateVector(FVector::RightVector);
+
+	// 元の姿勢に戻してから、親（太もも・二の腕）→ 子（すね・前腕）の順に回す
+	for (const FName Bone : { LeftThigh, RightThigh, LeftCalf, RightCalf, LeftUpperArm, RightUpperArm, LeftForearm, RightForearm, Spine })
+	{
+		if (!Bone.IsNone())
+		{
+			LookMesh->ResetBoneTransformByName(Bone);
+		}
+	}
+	// 脚：右の太ももが前に出るとき左は後ろ。後ろの脚はひざを曲げる
+	auto SwingAbout = [&](const FVector& Axis, float Degrees) { return FQuat(Axis, FMath::DegreesToRadians(Degrees)); };
+	// 右を軸に回すと前へ出る向き（足の先が Forward へ動く）を、骨の向きから決める
+	auto ForwardSign = [&](FName Bone, FName Child) -> float
+	{
+		if (Bone.IsNone() || Child.IsNone())
+		{
+			return 1.f;
+		}
+		const FVector Dir = (LookMesh->GetBoneLocationByName(Child, EBoneSpaces::ComponentSpace) - LookMesh->GetBoneLocationByName(Bone, EBoneSpaces::ComponentSpace)).GetSafeNormal();
+		const FVector Moved = SwingAbout(Right, 10.f).RotateVector(Dir);
+		return FVector::DotProduct(Moved - Dir, Forward) >= 0.f ? 1.f : -1.f;
+	};
+	const float LegSign = ForwardSign(LeftThigh, LeftCalf);
+	RotateBone(LeftThigh, SwingAbout(Right, LegSign * LegSwingDegrees * Swing));
+	RotateBone(RightThigh, SwingAbout(Right, -LegSign * LegSwingDegrees * Swing));
+	// ひざ：後ろへ振っている脚だけ曲げる（すねが後ろへ）
+	RotateBone(LeftCalf, SwingAbout(Right, -LegSign * LegSwingDegrees * 1.2f * FMath::Max(0.f, -Swing)));
+	RotateBone(RightCalf, SwingAbout(Right, -LegSign * LegSwingDegrees * 1.2f * FMath::Max(0.f, Swing)));
+
+	// 腕：T ポーズなら体の横へ下ろしてから、脚と反対に振る
+	auto LowerArm = [&](FName Upper, FName Fore, float SideSign)
+	{
+		if (Upper.IsNone() || Fore.IsNone())
+		{
+			return;
+		}
+		const FVector Dir = (LookMesh->GetBoneLocationByName(Fore, EBoneSpaces::ComponentSpace) - LookMesh->GetBoneLocationByName(Upper, EBoneSpaces::ComponentSpace)).GetSafeNormal();
+		const float Down = FMath::DegreesToRadians(ArmDownDegrees);
+		const FVector Wanted = (Right * SideSign * FMath::Cos(Down) - FVector::UpVector * FMath::Sin(Down)).GetSafeNormal();
+		RotateBone(Upper, FQuat::FindBetweenNormals(Dir, Wanted));
+	};
+	LowerArm(LeftUpperArm, LeftForearm, -1.f);
+	LowerArm(RightUpperArm, RightForearm, 1.f);
+	const float ArmSign = ForwardSign(LeftUpperArm, LeftForearm);
+	RotateBone(LeftUpperArm, SwingAbout(Right, -ArmSign * ArmSwingDegrees * Swing));
+	RotateBone(RightUpperArm, SwingAbout(Right, ArmSign * ArmSwingDegrees * Swing));
+
+	// 歩くと上下に弾む・止まっているときはゆっくり息をする
+	const float Bob = FMath::Abs(FMath::Sin(WalkPhase)) * 4.f * WalkBlend + FMath::Sin(IdleTime * 2.2f) * 0.8f * (1.f - WalkBlend);
+	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, Bob));
 }

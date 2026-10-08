@@ -7,7 +7,9 @@
 #include "GameFramework/Actor.h"
 #include "TreasureActor.generated.h"
 
+class UMaterialInterface;
 class UPointLightComponent;
+class UStaticMesh;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -18,8 +20,28 @@ class KAKURENBOINCREMENTAL_API ATreasureActor : public AActor
 public:
 	ATreasureActor();
 
+	/** ふわふわ浮かびながら回る軸（メッシュとライトはこの子） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
+	TObjectPtr<USceneComponent> Spin;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
 	TObjectPtr<UStaticMeshComponent> Mesh;
+
+	/**
+	 * 宝石の見た目（Fab の宝石。GameMode が出現時に設定する）。無ければ斜めにした立方体。
+	 * LookSize は一番長い辺の長さ（cm）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	TObjectPtr<UStaticMesh> LookMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	TObjectPtr<UMaterialInterface> LookMaterial;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float LookSize = 55.f;
+
+	/** 宝石のメッシュで表示しているか（テスト用） */
+	bool HasGemLook() const { return bGemLook; }
 
 	/** 遠くからでも見つけやすいように光らせる */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
@@ -38,10 +60,10 @@ public:
 
 	/** キラキラの音を鳴らす間隔（秒）と大きさ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
-	float SparkleInterval = 1.6f;
+	float SparkleInterval = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
-	float SparkleVolume = 0.8f;
+	float SparkleVolume = 1.3f;
 
 	/** 鳴らしたキラキラの数（テスト用） */
 	int32 GetSparkleCount() const { return SparkleCount; }
@@ -51,7 +73,8 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
-	FVector BaseMeshLocation = FVector::ZeroVector;
+	FVector BaseSpinLocation = FVector::ZeroVector;
+	bool bGemLook = false;
 	float Time = 0.f;
 	float SparkleTimer = 0.f;
 	int32 SparkleCount = 0;

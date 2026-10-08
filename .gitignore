@@ -3,6 +3,13 @@
 KakurenboIncremental/Content/CuteCreature/
 # Fab asset (Stylized Library: mansion furniture). Same reason.
 KakurenboIncremental/Content/Stylized_Library/
+# Fab assets added in M12 (same reason): wood / metal materials, and the player and gem FBX imported by Tools/ImportSourceArt.ps1
+KakurenboIncremental/Content/Substance_Materials_Vol1_Wood/
+KakurenboIncremental/Content/Metallic_Floor/
+KakurenboIncremental/Content/Player/
+KakurenboIncremental/Content/Gem/
+# Downloaded FBX / textures (input of Tools/ImportSourceArt.ps1)
+KakurenboIncremental/SourceArt/
 # Editor-only per-user folders
 KakurenboIncremental/Content/Developers/
 KakurenboIncremental/Content/Collections/

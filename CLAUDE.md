@@ -22,25 +22,25 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboGameState` | 現在の状態（コイン・ステージ・在庫・強化レベル・転生ポイント）。HUD はここを読む |
 | `KakurenboPlayerController` | 入力（`PostProcessInput` でキー状態をポーリング）、パートごとの視点・入力モードの切り替え、カーソルでの設置、ダッシュ、転生の確認、デバッグ用 Exec コマンド |
 | `KakurenboHUD` | Canvas に直接描く仮 UI（日本語は `/Engine/EngineFonts/Roboto` のフォールバックで表示）。鬼・お宝の方向は出さない（音で探す） |
-| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・真上・三人称カメラ、ダッシュ、足音・しのび足） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う：標準・スピード・パワー・慎重・宝物・探知。ぶつかったらアウト。鬼どうしはすり抜ける。歩くと足音。スケルタルメッシュに差し替え可） |
+| `HiderCharacter` / `OniCharacter` | プレイヤー（俯瞰・真上・三人称カメラ、ダッシュ、足音・しのび足。Fab のモデルを `ApplyLook` で PoseableMesh に付け、歩く動きはプログラムで骨を回す） / 鬼（Wander/Investigate/Chase/Inspect/Attack/Stunned。種類 EOniType ごとに探し方が違う：標準・スピード・パワー・慎重・宝物・探知。ぶつかったらアウト。鬼どうしはすり抜ける。歩くと足音。スケルタルメッシュに差し替え可） |
 | `KakurenboOniBlackboard` | 慎重鬼どうしで共有する「調べたマス」と「向かっているマス」「調べている建物」（WorldSubsystem） |
-| `TreasureActor` | お宝（距離で取得。ときどきキラキラと鳴る） |
+| `TreasureActor` | お宝（距離で取得。ときどきキラキラと鳴る。GameMode が宝石のメッシュと色を渡す） |
 | `SmokeCloud` | 煙幕（煙幕ダッシュで足元に投げる）。`IsSightBlocked` で煙の中・向こう側の視線をさえぎる（鬼の `CanSeeTarget` が使う）。煙幕ダッシュは回数制（`DashUsesPerRound`・転生のお店の「煙幕の数」） |
 | `TrapActor` | 罠（トリモチ: 踏んだ鬼を Stun / おとり: 一定間隔で EmitNoise）。当たり判定なし、距離で発動。配置と設計図はグリッドが持つ |
 | `KakurenboFx` | 仮の演出（破片 `AKakurenboBurstFx`・床の輪 `AKakurenboRingFx`）と窓口の `UKakurenboFxSubsystem`（輪は使い回す） |
-| `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / 3D。鬼の足音・お宝は手がかり用の減り方）と BGM（`PlayMusic`）。GameMode の `SoundOverrides` に音アセットがあればそちら |
-| `KakurenboSynth` | 効果音と BGM の波形をプログラムで作る（純粋な計算・単体テストあり）。`USoundWaveProcedural` で再生し、効果音は長さぶん経ったら止める。BGM は 1 秒ごとに 1 周ぶん足す |
-| `KakurenboMaps` | 館の間取り（Data/Maps/*.txt の文字の図）を読み、同じ文字の長方形を家具にまとめる（純粋ロジック・単体テストあり） |
+| `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / その場所から。その場所からの音は自前で左右に振り分けた 2ch の波形を 2D で鳴らす：聞く人＝自分の体・向き＝カメラ、壁の向こうはこもる。`GetLastSpatial` でテスト）と BGM（`PlayMusic`）。GameMode の `SoundOverrides` に音アセットがあればそちら（エンジンの 3D の音） |
+| `KakurenboSynth` | 効果音と BGM の波形をプログラムで作る（純粋な計算・単体テストあり）。左右の振り分け（`ComputeSpatial`・`MakeStereo`・`DistanceGain`）も。`USoundWaveProcedural` で再生し、効果音は長さぶん経ったら止める。BGM は 1 秒ごとに 1 周ぶん足す |
+| `KakurenboMaps` | 館の間取り（Data/Maps/*.txt の文字の図）を読み、同じ文字の長方形を家具にまとめる。館の大きさ＝文字数 × 行数（`MeasureLayout`）（純粋ロジック・単体テストあり） |
 | `KakurenboLayout` | 設計図からの修復計画（純粋ロジック・単体テストあり） |
 | `KakurenboBalance` | ステージ設定の解決（表より後は伸ばす）と CSV → DataTable の読み込み |
 | `KakurenboSaveGame` | セーブデータ（GameMode の SaveProgress / LoadProgress / ResetProgress） |
 | `GridPathfinder` | ワールドに依存しない A*。壁マスに「壊すコスト」を持たせる（負なら通れない）。空洞（いちばん広い空間から歩いて行けない場所）の検出 |
 | `KakurenboGridSubsystem` | グリッドとブロック配置（積み上げ・範囲ダメージ・1 個だけダメージ・落下）、家具のマス（`IsObstacle`。壊せない・通れない・置けない）、歩くだけの経路用グリッドと壁を壊す経路用グリッド |
-| `KakurenboArena` | 床（市松模様）・外周の壁・鬼の出入り口（東側の赤い門と前の 3×2 マス）・外側の地面・夜の明かり（月・空・霧・ランプ）・ポストプロセス、マップごとの家具（`ApplyMap`）を C++ で生成（レベルアセット不要） |
+| `KakurenboArena` | 床（市松模様）・外周の壁（高い部分はかくれんぼ中だけ `SetTallWallsVisible`）・鬼の出入り口（東側の赤い門と前の 3×2 マス）を館の大きさで作る（`RebuildShell`）、外側の地面・夜の明かり（月・空・霧・ランプ）・ポストプロセス、マップごとの家具と床・壁の模様の板（`ApplyMap`）を C++ で生成（レベルアセット不要） |
 | `KakurenboAutoTest.cpp` | `KakuAutoTest <Scenario>` の実装 |
 | `Tests/KakurenboTests.cpp` | Automation の単体テスト |
 
-- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
+- バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture / Surfaces）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 2 つ → 壁 → 罠）。
   `KakuBuy` は開いているお店（`bPrestigeShopTab`）の商品。転生のお店は `KakuBuyPrestige`（並びは `EPrestigeUpgrade`）
 - 壁の耐久の倍率は転生のお店の「壁の硬さ」で決まる（`GetWallHPMultiplier`）。壁は `GetEffectiveWallTypes` の耐久で作る。
@@ -48,8 +48,12 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - 購入パート・設置パートの UI は HUD が毎フレーム `Buttons` に登録し、PlayerController の `HandleUIClick` が次のフレームのクリックで使う
 - 壁・罠の値段は持っている数で上がる（`GetWallCost` / `GetTrapCost`）。テストで値段を決め打ちしない
 - ステージ 1 の鬼は 1 体（Stages.csv）。2 体以上を前提にするテストは `SetStageOniTypes` で決める
-- **Fab アセット（鬼の見た目 `Content/CuteCreature`・館の家具 `Content/Stylized_Library`）は Git に入れない**（公開リポジトリのため。`.gitignore` 済み）。
-  パスは DefaultGame.ini（鬼）と Data/Furniture.csv（家具）。アセットが無いパソコンでは円柱・箱で動く。テストは両方で通るように書く
+- **Fab アセット（鬼の見た目 `Content/CuteCreature`・館の家具 `Content/Stylized_Library`・木と鉄の模様 `Content/Substance_Materials_Vol1_Wood`・`Content/Metallic_Floor`・
+  FBX から取り込んだプレイヤーと宝石 `Content/Player`・`Content/Gem`・元の FBX `SourceArt/`）は Git に入れない**（公開リポジトリのため。`.gitignore` 済み）。
+  パスは DefaultGame.ini（鬼・プレイヤー・宝石）と Data/Furniture.csv（家具）・Data/Surfaces.csv（模様）。アセットが無いパソコンでは円柱・箱・色で動く。テストは両方で通るように書く
+- FBX（プレイヤー・宝石）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
+  模様は共通のマテリアル `/Game/Kakurenbo/Materials/M_KakuSurface`（Git に入れる。同じスクリプトが作る）に実行時にテクスチャを差し込む（`UKakurenboLibrary::CreateSurfaceMaterial`）
+- **館の大きさはマップごとに違う**（間取りの文字数 × 行数。16×16〜31×29）。変わるときは `ApplyCurrentMap` が舞台とグリッドを作り直す。テストで座標を決め打ちしない（家具の無いテスト用の舞台は 24×24）
 - **自動テストは家具の無い舞台で行う**（`KakuAutoTest` の最初に `bMapOverride` で切り替える。壁を置くマスが家具で塞がらないように）。
   マップを確かめる `Maps` / `Mood` と再起動セーブだけ本物のマップ。マップが変わると置いた壁・罠は在庫に戻る（`SwitchToMap`）
 - 慎重鬼は広い場所を見終わるまで空洞を調べない。空洞を調べさせたいテストは Blackboard の全マスを「調べた」にしておく（CarefulShare 参照）
@@ -75,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   Gate / Crowd / Quiet / Dash / Prestige（M6）、Look（鬼の見た目を近くで撮る）、
   GateWalled / Matchup / CarefulShare（M8：門を囲まれたとき・鬼と罠の相性・慎重鬼が建物を分け合う）、
   BackToShop / Steps / TreasureOni / Detector / CarefulSweep / Maps / Mood / Sounds（M9：購入パートへ戻る・足音・宝物鬼・探知鬼・慎重鬼の探し方・館のマップ・見た目・音と BGM）、
-  Perch（M10：家具・壁の上のプレイヤーへ鬼が飛び乗る）。仕様を変えたら全部流す
+  Perch（M10：家具・壁の上のプレイヤーへ鬼が飛び乗る）、Hearing / Swatches（M12：左右の聞こえ方・気づいた音・心臓の音 / 模様・プレイヤー・宝石の見た目）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`
 - カーソルを使うテスト（設置パートのマス・HUD のボタン）は `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）。

@@ -74,40 +74,11 @@ void AKakurenboArena::BeginPlay()
 	Look.bOverride_BloomIntensity = true;
 	Look.BloomIntensity = 0.6f;
 
-	const float SizeX = GridSizeX * CellSize;
-	const float SizeY = GridSizeY * CellSize;
-	const FVector C = GetActorLocation();
-
-	BuildFloor();
-
 	// 舞台の外側の地面（俯瞰で見たときに外が真っ暗にならないように。床より一段低い）
 	constexpr float OuterSize = 30000.f;
-	AddCube(C + FVector(0, 0, -60.f), FVector(OuterSize, OuterSize, 20.f), OuterGroundColor);
+	AddCube(GetActorLocation() + FVector(0, 0, -60.f), FVector(OuterSize, OuterSize, 20.f), OuterGroundColor);
 
-	// 外周の壁（4 辺）。色はマップごとに塗り替える
-	const float Hz = BorderHeight * 0.5f;
-	const FLinearColor DefaultWall(0.2f, 0.1f, 0.3f);
-	BorderWalls.Add(AddCube(C + FVector((SizeX + BorderThickness) * 0.5f, 0, Hz), FVector(BorderThickness, SizeY + BorderThickness * 2, BorderHeight), DefaultWall));
-	BorderWalls.Add(AddCube(C + FVector(-(SizeX + BorderThickness) * 0.5f, 0, Hz), FVector(BorderThickness, SizeY + BorderThickness * 2, BorderHeight), DefaultWall));
-	BorderWalls.Add(AddCube(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Hz), FVector(SizeX, BorderThickness, BorderHeight), DefaultWall));
-	BorderWalls.Add(AddCube(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Hz), FVector(SizeX, BorderThickness, BorderHeight), DefaultWall));
-
-	// 外周の上の見えない柵（ブロックに乗ってジャンプしても外へ出られないように。三人称カメラも外へ出さない）。
-	// 設置のカーソルや鬼の視線（Visibility）は通す
-	constexpr float FenceHeight = 3000.f;
-	const float Fz = BorderHeight + FenceHeight * 0.5f;
-	auto AddFence = [this](const FVector& Center, const FVector& Size)
-	{
-		UStaticMeshComponent* Fence = AddCube(Center, Size, FLinearColor::Black);
-		Fence->SetHiddenInGame(true);
-		Fence->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
-	};
-	AddFence(C + FVector((SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
-	AddFence(C + FVector(-(SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
-	AddFence(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
-	AddFence(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
-
-	BuildOniGate(BorderThickness);
+	RebuildShell(GridSizeX, GridSizeY);
 
 	if (bSpawnLightingIfMissing)
 	{
@@ -125,6 +96,83 @@ void AKakurenboArena::BeginPlay()
 	}
 }
 
+void AKakurenboArena::RebuildShell(int32 InSizeX, int32 InSizeY)
+{
+	// 前の大きさで作った部品を消す
+	for (USceneComponent* Comp : ShellComponents)
+	{
+		if (Comp)
+		{
+			Comp->DestroyComponent();
+		}
+	}
+	ShellComponents.Reset();
+	BorderWalls.Reset();
+	TallWalls.Reset();
+	FloorTilesA = nullptr;
+	FloorTilesB = nullptr;
+	GridSizeX = FMath::Max(4, InSizeX);
+	GridSizeY = FMath::Max(4, InSizeY);
+
+	const float SizeX = GridSizeX * CellSize;
+	const float SizeY = GridSizeY * CellSize;
+	const FVector C = GetActorLocation();
+
+	BuildFloor();
+
+	// 外周の壁（4 辺）。色はマップごとに塗り替える。
+	// 下の部分（部屋の壁と同じ高さ）と、外の世界が見えないようにする高い部分に分ける（高い部分は上から見下ろすパートでは隠す）
+	const FLinearColor DefaultWall(0.2f, 0.1f, 0.3f);
+	const float TallHeight = FMath::Max(OuterWallHeight - BorderHeight, 1.f);
+	auto AddBorder = [&](const FVector& XY, const FVector& Size)
+	{
+		BorderWalls.Add(AddShellCube(C + XY + FVector(0.f, 0.f, BorderHeight * 0.5f), FVector(Size.X, Size.Y, BorderHeight), DefaultWall));
+		UStaticMeshComponent* Tall = AddShellCube(C + XY + FVector(0.f, 0.f, BorderHeight + TallHeight * 0.5f), FVector(Size.X, Size.Y, TallHeight), DefaultWall);
+		Tall->SetCastShadow(false); // 高い壁の長い影で舞台の端が真っ暗にならないように
+		BorderWalls.Add(Tall);
+		TallWalls.Add(Tall);
+	};
+	AddBorder(FVector((SizeX + BorderThickness) * 0.5f, 0, 0), FVector(BorderThickness, SizeY + BorderThickness * 2, 0));
+	AddBorder(FVector(-(SizeX + BorderThickness) * 0.5f, 0, 0), FVector(BorderThickness, SizeY + BorderThickness * 2, 0));
+	AddBorder(FVector(0, (SizeY + BorderThickness) * 0.5f, 0), FVector(SizeX, BorderThickness, 0));
+	AddBorder(FVector(0, -(SizeY + BorderThickness) * 0.5f, 0), FVector(SizeX, BorderThickness, 0));
+
+	// 外周の上の見えない柵（ブロックに乗ってジャンプしても外へ出られないように。三人称カメラも外へ出さない）。
+	// 設置のカーソルや鬼の視線（Visibility）は通す
+	constexpr float FenceHeight = 3000.f;
+	const float Fz = OuterWallHeight + FenceHeight * 0.5f;
+	auto AddFence = [this](const FVector& Center, const FVector& Size)
+	{
+		UStaticMeshComponent* Fence = AddShellCube(Center, Size, FLinearColor::Black);
+		Fence->SetHiddenInGame(true);
+		Fence->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
+	};
+	AddFence(C + FVector((SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
+	AddFence(C + FVector(-(SizeX + BorderThickness) * 0.5f, 0, Fz), FVector(BorderThickness, SizeY + BorderThickness * 2, FenceHeight));
+	AddFence(C + FVector(0, (SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
+	AddFence(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, Fz), FVector(SizeX, BorderThickness, FenceHeight));
+
+	BuildOniGate(BorderThickness);
+	SetTallWallsVisible(bTallWallsVisible);
+	UE_LOG(LogKakurenboArena, Log, TEXT("Arena shell rebuilt: %d x %d cells"), GridSizeX, GridSizeY);
+}
+
+void AKakurenboArena::SetTallWallsVisible(bool bVisible)
+{
+	bTallWallsVisible = bVisible;
+	for (UStaticMeshComponent* Wall : TallWalls)
+	{
+		if (Wall)
+		{
+			Wall->SetHiddenInGame(!bVisible);
+		}
+	}
+	if (TallWallPanels)
+	{
+		TallWallPanels->SetHiddenInGame(!bVisible);
+	}
+}
+
 void AKakurenboArena::BuildFloor()
 {
 	const FVector C = GetActorLocation();
@@ -133,17 +181,18 @@ void AKakurenboArena::BuildFloor()
 
 	// 当たり判定のある床：上面が Z=0
 	constexpr float FloorThickness = 50.f;
-	AddCube(C + FVector(0, 0, -FloorThickness * 0.5f), FVector(SizeX + BorderThickness * 2, SizeY + BorderThickness * 2, FloorThickness), FLinearColor(0.05f, 0.03f, 0.03f));
+	AddShellCube(C + FVector(0, 0, -FloorThickness * 0.5f), FVector(SizeX + BorderThickness * 2, SizeY + BorderThickness * 2, FloorThickness), FLinearColor(0.05f, 0.03f, 0.03f));
 
 	// 見た目だけの市松模様のタイル（InstancedStaticMesh: 同じメッシュをたくさん並べても 1 つの部品で描ける）
 	auto MakeTiles = [this](const TCHAR* Name)
 	{
-		UInstancedStaticMeshComponent* Tiles = NewObject<UInstancedStaticMeshComponent>(this, Name);
+		UInstancedStaticMeshComponent* Tiles = NewObject<UInstancedStaticMeshComponent>(this, MakeUniqueObjectName(this, UInstancedStaticMeshComponent::StaticClass(), Name));
 		Tiles->SetStaticMesh(CubeMesh);
 		Tiles->SetupAttachment(RootComponent);
 		Tiles->SetMobility(EComponentMobility::Movable);
 		Tiles->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Tiles->RegisterComponent();
+		ShellComponents.Add(Tiles);
 		return Tiles;
 	};
 	FloorTilesA = MakeTiles(TEXT("FloorTilesA"));
@@ -200,23 +249,30 @@ void AKakurenboArena::BuildOniGate(float InBorderThickness)
 {
 	const FVector Gate = GetOniGateLocation();
 	const float Width = FMath::Clamp(OniGateWidthCells, 1, GridSizeY) * CellSize;
-	const float WallX = Gate.X + InBorderThickness * 0.5f; // 外周の壁の厚みの真ん中
-
-	// 鳥居のような赤い門：柱 2 本と上の横木 2 本（外周の壁と同じ厚みに収めて、マスにははみ出さない）
+	// 鳥居のような赤い門：柱 2 本と上の横木 2 本。外周の壁の内側の面（壁に貼る板の手前）に薄く付ける。
+	// 見た目だけ（当たり判定なし）なので、門の横のマスに置く壁・鬼の出入りの邪魔はしない
+	const float FrontX = Gate.X - 12.f;
 	const float PostHeight = BorderHeight + 80.f;
+	auto AddGatePart = [&](const FVector& Center, const FVector& Size)
+	{
+		UStaticMeshComponent* Part = AddShellCube(Center, Size, OniGateColor);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	};
 	for (const float Side : { -1.f, 1.f })
 	{
-		AddCube(FVector(WallX, Gate.Y + Side * (Width * 0.5f + 20.f), PostHeight * 0.5f), FVector(InBorderThickness, 40.f, PostHeight), OniGateColor);
+		AddGatePart(FVector(FrontX, Gate.Y + Side * (Width * 0.5f + 20.f), PostHeight * 0.5f), FVector(20.f, 40.f, PostHeight));
 	}
-	AddCube(FVector(WallX, Gate.Y, PostHeight + 15.f), FVector(InBorderThickness + 20.f, Width + 180.f, 30.f), OniGateColor);
-	AddCube(FVector(WallX, Gate.Y, BorderHeight + 20.f), FVector(InBorderThickness, Width + 40.f, 20.f), OniGateColor);
+	AddGatePart(FVector(FrontX - 4.f, Gate.Y, PostHeight + 15.f), FVector(28.f, Width + 180.f, 30.f));
+	AddGatePart(FVector(FrontX, Gate.Y, BorderHeight + 20.f), FVector(20.f, Width + 40.f, 20.f));
+	(void)InBorderThickness;
 
 	// 門の中は真っ暗な戸（当たり判定なし）
-	UStaticMeshComponent* Door = AddCube(FVector(Gate.X - 1.5f, Gate.Y, (BorderHeight - 20.f) * 0.5f), FVector(2.f, Width, BorderHeight - 20.f), FLinearColor(0.02f, 0.005f, 0.005f));
+	UStaticMeshComponent* Door = AddShellCube(FVector(Gate.X - 4.f, Gate.Y, (BorderHeight - 20.f) * 0.5f), FVector(2.f, Width, BorderHeight - 20.f), FLinearColor(0.02f, 0.005f, 0.005f));
 	Door->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	// 門の上の赤いちょうちん（どこから鬼が来るか、暗くてもわかるように）
 	UPointLightComponent* Lantern = NewObject<UPointLightComponent>(this);
+	ShellComponents.Add(Lantern);
 	Lantern->SetMobility(EComponentMobility::Movable);
 	Lantern->SetupAttachment(RootComponent);
 	Lantern->SetWorldLocation(FVector(Gate.X - 60.f, Gate.Y, BorderHeight + 40.f));
@@ -230,7 +286,7 @@ void AKakurenboArena::BuildOniGate(float InBorderThickness)
 	// 鬼が出てくるマスの床を赤くする（当たり判定なし。設置のカーソルは下の床に当たる）
 	for (const FIntPoint& Cell : GetOniGateCells())
 	{
-		UStaticMeshComponent* Tile = AddCube(CellCenter(Cell, 1.f), FVector(CellSize * 0.94f, CellSize * 0.94f, 2.f), OniGateFloorColor);
+		UStaticMeshComponent* Tile = AddShellCube(CellCenter(Cell, 1.f), FVector(CellSize * 0.94f, CellSize * 0.94f, 2.f), OniGateFloorColor);
 		Tile->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 }
@@ -248,6 +304,48 @@ UStaticMeshComponent* AKakurenboArena::AddCube(const FVector& Center, const FVec
 	Mesh->RegisterComponent();
 	UKakurenboLibrary::ApplyColor(Mesh, Color);
 	return Mesh;
+}
+
+UStaticMeshComponent* AKakurenboArena::AddShellCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color)
+{
+	UStaticMeshComponent* Mesh = AddCube(Center, SizeCm, Color);
+	ShellComponents.Add(Mesh);
+	return Mesh;
+}
+
+UInstancedStaticMeshComponent* AKakurenboArena::MakePanelSet(UMaterialInterface* Material)
+{
+	UInstancedStaticMeshComponent* Panels = NewObject<UInstancedStaticMeshComponent>(this);
+	Panels->SetStaticMesh(CubeMesh);
+	Panels->SetupAttachment(RootComponent);
+	Panels->SetMobility(EComponentMobility::Movable);
+	Panels->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Panels->SetMaterial(0, Material);
+	Panels->RegisterComponent();
+	MapComponents.Add(Panels);
+	return Panels;
+}
+
+void AKakurenboArena::AddFacePanels(UInstancedStaticMeshComponent* Panels, const FVector& FaceStart, const FVector& Along, const FVector& Normal, float Length, float ZFrom, float ZTo)
+{
+	// 壁の面を 1 マス幅 × WallPanelHeight の薄い板で埋める（板 1 枚に模様が 1 回入るので、大きな壁でも模様が引き伸ばされない）
+	if (!Panels || Length <= 1.f || ZTo - ZFrom <= 1.f)
+	{
+		return;
+	}
+	const int32 Columns = FMath::Max(1, FMath::RoundToInt(Length / CellSize));
+	const int32 Rows = FMath::Max(1, FMath::RoundToInt((ZTo - ZFrom) / WallPanelHeight));
+	const float W = Length / Columns;
+	const float H = (ZTo - ZFrom) / Rows;
+	const FRotator Rot = Normal.Rotation(); // 板の X（厚み）を面の外向きに
+	for (int32 Col = 0; Col < Columns; ++Col)
+	{
+		for (int32 Row = 0; Row < Rows; ++Row)
+		{
+			const FVector Center = FaceStart + Along * (W * (Col + 0.5f)) + Normal * 1.f + FVector(0.f, 0.f, ZFrom + H * (Row + 0.5f));
+			Panels->AddInstance(FTransform(Rot, Center, FVector(0.02f, W * 0.998f / 100.f, H * 0.998f / 100.f)), true);
+		}
+	}
 }
 
 UStaticMeshComponent* AKakurenboArena::AddMapCube(const FVector& Center, const FVector& SizeCm, const FLinearColor& Color, bool bCollision)
@@ -286,33 +384,73 @@ void AKakurenboArena::ClearMap()
 		}
 	}
 	MapComponents.Reset();
+	WallPanels = nullptr;
+	TallWallPanels = nullptr;
+	CurrentWallMaterial = nullptr;
+	bUseWallPanels = false;
 	FurniturePieces = 0;
 	FurnitureMeshes = 0;
 }
 
 void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps::FLayout& Layout, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
-	const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles)
+	const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles,
+	UMaterialInterface* FloorMaterial, UMaterialInterface* FloorMaterialAlt, UMaterialInterface* WallMaterial)
 {
 	ClearMap();
 	OutObstacles.Reset();
 
-	// 床（市松模様）と外周の壁の色
-	UKakurenboLibrary::ApplyColor(FloorTilesA, Map.FloorColor);
-	UKakurenboLibrary::ApplyColor(FloorTilesB, Map.FloorColor * 0.72f);
+	// 床（市松模様）：マテリアル（木の床など）があればそれを、無ければ色
+	if (FloorMaterial)
+	{
+		FloorTilesA->SetMaterial(0, FloorMaterial);
+		FloorTilesB->SetMaterial(0, FloorMaterialAlt ? FloorMaterialAlt : FloorMaterial);
+		bFloorUsesMaterial = true;
+	}
+	else
+	{
+		UKakurenboLibrary::ApplyColor(FloorTilesA, Map.FloorColor);
+		UKakurenboLibrary::ApplyColor(FloorTilesB, Map.FloorColor * 0.72f);
+		bFloorUsesMaterial = false;
+	}
+
+	// 外周の壁：マテリアル（木の板の壁など）があれば内側の面に板を貼る。無ければ壁紙の色
+	CurrentWallMaterial = WallMaterial;
+	bUseWallPanels = CurrentWallMaterial != nullptr;
 	for (UStaticMeshComponent* Wall : BorderWalls)
 	{
 		UKakurenboLibrary::ApplyColor(Wall, Map.WallColor);
 	}
-	// 外周の壁の上の飾りの縁（壁紙より明るい色）
 	const FVector C = GetActorLocation();
 	const float SizeX = GridSizeX * CellSize;
 	const float SizeY = GridSizeY * CellSize;
+	if (bUseWallPanels)
+	{
+		WallPanels = MakePanelSet(CurrentWallMaterial);
+		TallWallPanels = MakePanelSet(CurrentWallMaterial);
+		TallWallPanels->SetCastShadow(false);
+		const FVector Origin = GetGridOrigin();
+		struct FFace { FVector Start; FVector Along; FVector Normal; float Length; };
+		const FFace Faces[4] = {
+			{ FVector(Origin.X, Origin.Y, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), SizeY },                 // 西の壁（内側は +X 向き）
+			{ FVector(Origin.X + SizeX, Origin.Y, 0.f), FVector(0, 1, 0), FVector(-1, 0, 0), SizeY },        // 東の壁
+			{ FVector(Origin.X, Origin.Y, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), SizeX },                 // 北の壁
+			{ FVector(Origin.X, Origin.Y + SizeY, 0.f), FVector(1, 0, 0), FVector(0, -1, 0), SizeX },        // 南の壁
+		};
+		for (const FFace& Face : Faces)
+		{
+			AddFacePanels(WallPanels, Face.Start, Face.Along, Face.Normal, Face.Length, 0.f, BorderHeight);
+			AddFacePanels(TallWallPanels, Face.Start, Face.Along, Face.Normal, Face.Length, BorderHeight, OuterWallHeight);
+		}
+	}
+	SetTallWallsVisible(bTallWallsVisible);
+
+	// 外周の壁の飾りの縁（壁紙より明るい色）：部屋の壁の高さの所にぐるりと
 	const FLinearColor Trim = FLinearColor::LerpUsingHSV(Map.WallColor, FLinearColor(1.f, 0.85f, 0.5f), 0.45f);
 	const float TrimZ = BorderHeight + 6.f;
-	AddMapCube(C + FVector((SizeX + BorderThickness) * 0.5f, 0, TrimZ), FVector(BorderThickness + 16.f, SizeY + BorderThickness * 2 + 16.f, 12.f), Trim, false);
-	AddMapCube(C + FVector(-(SizeX + BorderThickness) * 0.5f, 0, TrimZ), FVector(BorderThickness + 16.f, SizeY + BorderThickness * 2 + 16.f, 12.f), Trim, false);
-	AddMapCube(C + FVector(0, (SizeY + BorderThickness) * 0.5f, TrimZ), FVector(SizeX, BorderThickness + 16.f, 12.f), Trim, false);
-	AddMapCube(C + FVector(0, -(SizeY + BorderThickness) * 0.5f, TrimZ), FVector(SizeX, BorderThickness + 16.f, 12.f), Trim, false);
+	AddMapCube(C + FVector((SizeX + BorderThickness) * 0.5f - 8.f, 0, TrimZ), FVector(BorderThickness + 16.f, SizeY + BorderThickness * 2 + 16.f, 12.f), Trim, false);
+	AddMapCube(C + FVector(-(SizeX + BorderThickness) * 0.5f + 8.f, 0, TrimZ), FVector(BorderThickness + 16.f, SizeY + BorderThickness * 2 + 16.f, 12.f), Trim, false);
+	AddMapCube(C + FVector(0, (SizeY + BorderThickness) * 0.5f - 8.f, TrimZ), FVector(SizeX, BorderThickness + 16.f, 12.f), Trim, false);
+	AddMapCube(C + FVector(0, -(SizeY + BorderThickness) * 0.5f + 8.f, TrimZ), FVector(SizeX, BorderThickness + 16.f, 12.f), Trim, false);
 
 	for (const KakurenboMaps::FPiece& Piece : KakurenboMaps::FindPieces(Layout))
 	{
@@ -400,6 +538,15 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			// 部屋の壁の上の縁
 			const FLinearColor Trim = FLinearColor::LerpUsingHSV(Map.WallColor, FLinearColor(1.f, 0.85f, 0.5f), 0.45f);
 			AddMapCube(Center + FVector(0.f, 0.f, Height + 6.f), FVector(RectW + 12.f, RectD + 12.f, 12.f), Trim, false);
+			// 外周の壁と同じ板を 4 つの面に貼る
+			if (bUseWallPanels && WallPanels)
+			{
+				const FVector Min(Center.X - RectW * 0.5f, Center.Y - RectD * 0.5f, 0.f);
+				AddFacePanels(WallPanels, Min, FVector(0, 1, 0), FVector(-1, 0, 0), RectD, 0.f, Height);
+				AddFacePanels(WallPanels, Min + FVector(RectW, 0.f, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), RectD, 0.f, Height);
+				AddFacePanels(WallPanels, Min, FVector(1, 0, 0), FVector(0, -1, 0), RectW, 0.f, Height);
+				AddFacePanels(WallPanels, Min + FVector(0.f, RectD, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), RectW, 0.f, Height);
+			}
 		}
 	}
 	else if (!Mesh)

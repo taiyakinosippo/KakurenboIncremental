@@ -1,6 +1,9 @@
 ﻿#include "KakurenboLibrary.h"
 
 #include "Components/StaticMeshComponent.h"
+#include "Engine/Texture.h"
+#include "KakurenboTypes.h"
+#include "Misc/PackageName.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
@@ -69,4 +72,62 @@ void UKakurenboLibrary::ApplyColor(UStaticMeshComponent* Mesh, const FLinearColo
 		MID->SetVectorParameterValue(TEXT("Color"), Color);
 		Mesh->SetMaterial(0, MID);
 	}
+}
+
+bool UKakurenboLibrary::DoesAssetPackageExist(const FSoftObjectPath& Path)
+{
+	return !Path.IsNull() && FPackageName::DoesPackageExist(Path.GetLongPackageName());
+}
+
+UMaterialInstanceDynamic* UKakurenboLibrary::CreateSurfaceMaterial(UObject* Outer, const FKakurenboSurfaceRow& Surface, const FLinearColor& Tint)
+{
+	// 模様のテクスチャが無ければ作らない（Fab のアセットが無いパソコン）
+	UTexture* BaseColor = LoadIfExists(Surface.BaseColor);
+	if (!BaseColor)
+	{
+		return nullptr;
+	}
+	static TWeakObjectPtr<UMaterialInterface> Master;
+	if (!Master.IsValid())
+	{
+		Master = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Kakurenbo/Materials/M_KakuSurface.M_KakuSurface"));
+	}
+	UMaterialInstanceDynamic* MID = Master.IsValid() ? UMaterialInstanceDynamic::Create(Master.Get(), Outer) : nullptr;
+	if (!MID)
+	{
+		return nullptr;
+	}
+	MID->SetTextureParameterValue(TEXT("BaseColorTex"), BaseColor);
+	if (UTexture* Normal = LoadIfExists(Surface.Normal))
+	{
+		MID->SetTextureParameterValue(TEXT("NormalTex"), Normal);
+	}
+	if (UTexture* Roughness = LoadIfExists(Surface.Roughness))
+	{
+		MID->SetTextureParameterValue(TEXT("RoughnessTex"), Roughness);
+	}
+	MID->SetVectorParameterValue(TEXT("Color"), Surface.Tint * Tint);
+	MID->SetScalarParameterValue(TEXT("Metallic"), Surface.Metallic);
+	MID->SetScalarParameterValue(TEXT("RoughnessScale"), Surface.RoughnessScale);
+	MID->SetScalarParameterValue(TEXT("UVScale"), Surface.UVScale);
+	MID->SetScalarParameterValue(TEXT("Emissive"), Surface.Emissive);
+	return MID;
+}
+
+bool UKakurenboLibrary::ApplySurface(UMeshComponent* Mesh, const FKakurenboSurfaceRow& Surface, const FLinearColor& Tint)
+{
+	if (!Mesh)
+	{
+		return false;
+	}
+	UMaterialInstanceDynamic* MID = CreateSurfaceMaterial(Mesh, Surface, Tint);
+	if (!MID)
+	{
+		return false;
+	}
+	for (int32 i = 0; i < FMath::Max(1, Mesh->GetNumMaterials()); ++i)
+	{
+		Mesh->SetMaterial(i, MID);
+	}
+	return true;
 }

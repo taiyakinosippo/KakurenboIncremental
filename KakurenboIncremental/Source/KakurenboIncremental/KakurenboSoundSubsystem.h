@@ -17,6 +17,18 @@ class UAudioComponent;
 class USoundAttenuation;
 class USoundWaveProcedural;
 
+/** 最後に鳴らした「その場所から聞こえる音」の聞こえ方（テスト用） */
+struct FKakurenboSpatialDebug
+{
+	bool bValid = false;
+	float Pan = 0.f;      // -1 = 真左 〜 +1 = 真右
+	float Gain = 0.f;     // 距離による大きさ（0〜1）
+	float GainL = 0.f;
+	float GainR = 0.f;
+	bool bOccluded = false; // 壁・家具の向こう
+	bool bBehind = false;
+};
+
 UCLASS()
 class KAKURENBOINCREMENTAL_API UKakurenboSoundSubsystem : public UWorldSubsystem
 {
@@ -54,6 +66,12 @@ public:
 
 	virtual void Deinitialize() override;
 
+	/** その音を最後に鳴らしたときの、左右の聞こえ方（テスト用） */
+	FKakurenboSpatialDebug GetLastSpatial(EKakurenboSfx Sfx) const;
+
+	/** 聞く人の位置（自分の体。設置パートなどで体が隠れているときはカメラ）と向き（カメラ） */
+	bool GetListener(FVector& OutLocation, FRotator& OutRotation) const;
+
 private:
 	void PlayInternal(EKakurenboSfx Sfx, const FVector* Location, float VolumeScale, float PitchScale);
 	USoundAttenuation* GetAttenuation();
@@ -80,6 +98,7 @@ private:
 	FTimerHandle MusicRefillTimer;
 
 	TArray<int32> PlayCounts;
+	TArray<FKakurenboSpatialDebug> LastSpatial;
 	/** 同じ音が同時にたくさん鳴って大きくなりすぎないよう、最後に鳴らした時刻を覚えておく */
 	TArray<double> LastPlayTimes;
 	int32 StartedCount = 0;

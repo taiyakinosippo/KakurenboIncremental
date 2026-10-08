@@ -40,6 +40,31 @@ KakurenboMaps::FLayout KakurenboMaps::ParseLayout(const FString& Text, int32 Siz
 	return Layout;
 }
 
+bool KakurenboMaps::MeasureLayout(const FString& Text, int32& OutSizeX, int32& OutSizeY)
+{
+	TArray<FString> Lines;
+	Text.ParseIntoArrayLines(Lines, false);
+	int32 Rows = 0;
+	int32 Longest = 0;
+	for (FString Line : Lines)
+	{
+		Line.TrimEndInline();
+		if (Line.IsEmpty() || Line.StartsWith(TEXT(";")))
+		{
+			continue;
+		}
+		++Rows;
+		Longest = FMath::Max(Longest, Line.Len());
+	}
+	if (Rows == 0 || Longest == 0)
+	{
+		return false;
+	}
+	OutSizeX = Longest;
+	OutSizeY = Rows;
+	return true;
+}
+
 TArray<KakurenboMaps::FPiece> KakurenboMaps::FindPieces(const FLayout& Layout)
 {
 	TArray<FPiece> Pieces;

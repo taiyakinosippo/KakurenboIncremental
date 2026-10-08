@@ -7,6 +7,7 @@
 #include "KakurenboTypes.generated.h"
 
 class UMaterialInterface;
+class UTexture;
 class UStaticMesh;
 
 /** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
@@ -112,6 +113,8 @@ enum class EKakurenboSfx : uint8
 	TreasureSparkle UMETA(DisplayName = "TreasureSparkle"), // お宝のキラキラ（その場所から聞こえる）
 	Summon        UMETA(DisplayName = "Summon"),        // 探知鬼が仲間を呼んだ
 	Smoke         UMETA(DisplayName = "Smoke"),         // 煙幕を投げた（ボフッ）
+	Heartbeat     UMETA(DisplayName = "Heartbeat"),     // 鬼が近い・向かってくる（ドクン。近いほど速く大きく）
+	OniNotice     UMETA(DisplayName = "OniNotice"),     // 鬼が音に気づいた（「ン？」。その鬼の場所から聞こえる）
 	Count         UMETA(Hidden)
 };
 
@@ -201,6 +204,50 @@ struct FWallTypeDef : public FTableRowBase
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	float NoiseDamping = 0.f;
+
+	/** 見た目（Data/Surfaces.csv の行。Fab の木・鉄など）。空・テクスチャが無ければ Color の箱 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	FName Surface;
+};
+
+/**
+ * 見た目（テクスチャ）1 種類。Data/Surfaces.csv の 1 行。共通のマテリアル（/Game/Kakurenbo/Materials/M_KakuSurface）に
+ * 実行時にテクスチャを差し込んで使う（Fab のテクスチャは Git に入っていないので、無いパソコンでは色だけで表示する）
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboSurfaceRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** 模様（色） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	TSoftObjectPtr<UTexture> BaseColor;
+
+	/** 凹凸（ノーマルマップ。空なら平ら） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	TSoftObjectPtr<UTexture> Normal;
+
+	/** ざらざら具合（R チャンネル。空なら RoughnessScale の値） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	TSoftObjectPtr<UTexture> Roughness;
+
+	/** 模様に掛ける色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	FLinearColor Tint = FLinearColor::White;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	float Metallic = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	float RoughnessScale = 1.f;
+
+	/** 1 面に模様を何回くり返すか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	float UVScale = 1.f;
+
+	/** 自分で光る強さ（暗い館でも見えるように。宝石など） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
+	float Emissive = 0.f;
 };
 
 /** 転生の数値。Data/Prestige.csv の 1 行（行名 Prestige） */
@@ -461,6 +508,21 @@ struct FKakurenboMapRow : public FTableRowBase
 	/** 明かり（ランプ・暖炉）の色 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
 	FLinearColor LightColor = FLinearColor(1.f, 0.6f, 0.3f);
+
+	/** 床の見た目（Data/Surfaces.csv の行。1 マスに模様 1 回）。空・テクスチャが無ければ FloorColor の市松模様 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FName FloorSurface;
+
+	/** 外周と部屋の壁に貼る見た目（Data/Surfaces.csv の行。1 マス × 125cm の板に模様 1 回）。空・テクスチャが無ければ WallColor */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FName WallSurface;
+
+	/** 床・壁の見た目に掛ける色（白ならそのまま。マップごとの雰囲気を出す） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor FloorTint = FLinearColor::White;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor WallTint = FLinearColor::White;
 };
 
 /**
