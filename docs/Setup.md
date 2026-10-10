@@ -8,7 +8,7 @@
 |---|---|
 | Git for Windows | https://git-scm.com/ （Git LFS も一緒に入る） |
 | Unreal Engine 5.8.3 | Epic Games Launcher からインストール。C ドライブ以外でもよい（下の「UE を別の場所に入れたとき」） |
-| Visual Studio 2022 Community | Visual Studio Installer で「C++ によるゲーム開発」ワークロードを入れる。元のパソコンは MSVC 14.44・Windows SDK 10.0.26100 で動いている |
+| Visual Studio 2022 Community | Visual Studio Installer で最新（17.14 以降）に更新し、「C++ によるゲーム開発」ワークロードと、個別のコンポーネントの「.NET Framework 4.8.1 SDK」「Windows 11 SDK (10.0.26100)」を入れる。元のパソコンは MSVC 14.44・Windows SDK 10.0.26100 で動いている。**.NET Framework SDK が無いと `Could not find NetFxSDK install dir` … `Result: Failed (RulesError)` でビルドが始まらない** |
 | Claude デスクトップアプリ | https://claude.ai/download 。同じアカウントでログインして Code タブを使う |
 | VSCode（任意） | コードを読む・書く用 |
 
