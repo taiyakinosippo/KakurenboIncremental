@@ -213,6 +213,35 @@ def create_surface_material():
     log("surface material done")
 
 
+def create_smoke_material():
+    # 煙幕の球に使う半透明のマテリアル（縁ほど薄く、床と交わる所もぼかす）。
+    # ゲームが球ごとに Opacity を変える（カメラの近く・カメラとプレイヤーの間の球は薄くして、自分の姿と行く先が見えるように）
+    dest = "/Game/Kakurenbo/Materials"
+    mat = new_material("M_KakuSmoke", dest)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    color = color_param(mat, "Color", unreal.LinearColor(0.55, 0.55, 0.6, 1.0), -900, -250)
+    mel.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    # 夜の暗い所でも見えるよう、少しだけ自分で光る
+    glow = scalar_param(mat, "Glow", 0.12, -900, -50)
+    emissive = multiply(mat, color, "", glow, "", -600, -100)
+    mel.connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    opacity = scalar_param(mat, "Opacity", 0.7, -1200, 250)
+    fresnel = mel.create_material_expression(mat, unreal.MaterialExpressionFresnel, -1200, 450)
+    fresnel.set_editor_property("exponent", 2.0)
+    fresnel.set_editor_property("base_reflect_fraction", 0.0)
+    edge = mel.create_material_expression(mat, unreal.MaterialExpressionOneMinus, -950, 450)
+    mel.connect_material_expressions(fresnel, "", edge, "")
+    soft = multiply(mat, opacity, "", edge, "", -750, 350)
+    depth = mel.create_material_expression(mat, unreal.MaterialExpressionDepthFade, -550, 400)
+    depth.set_editor_property("fade_distance_default", 60.0)
+    ok = mel.connect_material_expressions(soft, "", depth, "Opacity")
+    mel.connect_material_property(depth, "", unreal.MaterialProperty.MP_OPACITY)
+    mel.recompile_material(mat)
+    eal.save_loaded_asset(mat)
+    log("smoke material done (depth fade connected %s)" % ok)
+
+
 def report():
     for folder in ("/Game/Gem", "/Game/Player", "/Game/QuietWall"):
         for path in eal.list_assets(folder, recursive=True):
@@ -223,11 +252,14 @@ def report():
 import sys
 if "surface" in sys.argv[-1:] or "--surface-only" in sys.argv:
     create_surface_material()
+elif "--smoke-only" in sys.argv:
+    create_smoke_material()
 else:
     import_gem()
     import_player()
     import_quiet_wall()
     import_wood()
     create_surface_material()
+    create_smoke_material()
 report()
 log("done")

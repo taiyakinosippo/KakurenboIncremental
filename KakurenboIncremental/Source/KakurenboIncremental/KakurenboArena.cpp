@@ -395,6 +395,7 @@ void AKakurenboArena::ClearMap()
 	TallWallPanels = nullptr;
 	TallRoomWalls.Reset();
 	MaxFurnitureOverhang = 0.f;
+	FurnitureStraddleCount = 0;
 	CurrentWallMaterial = nullptr;
 	bUseWallPanels = false;
 	FurniturePieces = 0;
@@ -633,7 +634,8 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		const FVector LongAxis = Rot.RotateVector(bMeshLongX ? FVector::ForwardVector : FVector::RightVector).GetSafeNormal2D();
 
 		FVector Scale3D;
-		int32 Copies = 1;
+		int32 Copies = 1;      // 長い辺の方向に並べる数
+		int32 CopiesShort = 1; // 短い辺の方向に並べる数
 		if (Row.bWalkable)
 		{
 			// じゅうたん：長方形いっぱいに広げる（縦横比は変えてよい）
@@ -648,8 +650,18 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		{
 			// 縦横比を保ったまま、奥行きと高さに収まる大きさにする。長い家具（本棚の列）は同じメッシュを何個か並べる。
 			// 1 個のメッシュは必ずマスちょうど（1 マス・2 マス…）に収め、マスの境目にまたがらないようにする
-			// （またがると、空いて見えるマスに壁が置けない）。長い辺は少しだけ伸ばしてマスを埋める
+			// （またがると、空いて見えるマスに壁が置けない）。長い辺は少しだけ伸ばしてマスを埋める。
+			// 短い辺の方向も同じ：2×2 のテーブルのように、メッシュが 2 マスを埋めるほど大きくならない（高さで決まる）ときは、
+			// 真ん中に 1 個だけ置かず（マスの境目にまたがって 2 マスぶんの場所を取って見える）、マスごとに 1 個ずつ並べる
 			float Scale = FMath::Min(RectShort * 0.96f / MeshShort, Height / FMath::Max(Ext.Z, 1.f));
+			const int32 ShortCells = FMath::Max(1, FMath::RoundToInt(RectShort / CellSize));
+			int32 ShortCellsPerCopy = FMath::Clamp(FMath::RoundToInt(MeshShort * Scale / CellSize), 1, ShortCells);
+			while (ShortCells % ShortCellsPerCopy != 0)
+			{
+				--ShortCellsPerCopy;
+			}
+			CopiesShort = ShortCells / ShortCellsPerCopy;
+			Scale = FMath::Min(Scale, ShortCellsPerCopy * CellSize * 0.96f / MeshShort);
 			const int32 LongCells = FMath::Max(1, FMath::RoundToInt(RectLong / CellSize));
 			int32 CellsPerCopy = FMath::Clamp(FMath::RoundToInt(MeshLong * Scale / CellSize), 1, LongCells);
 			while (LongCells % CellsPerCopy != 0)
@@ -664,9 +676,13 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			(bMeshLongX ? Scale3D.X : Scale3D.Y) *= LongStretch;
 		}
 
-		for (int32 k = 0; k < Copies; ++k)
+		const FVector ShortAxis = FVector::CrossProduct(FVector::UpVector, LongAxis).GetSafeNormal2D();
+		for (int32 n = 0; n < Copies * CopiesShort; ++n)
 		{
-			const FVector Slot = Center + LongAxis * ((k - (Copies - 1) * 0.5f) * RectLong / Copies);
+			const int32 k = n % Copies;
+			const int32 j = n / Copies;
+			const FVector Slot = Center + LongAxis * ((k - (Copies - 1) * 0.5f) * RectLong / Copies)
+				+ ShortAxis * ((j - (CopiesShort - 1) * 0.5f) * RectShort / CopiesShort);
 			UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 			Comp->SetMobility(EComponentMobility::Movable);
 			Comp->SetStaticMesh(Mesh);
@@ -684,6 +700,32 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			const float Overhang = FMath::Max(FMath::Max(Center.X - RectW * 0.5f - World.Min.X, World.Max.X - (Center.X + RectW * 0.5f)),
 				FMath::Max(Center.Y - RectD * 0.5f - World.Min.Y, World.Max.Y - (Center.Y + RectD * 0.5f)));
 			MaxFurnitureOverhang = FMath::Max(MaxFurnitureOverhang, Overhang);
+			// マスの境目にまたがって、どちらのマスも埋めていないメッシュ（真ん中にぽつんと置かれて 2 マスぶんの場所を取って見える）を数える
+			if (!Row.bWalkable)
+			{
+				const FVector Extent = World.GetExtent();
+				for (int32 Axis = 0; Axis < 2; ++Axis)
+				{
+					const float SlotMin = (Axis == 0 ? Center.X - RectW * 0.5f : Center.Y - RectD * 0.5f);
+					const float MeshMin = Axis == 0 ? World.Min.X : World.Min.Y;
+					const float MeshMax = Axis == 0 ? World.Max.X : World.Max.Y;
+					const float MeshSize = (Axis == 0 ? Extent.X : Extent.Y) * 2.f;
+					// メッシュがかかっているマス（端から端まで）と、メッシュの中を通るマスの境目
+					const int32 FirstCell = FMath::FloorToInt((MeshMin - SlotMin) / CellSize);
+					const int32 LastCell = FMath::FloorToInt((MeshMax - 0.01f - SlotMin) / CellSize);
+					bool bCrossesLine = false;
+					for (int32 Line = FirstCell + 1; Line <= LastCell; ++Line)
+					{
+						const float LineAt = SlotMin + Line * CellSize;
+						bCrossesLine |= LineAt > MeshMin + 10.f && LineAt < MeshMax - 10.f;
+					}
+					if (bCrossesLine && MeshSize < (LastCell - FirstCell + 1) * CellSize * 0.6f)
+					{
+						++FurnitureStraddleCount;
+						break;
+					}
+				}
+			}
 		}
 	}
 

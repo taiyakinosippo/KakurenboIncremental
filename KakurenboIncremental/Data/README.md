@@ -66,6 +66,7 @@
 |---|---|
 | MinStage | このステージまで来たら転生できる |
 | PointsPerStage | 転生ポイント = (今のステージ − MinStage + 1) × PointsPerStage |
+| StartCoinsPerPrestige | 転生した後のはじめのコイン = 転生した回数 × これ（強化ではなく、転生するたびに自動で増える。今は 500） |
 
 ## PrestigeUpgrades.csv（転生のお店）
 

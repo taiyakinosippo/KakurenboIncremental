@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "KakurenboTypes.h"
 #include "KakurenboHUD.generated.h"
 
 class AKakurenboGameMode;
@@ -12,7 +13,7 @@ class AKakurenboGameState;
 class UFont;
 struct FSlateFontInfo;
 
-/** マウスでクリックできる UI の種類（購入パート・設置パート） */
+/** マウスでクリックできる UI の種類 */
 enum class EKakurenboUIAction : uint8
 {
 	None,
@@ -24,6 +25,71 @@ enum class EKakurenboUIAction : uint8
 	RefillAll, // 壊れた壁・使った罠をまとめて補充（R と同じ）
 	BackToShop, // 設置パートから購入パートへ戻る（B と同じ）
 	ClearAll,   // 置いた壁・罠をすべて回収する（Delete と同じ。2 回押して決める）
+	// ---- タイトル・メニュー・設定 ----
+	TitleItem,  // タイトルのメニュー（Index は EKakurenboTitleItem）
+	OpenMenu,   // 右上の「メニュー」（Esc と同じ）
+	OpenHelp,   // 右上の「操作説明」（F1 と同じ）
+	MenuItem,   // 一時停止メニュー（Index は EKakurenboPauseItem）
+	Slider,     // 設定のつまみ（Index は EKakurenboSettingSlider）
+	Toggle,     // 設定の切り替え（Index は EKakurenboSettingToggle）
+	OpenKeys,   // キー設定を開く
+	KeySlot,    // キー設定の欄（Index = 操作 × 2 + 2 つ目なら 1）
+	ResetKeys,  // キー設定を初期設定に戻す
+	ResetTips,  // 操作のヒントをもう一度出す
+	Back,       // もどる（Esc と同じ）
+	ConfirmYes, // 確認の「はい」
+	ConfirmNo,  // 確認の「いいえ」
+};
+
+/** 開いているメニュー（重ねて開ける。Esc・もどるで 1 つ前に戻る） */
+enum class EKakurenboMenu : uint8
+{
+	None,
+	Pause,          // 一時停止（Esc）
+	Settings,       // 設定（音量・マウス・画面・ヒント）
+	Keys,           // キー設定
+	Help,           // 操作説明（F1）
+	ConfirmNewGame, // タイトル：セーブを消してはじめから？
+	ConfirmTitle,   // かくれんぼの途中でタイトルへ戻る？
+};
+
+/** タイトルのメニュー */
+enum class EKakurenboTitleItem : uint8
+{
+	Continue,
+	NewGame,
+	Settings,
+	Quit,
+	Count
+};
+
+/** 一時停止メニュー */
+enum class EKakurenboPauseItem : uint8
+{
+	Resume,
+	Help,
+	Settings,
+	Title,
+	Count
+};
+
+/** 設定のつまみ */
+enum class EKakurenboSettingSlider : uint8
+{
+	Master,
+	Music,
+	Sfx,
+	Mouse,
+	Count
+};
+
+/** 設定の切り替え */
+enum class EKakurenboSettingToggle : uint8
+{
+	InvertY,
+	Hints,
+	Fullscreen,
+	Count
 };
 
 /** 画面上のボタン 1 つ（位置は実際のピクセル） */
@@ -62,12 +128,33 @@ public:
 	/** ボタンの真ん中の位置（テスト用。描いていなければ false） */
 	bool GetButtonCenter(EKakurenboUIAction Action, int32 Index, FVector2D& OutScreenPx) const;
 
+	/** 今の画面に出している文（テスト用。文字が出ているかを確かめる） */
+	const TArray<FString>& GetDrawnTexts() const { return LastFrameTexts; }
+	bool HasDrawnText(const FString& Part) const;
+
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawResult(AKakurenboGameState* State, AKakurenboGameMode* GM);
+
+	/** タイトル画面（はじめから / つづきから / 設定 / やめる） */
+	void DrawTitle(AKakurenboGameState* State, AKakurenboGameMode* GM);
+	/** 右上の「操作説明」「メニュー」のボタン（カーソルが出ているパート） */
+	void DrawCornerButtons(EKakurenboPhase Phase);
+	/** 開いているメニュー（一時停止・設定・キー設定・操作説明・確認）を一番上に描く */
+	void DrawMenu(AKakurenboGameMode* GM);
+	void DrawPauseMenu(AKakurenboGameMode* GM);
+	void DrawSettings();
+	void DrawKeyConfig();
+	void DrawHelp(EKakurenboPhase Phase);
+	void DrawConfirm(const FString& Title, const FString& Message, const FString& YesLabel, const FString& NoLabel);
+	/** 画面下の操作のヒント（はじめてのときだけ） */
+	void DrawTip();
+
+	/** 操作の行（[ ] はキーの形）。パートごとの操作説明・画面下のキーの案内に使う */
+	TArray<FString> GetHelpLines(EKakurenboPhase Phase) const;
 
 	/**
 	 * ワールド上の位置を示す目印を描く。画面内なら ▼ とラベル、画面外なら画面の縁に方向を示す矢印。
@@ -99,9 +186,30 @@ protected:
 	/** カーソルがその範囲の上にあるか（1080p 基準の座標） */
 	bool IsCursorOver(float X, float Y, float W, float H) const;
 
-	/** ボタンを描いてクリックできるようにする（bSelected: 選ばれている見た目） */
+	/** ボタンを描いてクリックできるようにする（bSelected: 選ばれている見た目）。ラベルの [ ] はキーの形で描く */
 	void DrawButton(float X, float Y, float W, float H, const FString& Label, EKakurenboUIAction Action, int32 Index,
 		bool bSelected = false, int32 Size = 22, const FLinearColor& TextColor = FLinearColor::White);
+
+	/** 文の幅（1080p 基準） */
+	float MeasureText(const FString& Str, int32 Size);
+
+	/** キーの形（キーキャップ）を描く。幅を返す（1080p 基準） */
+	float KeyCap(const FString& Label, float X, float Y, int32 Size, float Alpha = 1.f);
+
+	/**
+	 * [ ] で囲んだところをキーの形で描く文。bCenterX なら X を中心にする（X < 0 なら画面の中央）。描いた幅を返す
+	 */
+	float RichText(const FString& Str, float X, float Y, int32 Size, const FLinearColor& Color = FLinearColor::White, bool bCenterX = false, float Alpha = 1.f);
+
+	/** 枠線 */
+	void Frame(float X, float Y, float W, float H, const FLinearColor& Color, float Thickness = 2.f);
+
+	/** 画面全体を暗くする（メニューの後ろ） */
+	void DimScreen(float Alpha);
+
+	/** 設定のつまみ（Value01: 0〜1）と切り替え */
+	void DrawSlider(float X, float Y, float W, float Value01, int32 Index, const FString& ValueText);
+	void DrawToggle(float X, float Y, float W, bool bOn, int32 Index, const FString& OnText, const FString& OffText);
 
 	/** このフレームに描いたボタン（次のフレームの入力で使う） */
 	TArray<FKakurenboUIButton> Buttons;
@@ -134,4 +242,8 @@ private:
 	float FlashDuration = 0.f;
 	/** 点滅が始まったワールド時刻 */
 	float FlashStartTime = -100.f;
+
+	/** このフレームに描いた文（テスト用） */
+	TArray<FString> DrawnTexts;
+	TArray<FString> LastFrameTexts;
 };

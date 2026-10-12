@@ -17,6 +17,7 @@
 | プレイヤーの動き | UE 公式のマネキン（Third Person テンプレートと同じもの） | `Content/Characters/Mannequins` |
 | お宝（宝石） | Fab「Diamond Gem Shape Set - 2 Collectibles」（FBX） | `Content/Gem`（元の FBX `SourceArt/Gem`） |
 | 共通のマテリアル | 自作（Tools/ImportSourceArt.ps1 が作る） | `Content/Kakurenbo/Materials/M_KakuSurface` |
+| 煙幕の半透明のマテリアル | 自作（Tools/ImportSourceArt.ps1 が作る。`--smoke-only` でこれだけ作り直せる） | `Content/Kakurenbo/Materials/M_KakuSmoke` |
 
 - 見た目のテクスチャの指定は `Data/Surfaces.csv`、プレイヤー・宝石・鬼のパスは `Config/DefaultGame.ini`、家具は `Data/Furniture.csv`
 - FBX・画像（`SourceArt/`）から作り直すときは `Tools\ImportSourceArt.ps1`（エディタは閉じておく）

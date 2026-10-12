@@ -6,6 +6,7 @@
 #include "KakurenboBalance.h"
 #include "KakurenboLayout.h"
 #include "KakurenboMaps.h"
+#include "KakurenboSettings.h"
 #include "Misc/FileHelper.h"
 #include "KakurenboSynth.h"
 #include "UObject/Package.h"
@@ -255,6 +256,7 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		if (Row)
 		{
 			TestTrue(TEXT("prestige gives points from some stage"), Row->MinStage >= 2 && Row->PointsPerStage >= 1);
+			TestTrue(TEXT("each prestige adds some starting coins"), Row->StartCoinsPerPrestige > 0.0);
 		}
 	}
 	if (UDataTable* Upgrades = Load(FKakurenboPrestigeUpgradeRow::StaticStruct(), TEXT("PrestigeUpgrades.csv")))
@@ -710,6 +712,49 @@ bool FKakurenboPrestigePointsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("value at Lv2 = 2.25"), FMath::IsNearlyEqual(KakurenboBalance::GetPrestigeUpgradeValue(Row, 2), 2.25));
 	Row.MaxLevel = 1;
 	TestEqual(TEXT("max level: cannot buy more"), KakurenboBalance::GetPrestigeUpgradeCost(Row, 1), static_cast<int32>(INDEX_NONE));
+
+	// 転生した後のはじめのコイン：転生した回数 × StartCoinsPerPrestige（強化ではなく自動）
+	Settings.StartCoinsPerPrestige = 500.0;
+	TestEqual(TEXT("never prestiged: 0 coins"), KakurenboBalance::GetPrestigeStartCoins(0, Settings), 0.0);
+	TestEqual(TEXT("1st prestige: 500"), KakurenboBalance::GetPrestigeStartCoins(1, Settings), 500.0);
+	TestEqual(TEXT("4th prestige: 2000"), KakurenboBalance::GetPrestigeStartCoins(4, Settings), 2000.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboKeyBindingTest, "Kakurenbo.Settings.KeyBinding", TestFlags)
+bool FKakurenboKeyBindingTest::RunTest(const FString& Parameters)
+{
+	FKakurenboKeyMap Keys;
+	Keys.Reset();
+	TestTrue(TEXT("default: W moves forward, left click mashes"), Keys.Get(EKakurenboAction::MoveForward) == EKeys::W && Keys.Get(EKakurenboAction::Mash) == EKeys::LeftMouseButton);
+	// どの操作にも初期設定のキーがあり、同じキーが 2 つの操作に付いていない
+	TSet<FKey> Used;
+	for (int32 i = 0; i < static_cast<int32>(EKakurenboAction::Count); ++i)
+	{
+		for (const bool bSecondary : { false, true })
+		{
+			const FKey Key = Keys.Get(static_cast<EKakurenboAction>(i), bSecondary);
+			if (Key.IsValid())
+			{
+				TestFalse(FString::Printf(TEXT("key %s is used once"), *Key.ToString()), Used.Contains(Key));
+				Used.Add(Key);
+			}
+		}
+		TestTrue(FString::Printf(TEXT("action %d has a key"), i), Keys.Get(static_cast<EKakurenboAction>(i)).IsValid());
+	}
+	// ほかの操作のキーを付けると入れ替わる
+	TestTrue(TEXT("bind jump to E"), Keys.Bind(EKakurenboAction::Jump, EKeys::E, false));
+	TestTrue(TEXT("jump is E, camera right gets Space"), Keys.Get(EKakurenboAction::Jump) == EKeys::E && Keys.Get(EKakurenboAction::CameraRight) == EKeys::SpaceBar);
+	// 使えないキー
+	TestFalse(TEXT("Esc cannot be bound"), Keys.Bind(EKakurenboAction::Jump, EKeys::Escape, false));
+	TestFalse(TEXT("the mouse wheel cannot be bound"), Keys.Bind(EKakurenboAction::Jump, EKeys::MouseScrollUp, false));
+	TestFalse(TEXT("mouse movement cannot be bound"), UKakurenboSettings::CanBindKey(EKeys::MouseX));
+	// 2 つ目を外す・名前
+	Keys.ClearSecondary(EKakurenboAction::Sneak);
+	TestEqual(TEXT("sneak label without the 2nd key"), Keys.Label(EKakurenboAction::Sneak), FString(TEXT("Ctrl")));
+	Keys.Reset();
+	TestEqual(TEXT("sneak label with both keys"), Keys.Label(EKakurenboAction::Sneak), FString(TEXT("Ctrl / C")));
+	TestEqual(TEXT("left click label"), UKakurenboSettings::KeyLabel(EKeys::LeftMouseButton), FString(TEXT("左クリック")));
 	return true;
 }
 

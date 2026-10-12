@@ -426,6 +426,22 @@ public:
 	/** 調べに行っている（または壊している）マス（Inspect 中のみ意味がある） */
 	FIntPoint GetInspectCell() const { return InspectCell; }
 
+	// ===== 赤く光る目（追いかけてくるとき、どの鬼も目が赤く光る） =====
+
+	/** 追いかけているときの目の光の強さ（Cute Creature のマテリアルの Emissive_power。ふだんは元の値：黒い鬼 1・ほかは 0） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float ChaseEyeGlow = 14.f;
+
+	/** 追いかけているとき、顔のまわりを照らす赤い明かりの強さ（カンデラ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float ChaseEyeLightIntensity = 6.f;
+
+	/** 目がどれだけ光っているか（0 = ふだん / 1 = 追いかけている。テスト用） */
+	float GetEyeGlowAmount() const { return EyeGlowBlend; }
+
+	/** 光る目を持っているか（モデルのマテリアル、または円柱の赤い目。テスト用） */
+	bool HasGlowingEyes() const { return EyeMaterials.Num() > 0 || FallbackEyes.Num() > 0; }
+
 	FOnOniFoundHider OnFoundHider;
 	FOnOniDestroyedWalls OnDestroyedWalls;
 	FOnOniSummon OnSummon;
@@ -594,6 +610,25 @@ private:
 	/** 種類ごとの飾りの部品 */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> DecorationMeshes;
+
+	/** 目の光（モデルのマテリアルを鬼ごとに複製したもの）・円柱の見た目のときの赤い目・顔を照らす明かり */
+	UPROPERTY()
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> EyeMaterials;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> FallbackEyes;
+
+	UPROPERTY()
+	TObjectPtr<class UPointLightComponent> EyeLight;
+
+	/** モデルのマテリアルの、ふだんの目の光の強さ */
+	float BaseEyeGlow = 0.f;
+	float EyeGlowBlend = 0.f;
+	float LastEyeGlowValue = -1.f;
+	/** 目を光らせる仕組みを作る（BeginPlay） */
+	void SetupEyes();
+	/** 追いかけているかで目の光を変える（毎フレーム） */
+	void UpdateEyes(float DeltaSeconds);
 
 	/** Attack 中 */
 	FIntPoint AttackCell = FIntPoint::ZeroValue;

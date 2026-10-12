@@ -241,17 +241,89 @@ void AKakurenboGameMode::BeginPlay()
 		}
 	}
 
-	// セーブがあれば続きから（設置パートで再開。マップもセーブから）。無ければステージ 1 のマップで「何もない空間で連打」から始める
-	if (LoadProgress())
+	// セーブがあれば読み込んでおく（タイトルの後ろにその館が見え、「つづきから」で設置パートから再開）。
+	// 無ければステージ 1 のマップ（「はじめから」で何もない空間で連打から始める）
+	bHasContinueData = LoadProgress();
+	if (!bHasContinueData)
 	{
-		ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeLoaded", "セーブデータから再開しました（ステージ {0}）"), GS()->Stage));
-		StartBuildPhase();
+		SwitchToMap(GetMapNameForStage(1));
+	}
+	if (bStartAtTitle && !FParse::Param(FCommandLine::Get(), TEXT("KakuSkipTitle")))
+	{
+		EnterTitle();
+	}
+	else if (bHasContinueData)
+	{
+		ContinueGame();
 	}
 	else
 	{
-		SwitchToMap(GetMapNameForStage(1));
-		StartHidePhase();
+		StartNewGame();
 	}
+}
+
+// ---------------------------------------------------------------- タイトル
+
+void AKakurenboGameMode::EnterTitle()
+{
+	DespawnOnis();
+	ClearTreasures();
+	SetPhase(EKakurenboPhase::Title);
+}
+
+void AKakurenboGameMode::StartNewGame()
+{
+	// セーブを消して、ステージ 1 の「何もない空間で連打」から
+	const bool bHadProgress = bHasContinueData;
+	bHasContinueData = false;
+	ResetProgress(bHadProgress);
+}
+
+void AKakurenboGameMode::ContinueGame()
+{
+	if (GS())
+	{
+		ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticeLoaded", "つづきから（ステージ {0}）"), GS()->Stage), 4.f);
+	}
+	StartBuildPhase();
+}
+
+void AKakurenboGameMode::LeaveTitleForTest()
+{
+	if (GetPhase() != EKakurenboPhase::Title)
+	{
+		return; // もう遊んでいる（-KakuSkipTitle）
+	}
+	if (bHasContinueData)
+	{
+		ContinueGame();
+	}
+	else
+	{
+		StartNewGame();
+	}
+}
+
+void AKakurenboGameMode::ReturnToTitle()
+{
+	AKakurenboGameState* State = GS();
+	if (!State || State->Phase == EKakurenboPhase::Title)
+	{
+		return;
+	}
+	if (State->Phase == EKakurenboPhase::Hide)
+	{
+		// かくれんぼの途中でやめたら、そのラウンドは無かったことにする（始めたときに保存した状態へ戻す）
+		DespawnOnis();
+		ClearTreasures();
+		LoadProgress();
+	}
+	else
+	{
+		SaveProgress();
+	}
+	bHasContinueData = true; // セーブが無くても（-KakuNoSave）、この起動の間は続きから遊べる
+	EnterTitle();
 }
 
 void AKakurenboGameMode::RestartPlayer(AController* NewPlayer)
@@ -294,6 +366,7 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 		bOnisSpawnedThisRound = true;
 		SpawnOnis();
 		Sfx2D(this, EKakurenboSfx::RoundStart);
+		ShowPopup(TEXT("鬼が来る…"), FLinearColor(1.f, 0.3f, 0.25f));
 	}
 
 	// 時間収入（毎フレーム、経過時間ぶんだけ加算）
@@ -1592,7 +1665,7 @@ void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& T
 	{
 		F->Ring(Caller->GetActorLocation(), 60.f, Caller->SummonRadius, 0.9f, FLinearColor(0.75f, 0.3f, 1.f), 18.f);
 	}
-	ShowPopup(Count > 0 ? FString::Printf(TEXT("探知鬼に見つかった！ 鬼が %d 体集まってくる！"), Count) : FString(TEXT("探知鬼に見つかった！")), FLinearColor(0.8f, 0.5f, 1.f));
+	ShowPopup(Count > 0 ? FString::Printf(TEXT("見張りに見つかった…　鬼が %d 体あつまってくる"), Count) : FString(TEXT("見張りに見つかった…")), FLinearColor(0.8f, 0.5f, 1.f));
 }
 
 void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
@@ -1663,7 +1736,7 @@ void AKakurenboGameMode::HandleTrapTriggered(ATrapActor* Trap, AOniCharacter* On
 			Oni->Stun(Def.StunSeconds);
 		}
 		Sfx3D(this, EKakurenboSfx::TrapSticky, Location);
-		ShowPopup(FString::Printf(TEXT("%s にかかった！"), *Def.DisplayName.ToString()), Def.Color);
+		ShowPopup(FString::Printf(TEXT("鬼が%sにかかった"), *Def.DisplayName.ToString()), Def.Color);
 	}
 	else
 	{
@@ -2075,8 +2148,9 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 		Sound->PlayMusic(NewPhase == EKakurenboPhase::Hide ? EKakurenboMusic::Hide : EKakurenboMusic::Calm);
 	}
 
-	// かくれんぼ以外のパートに入るたびに自動で保存する（かくれんぼの途中で終わっても、直前の状態から再開できる）
-	if (NewPhase != EKakurenboPhase::Hide)
+	// かくれんぼ以外のパートに入るたびに自動で保存する（かくれんぼの途中で終わっても、直前の状態から再開できる）。
+	// タイトルでは保存しない（まだ遊んでいない状態でセーブを上書きしないように）
+	if (NewPhase != EKakurenboPhase::Hide && NewPhase != EKakurenboPhase::Title)
 	{
 		SaveProgress();
 	}
@@ -2261,6 +2335,7 @@ void AKakurenboGameMode::AdvancePhase()
 	case EKakurenboPhase::Shop:   StartBuildPhase(); break;
 	case EKakurenboPhase::Build:  StartHidePhase(); break;
 	case EKakurenboPhase::Hide:   break; // かくれんぼ中は進められない
+	case EKakurenboPhase::Title:  break; // タイトルはメニューで選ぶ
 	}
 }
 
@@ -2542,6 +2617,11 @@ int32 AKakurenboGameMode::GetPrestigePointsOnReset() const
 	return State ? KakurenboBalance::GetPrestigePoints(State->Stage, PrestigeSettings) : 0;
 }
 
+double AKakurenboGameMode::GetPrestigeStartCoins(int32 PrestigeCount) const
+{
+	return KakurenboBalance::GetPrestigeStartCoins(PrestigeCount, PrestigeSettings);
+}
+
 bool AKakurenboGameMode::Prestige()
 {
 	AKakurenboGameState* State = GS();
@@ -2559,7 +2639,8 @@ bool AKakurenboGameMode::Prestige()
 	DespawnOnis();
 	ClearTreasures();
 	Grid->ClearLiveKeepDesign();
-	State->Coins = 0.0;
+	// はじめのコインは転生した回数ぶん増える（強化ではなく自動）
+	State->Coins = GetPrestigeStartCoins(State->PrestigeCount);
 	State->Stage = 1;
 	State->MashIncomeLevel = 0;
 	State->TimeIncomeLevel = 0;
@@ -2574,7 +2655,8 @@ bool AKakurenboGameMode::Prestige()
 		State->PrestigeCount, Gained, State->PrestigePoints, State->TotalPrestigePoints);
 	Sfx2D(this, EKakurenboSfx::Prestige);
 	FlashScreen(FLinearColor(0.7f, 0.5f, 1.f, 0.6f), 1.2f);
-	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生しました！ 転生ポイント +{0}（購入パートの「転生のお店」で使えます）"), Gained), 6.f);
+	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生した。転生ポイント +{0}・はじめのコイン {1}（ポイントは「転生のお店」で）"),
+		Gained, FText::FromString(UKakurenboLibrary::FormatBigNumber(State->Coins))), 6.f);
 
 	// まずは転生のお店で、もらったポイントを使ってもらう（そのあと設置 → ステージ 1 のかくれんぼ）
 	StartShopPhase();
@@ -2679,7 +2761,7 @@ bool AKakurenboGameMode::LoadProgress()
 	return true;
 }
 
-void AKakurenboGameMode::ResetProgress()
+void AKakurenboGameMode::ResetProgress(bool bShowNotice)
 {
 	AKakurenboGameState* State = GS();
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
@@ -2719,7 +2801,10 @@ void AKakurenboGameMode::ResetProgress()
 	}
 	SwitchToMap(GetMapNameForStage(1));
 	UE_LOG(LogKakurenbo, Log, TEXT("Progress reset"));
-	ShowNotice(NSLOCTEXT("Kakurenbo", "NoticeReset", "最初からやり直します"));
+	if (bShowNotice)
+	{
+		ShowNotice(NSLOCTEXT("Kakurenbo", "NoticeReset", "はじめから"), 3.f);
+	}
 
 	// かくれんぼ中に呼ばれても、いったんリザルト扱いにせずそのまま最初のラウンドを始める
 	State->Phase = EKakurenboPhase::Result;

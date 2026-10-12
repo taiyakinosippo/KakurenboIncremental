@@ -2,6 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PointLightComponent.h"
@@ -279,8 +280,108 @@ void AOniCharacter::BeginPlay()
 		UpdateMeshAnimation();
 	}
 	BuildTypeDecoration();
+	SetupEyes();
 	LastStepLocation = GetActorLocation();
 	ResetBodyScale();
+}
+
+void AOniCharacter::SetupEyes()
+{
+	if (Look.Mesh)
+	{
+		// Cute Creature のマテリアルには赤い目の光（Emissive_power）がある。黒い鬼だけふだんから少し光り、ほかは 0。
+		// 鬼ごとに複製して、追いかけているときだけ強くする（同じ種類の鬼でも、追いかけていない鬼の目は光らない）
+		USkeletalMeshComponent* MeshComp = GetMesh();
+		for (int32 i = 0; i < MeshComp->GetNumMaterials(); ++i)
+		{
+			UMaterialInterface* Current = MeshComp->GetMaterial(i);
+			float Glow = 0.f;
+			if (!Current || !Current->GetScalarParameterValue(FMaterialParameterInfo(TEXT("Emissive_power")), Glow))
+			{
+				continue; // 目の光が無いマテリアル
+			}
+			UMaterialInstanceDynamic* MID = nullptr;
+			if (UMaterialInstanceDynamic* Shared = Cast<UMaterialInstanceDynamic>(Current); Shared && Shared->Parent)
+			{
+				// 種類ごとに色を変えた共有の動的マテリアル（宝物鬼）：元から作り直して、変えた値を写す
+				MID = UMaterialInstanceDynamic::Create(Shared->Parent, this);
+				MID->CopyParameterOverrides(Shared);
+			}
+			else
+			{
+				MID = UMaterialInstanceDynamic::Create(Current, this);
+			}
+			MeshComp->SetMaterial(i, MID);
+			BaseEyeGlow = Glow;
+			EyeMaterials.Add(MID);
+		}
+	}
+	else
+	{
+		// 円柱の見た目：顔の前に赤い目を 2 つ（追いかけているときだけ見せる）
+		UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+		for (const float Side : { -1.f, 1.f })
+		{
+			UStaticMeshComponent* Eye = NewObject<UStaticMeshComponent>(this);
+			Eye->SetStaticMesh(Sphere);
+			Eye->SetupAttachment(RootComponent);
+			Eye->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Eye->SetCastShadow(false);
+			Eye->SetRelativeLocation(FVector(38.f * BodyScaleMultiplier, Side * 12.f, EyeHeight + 8.f));
+			Eye->SetRelativeScale3D(FVector(0.09f));
+			Eye->RegisterComponent();
+			Eye->SetMaterial(0, UKakurenboLibrary::CreateGlowMaterial(Eye, FLinearColor(1.f, 0.05f, 0.03f), 20.f));
+			Eye->SetHiddenInGame(true);
+			FallbackEyes.Add(Eye);
+		}
+	}
+
+	// 追いかけているとき、顔のまわりをぼんやり赤く照らす
+	EyeLight = NewObject<UPointLightComponent>(this);
+	EyeLight->SetupAttachment(RootComponent);
+	EyeLight->SetRelativeLocation(FVector(48.f, 0.f, EyeHeight));
+	EyeLight->SetIntensityUnits(ELightUnits::Candelas);
+	EyeLight->SetIntensity(0.f);
+	EyeLight->SetAttenuationRadius(300.f);
+	EyeLight->SetLightColor(FLinearColor(1.f, 0.08f, 0.05f));
+	EyeLight->SetCastShadows(false);
+	EyeLight->RegisterComponent();
+	EyeLight->SetVisibility(false);
+}
+
+void AOniCharacter::UpdateEyes(float DeltaSeconds)
+{
+	// 追いかけているとき（と、見つけた後）は目が赤く光る。追いかけない探知鬼は、見つけて仲間を呼んでいる間。少しゆらゆら揺らす
+	const bool bDetectorSpotting = OniType == EOniType::Detector && bActive
+		&& (bTargetInSight || (LastSummonTime >= 0.f && GetWorld()->GetTimeSeconds() - LastSummonTime < 3.f));
+	const bool bGlaring = (bActive && GetIntent() == EOniState::Chase) || bDetectorSpotting || !FoundReason.IsNone();
+	EyeGlowBlend = FMath::FInterpTo(EyeGlowBlend, bGlaring ? 1.f : 0.f, DeltaSeconds, 6.f);
+	const float Flicker = 1.f + 0.18f * FMath::Sin(GetWorld()->GetTimeSeconds() * 9.f) * EyeGlowBlend;
+	const float Glow = FMath::Lerp(BaseEyeGlow, ChaseEyeGlow, EyeGlowBlend) * Flicker;
+	if (FMath::Abs(Glow - LastEyeGlowValue) > 0.01f)
+	{
+		LastEyeGlowValue = Glow;
+		for (UMaterialInstanceDynamic* MID : EyeMaterials)
+		{
+			if (MID)
+			{
+				MID->SetScalarParameterValue(TEXT("Emissive_power"), Glow);
+			}
+		}
+	}
+	const bool bShowEyes = EyeGlowBlend > 0.05f;
+	for (UStaticMeshComponent* Eye : FallbackEyes)
+	{
+		if (Eye)
+		{
+			Eye->SetHiddenInGame(!bShowEyes); // 変わったときだけ反映される
+		}
+	}
+	if (EyeLight)
+	{
+		EyeLight->SetVisibility(bShowEyes);
+		EyeLight->SetIntensity(ChaseEyeLightIntensity * EyeGlowBlend * Flicker);
+	}
 }
 
 void AOniCharacter::BuildTypeDecoration()
@@ -509,6 +610,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	UpdateMeshAnimation(); // 止まっている間（見つけた後など）もアニメーションは切り替える
+	UpdateEyes(DeltaSeconds);
 	TickFootsteps();
 
 	UKakurenboGridSubsystem* G = Grid();

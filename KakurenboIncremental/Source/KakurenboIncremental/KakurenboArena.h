@@ -183,6 +183,9 @@ public:
 	/** 家具のメッシュが自分のマスから一番はみ出している長さ（cm。テスト用） */
 	float GetMaxFurnitureOverhang() const { return MaxFurnitureOverhang; }
 
+	/** マスの境目にまたがって、どちらのマスも埋めていない家具のメッシュの数（テスト用。0 であるべき） */
+	int32 GetFurnitureStraddleCount() const { return FurnitureStraddleCount; }
+
 	/** 部屋の壁の高い部分の数（テスト用） */
 	int32 GetTallRoomWallCount() const { return TallRoomWalls.Num(); }
 
@@ -255,6 +258,7 @@ private:
 	TArray<TObjectPtr<UStaticMeshComponent>> TallRoomWalls;
 
 	float MaxFurnitureOverhang = 0.f;
+	int32 FurnitureStraddleCount = 0;
 	bool bFloorUsesMaterial = false;
 
 	/** マップごとに作った部品（家具・部屋の壁・ランプ） */

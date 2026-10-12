@@ -232,6 +232,12 @@ void UKakurenboSoundSubsystem::SetMusicVolume(float Volume)
 	}
 }
 
+void UKakurenboSoundSubsystem::SetMasterVolume(float Volume)
+{
+	MasterVolume = FMath::Clamp(Volume, 0.f, 1.f);
+	SetMusicVolume(MusicVolume); // BGM にも全体の音量が掛かる
+}
+
 void UKakurenboSoundSubsystem::Deinitialize()
 {
 	if (UWorld* World = GetWorld())
@@ -261,7 +267,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	LastPlayTimes[Index] = Now;
 	PlayCounts[Index]++;
 
-	float Volume = FMath::Clamp(MasterVolume * VolumeScale, 0.f, 4.f);
+	float Volume = FMath::Clamp(MasterVolume * SfxVolume * VolumeScale, 0.f, 4.f);
 	const float BaseVolume = Volume; // 音アセットで鳴らすときは、距離の減り方をエンジンに任せる
 	if (Volume <= 0.f)
 	{

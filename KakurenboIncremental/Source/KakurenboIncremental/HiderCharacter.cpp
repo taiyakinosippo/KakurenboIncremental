@@ -132,6 +132,27 @@ void AHiderCharacter::AddTopDownTilt(float DeltaDegrees)
 	TopDownPitch = FMath::Clamp(TopDownPitch + DeltaDegrees, -90.f, TopDownMaxTiltPitch);
 }
 
+void AHiderCharacter::SetTitleCamera(bool bTitle)
+{
+	if (bTitle == bTitleCamera)
+	{
+		return;
+	}
+	bTitleCamera = bTitle;
+	if (bTitle)
+	{
+		SavedOverheadPitch = OverheadPitch;
+		SavedOverheadDistance = OverheadDistance;
+		OverheadPitch = TitlePitch;
+		OverheadDistance = TitleDistance;
+	}
+	else
+	{
+		OverheadPitch = SavedOverheadPitch;
+		OverheadDistance = SavedOverheadDistance;
+	}
+}
+
 void AHiderCharacter::AddZoom(float DeltaCm)
 {
 	if (ViewMode == EHiderViewMode::Overhead)
@@ -461,10 +482,12 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 			PlayingAnim = Wanted;
 			AnimDriver->PlayAnimation(Wanted, true);
 		}
+		// 速さはなめらかに変える（家具にぶつかって速さが 0 と少しの間を行き来しても、待機と歩きが毎フレーム入れ替わらないように）
+		SmoothedAnimSpeed = FMath::FInterpTo(SmoothedAnimSpeed, GetVelocity().Size2D(), DeltaSeconds, 8.f);
 		if (UAnimSingleNodeInstance* Single = AnimDriver->GetSingleNodeInstance(); Single && PlayingAnim == MoveAnim)
 		{
 			// 公式のブレンドスペースは 横軸 = 向き（体は進む方を向くので 0）、縦軸 = 速さ（0〜600）
-			Single->SetBlendSpacePosition(FVector(0.f, GetVelocity().Size2D(), 0.f));
+			Single->SetBlendSpacePosition(FVector(0.f, SmoothedAnimSpeed, 0.f));
 		}
 		CopyDriverPose();
 		ApplyCrouchPose(DeltaSeconds, 0.f);
@@ -553,27 +576,41 @@ void AHiderCharacter::ApplyCrouchPose(float DeltaSeconds, float Bob)
 		};
 		const FName LeftEnd = LeftFoot.IsNone() ? LeftCalf : LeftFoot;
 		const FName RightEnd = RightFoot.IsNone() ? RightCalf : RightFoot;
-		// 床に付いている方（低い方）の足。歩いて上がった方の足で測ると、体が上下にがくがく揺れる
-		auto FootZ = [&]() { return FMath::Min(LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z, LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z); };
-		const float Before = FootZ();
-		const float Knee = ForwardSign(LeftThigh, LeftCalf);
-		RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
-		RotateBone(RightThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
-		if (!LeftEnd.IsNone() && LeftEnd != LeftCalf)
-		{
-			const float Shin = ForwardSign(LeftCalf, LeftEnd);
-			RotateBone(LeftCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
-			RotateBone(RightCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
-		}
 		const FName Head = LookMesh->GetBoneIndex(TEXT("head")) != INDEX_NONE ? FName(TEXT("head")) : NAME_None;
-		if (!Spine.IsNone() && !Head.IsNone())
+		auto Bend = [&](float Blend)
 		{
-			RotateBone(Spine, About(ForwardSign(Spine, Head) * CrouchSpineDegrees * CrouchBlend));
+			const float Knee = ForwardSign(LeftThigh, LeftCalf);
+			RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * Blend));
+			RotateBone(RightThigh, About(Knee * CrouchThighDegrees * Blend));
+			if (!LeftEnd.IsNone() && LeftEnd != LeftCalf)
+			{
+				const float Shin = ForwardSign(LeftCalf, LeftEnd);
+				RotateBone(LeftCalf, About(-Shin * CrouchCalfDegrees * Blend));
+				RotateBone(RightCalf, About(-Shin * CrouchCalfDegrees * Blend));
+			}
+			if (!Spine.IsNone() && !Head.IsNone())
+			{
+				RotateBone(Spine, About(ForwardSign(Spine, Head) * CrouchSpineDegrees * Blend));
+			}
+		};
+
+		// 足が浮く量は、元の姿勢（T ポーズ）でしゃがませて一度だけ測る。
+		// 歩いている姿勢で毎フレーム測ると、脚の振りで値が変わって体が上下にがくがく揺れる（家具に沿って歩くと目立った）
+		if (!bCrouchLiftMeasured)
+		{
+			bCrouchLiftMeasured = true;
+			const TArray<FTransform> Pose = LookMesh->BoneSpaceTransforms;
+			LookMesh->BoneSpaceTransforms = LookMesh->GetSkinnedAsset()->GetRefSkeleton().GetRefBonePose();
+			auto FootZ = [&]() { return FMath::Min(LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z, LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z); };
+			const float Before = FootZ();
+			Bend(1.f);
+			FullCrouchLift = FMath::Max(0.f, (FootZ() - Before) * LookBaseScale.Z);
+			LookMesh->BoneSpaceTransforms = Pose;
 		}
-		Lift = (FootZ() - Before) * LookMesh->GetRelativeScale3D().Z;
+		Bend(CrouchBlend);
+		Lift = FullCrouchLift * CrouchBlend;
 	}
-	// 下げる量はなめらかに変える（歩く動きで毎フレーム少しずつ変わっても、体ががくがくしない）
-	SmoothedCrouchLift = FMath::FInterpTo(SmoothedCrouchLift, Lift, DeltaSeconds, 5.f);
+	SmoothedCrouchLift = Lift;
 	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, CrouchMeshOffset + Bob - SmoothedCrouchLift));
 }
 

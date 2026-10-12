@@ -10,6 +10,7 @@
 #include "Components/PoseableMeshComponent.h"
 #include "Animation/AnimSequence.h"
 #include "Components/StaticMeshComponent.h"
+#include "Containers/Ticker.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -28,6 +29,7 @@
 #include "KakurenboOniBlackboard.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
+#include "KakurenboSettings.h"
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
@@ -61,10 +63,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	bIgnoreRealInputForAutoTest = true;
 	ApplyAutoTestInputIsolation();
 
+	// タイトルを抜けて始める（セーブがあればつづきから、無ければはじめから）。タイトルそのものを確かめるシナリオだけはタイトルのまま
+	const bool bTitleScenario = Scenario.Equals(TEXT("Title"), ESearchCase::IgnoreCase);
+	if (!bTitleScenario)
+	{
+		CloseAllMenus();
+		GM->LeaveTitleForTest();
+	}
+
 	// 館の家具があると、テストで壁を置くマスや鬼の通り道が塞がることがあるので、家具の無い舞台で行う。
 	// マップそのものを確かめるシナリオ（と再起動をまたぐセーブ）だけは本物のマップを使う
 	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase);
+		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
 		GM->bMapOverride = true;
@@ -93,6 +104,21 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	auto NextTick = [this](TFunction<void()> Fn)
 	{
 		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda(MoveTemp(Fn)));
+	};
+	// 実時間で待ってから実行する（一時停止中はワールドのタイマーが止まるので、メニューのテストはこちらで進める）
+	auto RealDelay = [](float Seconds, TFunction<void()> Fn)
+	{
+		TSharedRef<float> Left = MakeShared<float>(Seconds);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Left, Fn = MoveTemp(Fn)](float Dt) mutable -> bool
+		{
+			*Left -= Dt;
+			if (*Left > 0.f)
+			{
+				return true;
+			}
+			Fn();
+			return false;
+		}));
 	};
 	auto Check = [](const FString& What, bool bOk)
 	{
@@ -539,7 +565,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("breaker ignores the mash noise (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Investigate);
 			});
 		} });
-		for (int32 i = 0; i < 15; ++i)
+		// 2 個目の壁は 15 秒前後で壊れることが多いので、少し余裕を持って待つ（制限時間 30 秒の中で）
+		for (int32 i = 0; i < 20; ++i)
 		{
 			Steps.Add({ 1.f, [=] { Log(TEXT("waiting")); } });
 		}
@@ -1848,6 +1875,51 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GM->GetOnis()[0]->GetPlayingAnimation() ? *GM->GetOnis()[0]->GetPlayingAnimation()->GetName() : TEXT("none")),
 				!Oni->UsesSkeletalMesh() || Oni->GetPlayingAnimation() != GM->GetOnis()[0]->GetPlayingAnimation());
 			Shot(TEXT("look_02_running"));
+			// 追いかけてくる鬼は、どの種類でも目が赤く光る：全員をその場で追いかけさせる（動けないようにして、捕まらないように）
+			for (int32 i = 0; i < GM->GetOnis().Num(); ++i)
+			{
+				AOniCharacter* Each = GM->GetOnis()[i];
+				Each->SetActorLocation(Grid()->CellFloorCenter(Grid()->WorldToCell(GetPawn()->GetActorLocation()) + FIntPoint(4, i * 2 - 5)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Each->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+				Each->Activate(GetHider());
+				Each->SightRadius = 3000.f;
+				Each->SightHalfAngle = 180.f;
+				Each->HearingRadius = 0.f;
+				Each->WanderSpeed = Each->InvestigateSpeed = Each->ChaseSpeed = 1.f;
+			}
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			int32 Chasing = 0, Glowing = 0, Eyes = 0;
+			for (const AOniCharacter* Oni : GM->GetOnis())
+			{
+				Chasing += Oni->GetIntent() == EOniState::Chase ? 1 : 0;
+				Glowing += Oni->GetEyeGlowAmount() > 0.6f ? 1 : 0;
+				Eyes += Oni->HasGlowingEyes() ? 1 : 0;
+			}
+			// 探知鬼は追いかけない（見つけたら仲間を呼ぶ）が、見つけている間は同じように目が光る
+			Check(FString::Printf(TEXT("every oni that found the player glows red eyes (chasing %d, glowing %d, with eyes %d of %d)"), Chasing, Glowing, Eyes, GM->GetOnis().Num()),
+				Chasing == GM->GetOnis().Num() - 1 && Glowing == GM->GetOnis().Num() && Eyes == GM->GetOnis().Num());
+			GetHider()->ThirdPersonDistance = 300.f;
+			SetControlRotation(FRotator(-8.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("look_03_red_eyes")); } });
+		Steps.Add({ 0.1f, [=, this]
+		{
+			// 見失って（追いかけるのをやめて）しばらくすると、元の目に戻る
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->Deactivate();
+			}
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			int32 Glowing = 0;
+			for (const AOniCharacter* Oni : GM->GetOnis())
+			{
+				Glowing += Oni->GetEyeGlowAmount() > 0.2f ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("eyes go back to normal when they stop chasing (%d still glowing)"), Glowing), Glowing == 0);
 		} });
 	}
 	// ================================================================ Crowd（鬼どうしのすれ違い）
@@ -2101,6 +2173,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			const float Speed = GetHider()->GetVelocity().Size2D();
 			Check(FString::Printf(TEXT("running faster while dashing (%.0f cm/s)"), Speed), Speed > 520.f);
+			// 前へ走ると煙はカメラとプレイヤーの間に残る。それでも見える（以前は隠していたので、煙が出ていないように見えた）
+			int32 Visible = 0;
+			bool bTranslucent = false;
+			for (TActorIterator<ASmokeCloud> It(GetWorld()); It; ++It)
+			{
+				Visible += It->GetVisiblePuffCount();
+				bTranslucent |= It->IsTranslucent();
+			}
+			const bool bHasSmokeMaterial = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Materials/M_KakuSmoke"));
+			Check(FString::Printf(TEXT("the smoke stays visible behind the running player (%d puffs visible, translucent %d)"), Visible, bTranslucent ? 1 : 0),
+				Visible >= 6 && (!bHasSmokeMaterial || bTranslucent));
 			Shot(TEXT("dash_01_dashing"));
 		} });
 		Steps.Add({ 1.2f, [=, this]
@@ -2218,8 +2301,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
 					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
 				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));
-				Check(FString::Printf(TEXT("everything else starts over (stage %d, coins %.1f, mash Lv%d, wood stock %d)"), S->Stage, S->Coins, S->MashIncomeLevel, S->WallStock[0]),
-					S->Stage == 1 && S->Coins < 0.01 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0);
+				Check(FString::Printf(TEXT("everything else starts over (stage %d, mash Lv%d, wood stock %d)"), S->Stage, S->MashIncomeLevel, S->WallStock[0]),
+					S->Stage == 1 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0);
+				// はじめのコインは転生した回数ぶん増える（強化ではなく自動）
+				Check(FString::Printf(TEXT("after the 1st prestige you start with %.0f coins (expected %.0f = 1 x %.0f)"), S->Coins, GM->GetPrestigeStartCoins(1), GM->PrestigeSettings.StartCoinsPerPrestige),
+					S->Coins > 0.0 && FMath::IsNearlyEqual(S->Coins, GM->GetPrestigeStartCoins(1)) && FMath::IsNearlyEqual(GM->GetPrestigeStartCoins(3), GM->GetPrestigeStartCoins(1) * 3.0));
 				Check(FString::Printf(TEXT("after prestige, the prestige shop opens first (phase %s, prestige tab %d)"), *UEnum::GetValueAsString(S->Phase), bPrestigeShopTab ? 1 : 0),
 					S->Phase == EKakurenboPhase::Shop && bPrestigeShopTab);
 				Check(FString::Printf(TEXT("placed walls are gone but the layout is kept (blocks %d, missing %d)"), Grid()->GetBlockCount(), Grid()->GetTotalMissing()),
@@ -3014,6 +3100,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					const bool bHasWood = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Wood/Wood01_Base_Color"));
 					// 家具のメッシュはマスからはみ出さない（はみ出すと、空いて見えるマスに壁が置けない）
 					Check(FString::Printf(TEXT("map %s: furniture stays inside its cells (max overhang %.1f cm)"), *Name.ToString(), Arena->GetMaxFurnitureOverhang()), Arena->GetMaxFurnitureOverhang() < 8.f);
+					// 2×2 のテーブルなどが、マスの境目にまたがって真ん中にぽつんと置かれていない（マスごとに 1 個ずつ）
+					Check(FString::Printf(TEXT("map %s: no furniture mesh sits on a cell line without filling the cells (%d)"), *Name.ToString(), Arena->GetFurnitureStraddleCount()),
+						Arena->GetFurnitureStraddleCount() == 0);
 					Check(FString::Printf(TEXT("map %s is %dx%d (arena %dx%d), wood floor %d, wood walls %d"), *Name.ToString(), G->GetSizeX(), G->GetSizeY(), Arena->GridSizeX, Arena->GridSizeY,
 						Arena->IsFloorUsingMaterial(), Arena->IsWallUsingPanels()),
 						G->GetSizeX() == Arena->GridSizeX && G->GetSizeY() == Arena->GridSizeY && (!bHasWood || (Arena->IsFloorUsingMaterial() && Arena->IsWallUsingPanels())));
@@ -3043,6 +3132,26 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			} });
 			Steps.Add({ 0.8f, [=, this] { Shot(FString::Printf(TEXT("maps_%02d_%s"), m + 1, GM->MapOrder.IsValidIndex(m) ? *GM->MapOrder[m].ToString() : TEXT("none"))); } });
 		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 全部の館で：家具はマスからはみ出さず、マスの境目にまたがって真ん中にぽつんと置かれていない
+			FString Problems;
+			for (const FName& Name : GM->MapOrder)
+			{
+				GM->MapOverride = Name;
+				GM->SwitchToMap(Name);
+				const AKakurenboArena* Arena = GM->GetArena();
+				if (Arena->GetFurnitureStraddleCount() > 0 || Arena->GetMaxFurnitureOverhang() >= 8.f)
+				{
+					Problems += FString::Printf(TEXT(" %s(straddle %d, overhang %.0f)"), *Name.ToString(), Arena->GetFurnitureStraddleCount(), Arena->GetMaxFurnitureOverhang());
+				}
+			}
+			Check(FString::Printf(TEXT("all %d maps keep every furniture mesh in its own cells:%s"), GM->MapOrder.Num(), Problems.IsEmpty() ? TEXT(" ok") : *Problems), Problems.IsEmpty());
+			// 2×2 のテーブルがある館（書斎）を上から撮る
+			GM->MapOverride = TEXT("Study");
+			GM->SwitchToMap(TEXT("Study"));
+		} });
+		Steps.Add({ 1.0f, [=, this] { Shot(TEXT("maps_98_study_tables")); } });
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 最初のマップに戻ると、設計図が戻る（壁は在庫から設置パートで直る）
@@ -3272,6 +3381,351 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.6f, [=, this]
 		{
 			Check(FString::Printf(TEXT("standing up again (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->bIsCrouched);
+		} });
+	}
+	// ================================================================ CrouchWalk（しゃがんで家具に向かって歩き続けても、体とカメラががくがくしない）
+	else if (Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase))
+	{
+		// 本物の館（天文台：地球儀・望遠鏡が柱のように並ぶ）で、周りが空いている 1 マスの家具を探し、そこへ歩いてぶつかり続ける
+		struct FFrame { FVector Actor; float Yaw = 0.f; FVector Mesh; FVector Camera; float Speed = 0.f; };
+		struct FWalk { FIntPoint Target = FIntPoint(-1, -1); TArray<FFrame> Frames; FTSTicker::FDelegateHandle Ticker; };
+		TSharedRef<FWalk> Walk = MakeShared<FWalk>();
+		auto Begin = [=, this](bool bSneak, float AngleOffset)
+		{
+			const FVector Goal = Grid()->CellFloorCenter(Walk->Target);
+			TeleportPlayer(Goal - FRotator(0.f, AngleOffset, 0.f).RotateVector(FVector(300.f, 0.f, 0.f)));
+			GetPawn()->SetActorRotation(FRotator(0.f, AngleOffset, 0.f));
+			SetControlRotation(FRotator(-20.f, AngleOffset, 0.f));
+			bTestSneak = bSneak;
+			SimulateKey(EKeys::W, IE_Pressed);
+			Walk->Frames.Reset();
+			Walk->Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+			{
+				const AHiderCharacter* H = GetHider();
+				FFrame F;
+				F.Actor = H->GetActorLocation();
+				F.Yaw = H->GetActorRotation().Yaw;
+				F.Mesh = H->LookMesh ? H->LookMesh->GetComponentLocation() : H->BodyMesh->GetComponentLocation();
+				F.Camera = H->Camera->GetComponentLocation();
+				F.Speed = H->GetVelocity().Size2D();
+				Walk->Frames.Add(F);
+				return true;
+			}));
+		};
+		auto Finish = [=, this](const FString& Label)
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(Walk->Ticker);
+			SimulateKey(EKeys::W, IE_Released);
+			bTestSneak = false;
+			// 最後の 1.5 秒（家具にぶつかって押し続けている間）の、フレームごとの揺れ（2 階差分）
+			const TArray<FFrame>& Fr = Walk->Frames;
+			const int32 Start = FMath::Max(2, Fr.Num() - 90);
+			float MeshJerk = 0.f, CamJerk = 0.f, YawStep = 0.f, MeshRel = 0.f, MaxMeshRel = 0.f, ActorJerk = 0.f;
+			int32 N = 0;
+			for (int32 i = Start; i < Fr.Num(); ++i)
+			{
+				auto Jerk = [&](auto Get) { return (Get(Fr[i]) - Get(Fr[i - 1]) * 2.f + Get(Fr[i - 2])).Size(); };
+				MeshJerk += Jerk([](const FFrame& F) { return F.Mesh; });
+				CamJerk += Jerk([](const FFrame& F) { return F.Camera; });
+				ActorJerk += Jerk([](const FFrame& F) { return F.Actor; });
+				YawStep += FMath::Abs(FRotator::NormalizeAxis(Fr[i].Yaw - Fr[i - 1].Yaw));
+				const float Rel = FMath::Abs((Fr[i].Mesh.Z - Fr[i].Actor.Z) - (Fr[i - 1].Mesh.Z - Fr[i - 1].Actor.Z));
+				MeshRel += Rel;
+				MaxMeshRel = FMath::Max(MaxMeshRel, Rel);
+				++N;
+			}
+			N = FMath::Max(N, 1);
+			FString Series;
+			for (int32 i = Start; i < Fr.Num(); i += 3)
+			{
+				Series += FString::Printf(TEXT(" [%.1f,%.1f z%.1f m%.1f y%.0f v%.0f]"), Fr[i].Actor.X, Fr[i].Actor.Y, Fr[i].Actor.Z, Fr[i].Mesh.Z - Fr[i].Actor.Z, Fr[i].Yaw, Fr[i].Speed);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] crouchwalk %s: frames %d, mesh jerk %.2f, camera jerk %.2f, actor jerk %.2f, yaw step %.2f, mesh-rel step %.2f (max %.2f)%s"),
+				*Label, Fr.Num(), MeshJerk / N, CamJerk / N, ActorJerk / N, YawStep / N, MeshRel / N, MaxMeshRel, *Series);
+			// 体（モデル）の高さはカプセルに対して動かない（以前は歩く脚の振りでしゃがむ高さが変わり、上下にがくがくしていた）
+			Check(FString::Printf(TEXT("%s: the body does not shake while pushing into furniture (mesh jerk %.2f, mesh-rel step %.2f max %.2f, yaw step %.2f)"), *Label, MeshJerk / N, MeshRel / N, MaxMeshRel, YawStep / N),
+				MeshJerk / N < 1.5f && MeshRel / N < 0.1f && MaxMeshRel < 0.3f && YawStep / N < 1.5f);
+			Check(FString::Printf(TEXT("%s: the camera does not shake (camera jerk %.2f)"), *Label, CamJerk / N), CamJerk / N < 1.5f);
+		};
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Observatory");
+			GM->SwitchToMap(TEXT("Observatory"));
+			// 周り 8 マス＋その先 3 マス西が空いている、1 マスだけの家具
+			for (int32 Y = 2; Y < Grid()->GetSizeY() - 2 && Walk->Target.X < 0; ++Y)
+			{
+				for (int32 X = 5; X < Grid()->GetSizeX() - 2 && Walk->Target.X < 0; ++X)
+				{
+					const FIntPoint C(X, Y);
+					bool bAlone = Grid()->IsObstacle(C);
+					for (int32 DY = -2; DY <= 2 && bAlone; ++DY)
+					{
+						for (int32 DX = -4; DX <= 2 && bAlone; ++DX)
+						{
+							bAlone = (DX == 0 && DY == 0) || Grid()->IsWalkable(C + FIntPoint(DX, DY));
+						}
+					}
+					if (bAlone)
+					{
+						Walk->Target = C;
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("found a lone piece of furniture at (%d,%d)"), Walk->Target.X, Walk->Target.Y), Walk->Target.X >= 0);
+		} });
+		Steps.Add({ 3.3f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } Begin(true, 0.f); } });
+		Steps.Add({ 2.5f, [=, this] { Shot(TEXT("crouchwalk_01_sneak_straight")); } });
+		Steps.Add({ 0.1f, [=] { Finish(TEXT("sneak straight")); } });
+		Steps.Add({ 0.5f, [=] { Begin(true, 25.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("sneak diagonal")); } });
+		Steps.Add({ 0.5f, [=] { Begin(false, 0.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("standing straight")); } });
+		Steps.Add({ 0.5f, [=] { Begin(false, 25.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("standing diagonal")); } });
+	}
+	// ================================================================ Title（タイトル・設定・キー設定・一時停止メニュー）
+	else if (bTitleScenario)
+	{
+		auto HUD = [this]() { return GetHUD<AKakurenboHUD>(); };
+		auto Settings = [this]() { return UKakurenboSettings::Get(this); };
+		// つまみの横の位置（0〜1）をクリックする
+		auto ClickSlider = [this, HUD](EKakurenboSettingSlider Slider, float Value01) -> bool
+		{
+			FVector2D Center;
+			FKakurenboUIButton Button;
+			if (!HUD() || !HUD()->GetButtonCenter(EKakurenboUIAction::Slider, static_cast<int32>(Slider), Center) || !HUD()->FindButtonAt(Center, Button))
+			{
+				return false;
+			}
+			bUseTestCursor = true;
+			TestCursorPosition = FVector2D(FMath::Lerp(Button.Rect.Min.X, Button.Rect.Max.X, Value01), Center.Y);
+			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Pressed, 1.f));
+			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Released, 1.f));
+			return true;
+		};
+		auto Press = [SimulateKey](const FKey& Key) { SimulateKey(Key, IE_Pressed); SimulateKey(Key, IE_Released); };
+		struct FTitleState { float FrozenTime = 0.f; int32 MashBefore = 0; };
+		TSharedRef<FTitleState> T = MakeShared<FTitleState>();
+
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the game starts at the title (phase %s, cursor %d)"), *UEnum::GetValueAsString(GS()->Phase), bShowMouseCursor ? 1 : 0),
+				GS()->Phase == EKakurenboPhase::Title && bShowMouseCursor);
+			FVector2D Center;
+			Check(TEXT("the title has new game / continue / settings / quit"), HUD() && HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame), Center)
+				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue), Center)
+				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Settings), Center));
+			Check(TEXT("without a save, continue is disabled"), !IsTitleItemEnabled(EKakurenboTitleItem::Continue) && !GM->HasContinueData());
+			Check(TEXT("the title plays the calm music and does not save"), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
+			Shot(TEXT("title_01_title"));
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("clicking the disabled continue does nothing"), GS()->Phase == EKakurenboPhase::Title && !IsMenuOpen());
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Settings));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("settings open from the title (menu %d)"), static_cast<int32>(GetMenu())), GetMenu() == EKakurenboMenu::Settings);
+			Shot(TEXT("title_02_settings"));
+			Check(TEXT("click the master volume at 25%"), ClickSlider(EKakurenboSettingSlider::Master, 0.25f));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the volume slider sets the volume (setting %.2f, sound %.2f)"), Settings()->MasterVolume, Sound()->MasterVolume),
+				FMath::IsNearlyEqual(Settings()->MasterVolume, 0.25f, 0.03f) && FMath::IsNearlyEqual(Sound()->MasterVolume, Settings()->MasterVolume, 0.001f));
+			ClickSlider(EKakurenboSettingSlider::Mouse, 0.99f);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the mouse slider changes the sensitivity (%.3f)"), MouseSensitivity),
+				MouseSensitivity > UKakurenboSettings::DefaultMouseSensitivity * 2.f && FMath::IsNearlyEqual(MouseSensitivity, Settings()->MouseSensitivity));
+			ClickSlider(EKakurenboSettingSlider::Mouse, (UKakurenboSettings::DefaultMouseSensitivity - UKakurenboSettings::MinMouseSensitivity) / (UKakurenboSettings::MaxMouseSensitivity - UKakurenboSettings::MinMouseSensitivity));
+			ClickUI(EKakurenboUIAction::Toggle, static_cast<int32>(EKakurenboSettingToggle::InvertY));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("the invert toggle inverts the mouse"), bInvertMouseY && Settings()->bInvertMouseY);
+			ClickUI(EKakurenboUIAction::Toggle, static_cast<int32>(EKakurenboSettingToggle::InvertY));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::OpenKeys, 0); } });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("key config opens"), GetMenu() == EKakurenboMenu::Keys && !bInvertMouseY);
+			Shot(TEXT("title_03_keys"));
+			// 連打を K にする
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Mash) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			EKakurenboAction Waiting;
+			bool bSecondary = false;
+			Check(TEXT("clicking a key slot waits for a key"), IsWaitingForKey(Waiting, bSecondary) && Waiting == EKakurenboAction::Mash && !bSecondary);
+			Shot(TEXT("title_04_waiting_key"));
+			Press(EKeys::K);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("pressing K binds mash to K (%s)"), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
+				Settings()->GetKey(EKakurenboAction::Mash) == EKeys::K && GetMenu() == EKakurenboMenu::Keys);
+			// ジャンプにも K → 入れ替わる（連打は Space になる）
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Jump) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the same key on another action swaps them (jump %s, mash %s)"), *Settings()->GetKey(EKakurenboAction::Jump).ToString(), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
+				Settings()->GetKey(EKakurenboAction::Jump) == EKeys::K && Settings()->GetKey(EKakurenboAction::Mash) == EKeys::SpaceBar);
+			ClickUI(EKakurenboUIAction::ResetKeys, 0);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("reset brings the default keys back"), Settings()->GetKey(EKakurenboAction::Mash) == EKeys::LeftMouseButton && Settings()->GetKey(EKakurenboAction::Jump) == EKeys::SpaceBar);
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Mash) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::Escape); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("Esc goes back to the settings"), GetMenu() == EKakurenboMenu::Settings);
+			Press(EKeys::Escape);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("Esc again closes the settings (title)"), !IsMenuOpen() && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("new game starts the first hide round (phase %s, stage %d)"), *UEnum::GetValueAsString(GS()->Phase), GS()->Stage),
+				GS()->Phase == EKakurenboPhase::Hide && GS()->Stage == 1 && !bShowMouseCursor);
+			Check(FString::Printf(TEXT("hide shows the oni's counting line (%s)"), HUD() && HUD()->HasDrawnText(TEXT("もういいかい")) ? TEXT("yes") : TEXT("no")),
+				HUD() && HUD()->HasDrawnText(TEXT("もういいかい")) && !HUD()->HasDrawnText(TEXT("ぶつかったらアウト")));
+			Shot(TEXT("title_05_hide_countdown"));
+		} });
+		Steps.Add({ 3.0f, [=, this]
+		{
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->Deactivate();
+			}
+			T->MashBefore = GS()->MashCountThisRound;
+			Press(EKeys::K);
+			Press(EKeys::LeftMouseButton);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the rebound key mashes and the old one does not (%d -> %d)"), T->MashBefore, GS()->MashCountThisRound), GS()->MashCountThisRound == T->MashBefore + 1);
+			Shot(TEXT("title_06_hide"));
+			Press(EKeys::Escape);
+			// ここから一時停止中。ワールドのタイマーは止まるので、実時間で進める
+			RealDelay(0.4f, [=, this]
+			{
+				T->FrozenTime = GS()->HideTimeRemaining;
+				Check(FString::Printf(TEXT("Esc pauses the hide round and shows the menu (paused %d, menu %d, cursor %d)"), IsPaused() ? 1 : 0, static_cast<int32>(GetMenu()), bShowMouseCursor ? 1 : 0),
+					IsPaused() && GetMenu() == EKakurenboMenu::Pause && bShowMouseCursor);
+				Shot(TEXT("title_07_pause"));
+				ClickUI(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Help));
+				RealDelay(0.4f, [=, this]
+				{
+					Check(FString::Printf(TEXT("the help lists the hide controls with the bound keys (%d)"), HUD() && HUD()->HasDrawnText(TEXT("しゃがむ")) ? 1 : 0),
+						GetMenu() == EKakurenboMenu::Help && HUD()->HasDrawnText(TEXT("しゃがむ")) && HUD()->HasDrawnText(TEXT("[K]")));
+					Shot(TEXT("title_08_help"));
+					Press(EKeys::Escape);
+					RealDelay(0.3f, [=, this]
+					{
+						Check(FString::Printf(TEXT("the round stays frozen while paused (%.2f -> %.2f)"), T->FrozenTime, GS()->HideTimeRemaining),
+							FMath::IsNearlyEqual(T->FrozenTime, GS()->HideTimeRemaining) && GetMenu() == EKakurenboMenu::Pause);
+						ClickUI(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Title));
+						RealDelay(0.3f, [=, this]
+						{
+							Check(TEXT("going to the title in a round asks first"), GetMenu() == EKakurenboMenu::ConfirmTitle);
+							Shot(TEXT("title_09_confirm"));
+							ClickUI(EKakurenboUIAction::ConfirmYes, 0);
+							RealDelay(0.4f, [=, this]
+							{
+								Check(FString::Printf(TEXT("back at the title, unpaused, and continue is enabled (phase %s, paused %d)"), *UEnum::GetValueAsString(GS()->Phase), IsPaused() ? 1 : 0),
+									GS()->Phase == EKakurenboPhase::Title && !IsPaused() && !IsMenuOpen() && IsTitleItemEnabled(EKakurenboTitleItem::Continue) && GM->GetOnis().Num() == 0);
+							});
+						});
+					});
+				});
+			});
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Shot(TEXT("title_10_back_to_title"));
+			// セーブがあるとき（この起動で遊んだとき）の「はじめから」は確かめる
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("new game with progress asks before erasing"), GetMenu() == EKakurenboMenu::ConfirmNewGame && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::ConfirmNo, 0);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("no keeps the title"), !IsMenuOpen() && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("continue resumes from the build phase (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Build);
+			Settings()->ResetBindings();
+		} });
+	}
+	// ================================================================ Hints（はじめての操作のヒント・キーの形の案内）
+	else if (Scenario.Equals(TEXT("Hints"), ESearchCase::IgnoreCase))
+	{
+		auto HUD = [this]() { return GetHUD<AKakurenboHUD>(); };
+		Steps.Add({ 0.1f, [=, this]
+		{
+			bShowTipsInAutoTest = true;
+			UKakurenboSettings::Get(this)->ResetTips();
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the first hide round shows how to move (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Move")));
+			Check(TEXT("the controls are drawn as keys at the bottom"), HUD() && HUD()->HasDrawnText(TEXT("しゃがむ")));
+			Shot(TEXT("hints_01_hide"));
+		} });
+		// 鬼は止めておく（捕まると結果画面になって、ヒントが消える）
+		Steps.Add({ 2.3f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } } });
+		Steps.Add({ 4.7f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("then how to earn coins (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Mash")));
+			Shot(TEXT("hints_02_mash"));
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Shot(TEXT("hints_03_result"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → 購入
+		Steps.Add({ 0.8f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the shop explains buying (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Shop")));
+			Shot(TEXT("hints_04_shop"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.8f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the build phase explains placing (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Build")));
+			Shot(TEXT("hints_05_build"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → かくれんぼ（2 回目）
+		Steps.Add({ 1.2f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("a tip is shown only once (%s)"), Tip ? *Tip->Id.ToString() : TEXT("none")), !Tip || Tip->Id != FName(TEXT("Move")));
+			bShowTipsInAutoTest = false;
 		} });
 	}
 	// ================================================================ Hearing（M12：左右の聞こえ方・壁の向こう・気づいた音・心臓の音）

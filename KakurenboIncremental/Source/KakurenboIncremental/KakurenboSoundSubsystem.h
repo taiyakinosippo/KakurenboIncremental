@@ -46,8 +46,12 @@ public:
 	static void Play2D(const UObject* WorldContext, EKakurenboSfx Sfx, float VolumeScale = 1.f, float PitchScale = 1.f);
 	static void Play3D(const UObject* WorldContext, EKakurenboSfx Sfx, const FVector& Location, float VolumeScale = 1.f, float PitchScale = 1.f);
 
-	/** 全体の音量（0〜1）。コンソールの KakuVolume で変えられる */
+	/** 全体の音量（0〜1）。設定画面・コンソールの KakuVolume で変えられる。BGM の音量も変わる */
 	float MasterVolume = 0.7f;
+	void SetMasterVolume(float Volume);
+
+	/** 効果音だけの音量（0〜1。全体の音量も掛かる）。設定画面で変えられる */
+	float SfxVolume = 1.f;
 
 	/** 鳴らした回数（テスト用。-NoSound で実際には音が出ないときも数える） */
 	int32 GetPlayCount(EKakurenboSfx Sfx) const;
@@ -67,6 +71,12 @@ public:
 
 	virtual void Deinitialize() override;
 
+	/**
+	 * BGM の波形が切れないよう、残りが 1 周を切ったら足す（1 秒ごとのタイマーで呼ぶ）。
+	 * 一時停止中はタイマーが止まるので、PlayerController が毎フレーム呼ぶ
+	 */
+	void RefillMusic();
+
 	/** その音を最後に鳴らしたときの、左右の聞こえ方（テスト用） */
 	FKakurenboSpatialDebug GetLastSpatial(EKakurenboSfx Sfx) const;
 
@@ -78,8 +88,6 @@ private:
 	USoundAttenuation* GetAttenuation();
 	/** 手がかりの音（鬼の足音・お宝）の減り方 */
 	USoundAttenuation* GetCueAttenuation();
-	/** BGM の波形が切れないよう、残りが 1 周を切ったら足す */
-	void RefillMusic();
 
 	UPROPERTY()
 	TObjectPtr<USoundAttenuation> Attenuation;

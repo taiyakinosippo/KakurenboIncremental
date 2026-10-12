@@ -228,6 +228,16 @@ public:
 	/** ホイールでのズーム（今の視点の距離を変える） */
 	void AddZoom(float DeltaCm);
 
+	/** タイトル画面の俯瞰カメラ（低い角度・遠く）にする / 元の俯瞰カメラに戻す */
+	void SetTitleCamera(bool bTitle);
+
+	/** タイトル画面のカメラの角度（度）と距離（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TitlePitch = -24.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float TitleDistance = 1250.f;
+
 	/** 真上からのカメラが見ている場所（床の高さ） */
 	FVector GetTopDownFocus() const { return TopDownFocus; }
 	void SetTopDownFocus(const FVector& Focus) { TopDownFocus = Focus; }
@@ -271,6 +281,15 @@ private:
 	float CrouchMeshOffset = 0.f;
 	float CrouchBlend = 0.f;
 	float SmoothedCrouchLift = 0.f;
+	/** しゃがみきったときに足が浮く量（cm。元の姿勢で一度だけ測る） */
+	float FullCrouchLift = 0.f;
+	bool bCrouchLiftMeasured = false;
+	/** 公式のアニメーションに渡す速さ（なめらかにしたもの） */
+	float SmoothedAnimSpeed = 0.f;
+	/** タイトル画面のカメラにしているか・その前の俯瞰カメラの角度と距離 */
+	bool bTitleCamera = false;
+	float SavedOverheadPitch = -60.f;
+	float SavedOverheadDistance = 1800.f;
 	FVector StandingBodyScale = FVector::OneVector;
 	FName LeftFoot, RightFoot;
 

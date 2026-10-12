@@ -4,13 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "InputCoreTypes.h"
 #include "KakurenboTypes.generated.h"
 
 class UMaterialInterface;
 class UTexture;
 class UStaticMesh;
 
-/** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
+/** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する。起動直後はタイトル */
 UENUM(BlueprintType)
 enum class EKakurenboPhase : uint8
 {
@@ -18,6 +19,50 @@ enum class EKakurenboPhase : uint8
 	Build  UMETA(DisplayName = "Build"),
 	Hide   UMETA(DisplayName = "Hide"),
 	Result UMETA(DisplayName = "Result"),
+	Title  UMETA(DisplayName = "Title"), // タイトル画面（はじめから / つづきから）。数字の並びを変えないよう最後に足した
+};
+
+/**
+ * プレイヤーの操作（キー設定で好きなキーに変えられる）。
+ * セーブには名前で入れるので、並びを変えてもよい（名前は変えない）
+ */
+UENUM(BlueprintType)
+enum class EKakurenboAction : uint8
+{
+	MoveForward UMETA(DisplayName = "MoveForward"), // 前へ（設置パートではカメラを動かす）
+	MoveBack    UMETA(DisplayName = "MoveBack"),
+	MoveLeft    UMETA(DisplayName = "MoveLeft"),
+	MoveRight   UMETA(DisplayName = "MoveRight"),
+	Mash        UMETA(DisplayName = "Mash"),        // 連打（かくれんぼ）
+	Sneak       UMETA(DisplayName = "Sneak"),       // しゃがむ（押している間）
+	Dash        UMETA(DisplayName = "Dash"),        // 煙幕ダッシュ
+	Jump        UMETA(DisplayName = "Jump"),
+	CameraLeft  UMETA(DisplayName = "CameraLeft"),  // 俯瞰・真上のカメラを回す
+	CameraRight UMETA(DisplayName = "CameraRight"),
+	TiltDown    UMETA(DisplayName = "TiltDown"),    // 設置パートのカメラを斜めに傾ける
+	TiltUp      UMETA(DisplayName = "TiltUp"),      // 真上に戻す
+	Next        UMETA(DisplayName = "Next"),        // 次のパートへ
+	SetStart    UMETA(DisplayName = "SetStart"),    // 設置パート：スタート位置をカーソルのマスへ
+	BackToShop  UMETA(DisplayName = "BackToShop"),  // 設置パート → 購入パート
+	ClearAll    UMETA(DisplayName = "ClearAll"),    // 設置パート：全部回収（2 回押す）
+	SwitchShop  UMETA(DisplayName = "SwitchShop"),  // 購入パート：コインのお店 ↔ 転生のお店
+	Refill      UMETA(DisplayName = "Refill"),      // 購入パート：まとめて補充
+	Prestige    UMETA(DisplayName = "Prestige"),    // 購入パート：転生（2 回押す）
+	Help        UMETA(DisplayName = "Help"),        // 操作説明を開く
+	Count       UMETA(Hidden)
+};
+
+/** 1 つの操作に割り当てたキー（2 つまで。空でもよい） */
+USTRUCT(BlueprintType)
+struct FKakurenboKeyBinding
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	FKey Primary;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	FKey Secondary;
 };
 
 /** プレイヤーの視点 */
@@ -267,6 +312,10 @@ struct FKakurenboPrestigeRow : public FTableRowBase
 	/** 転生ポイント = (今のステージ - MinStage + 1) × PointsPerStage */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	int32 PointsPerStage = 1;
+
+	/** 転生した後のはじめのコイン = 転生した回数 × これ（強化ではなく、転生するたびに自動で増える） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double StartCoinsPerPrestige = 500.0;
 };
 
 /**

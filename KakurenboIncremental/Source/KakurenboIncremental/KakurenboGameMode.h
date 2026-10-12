@@ -385,6 +385,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena")
 	int32 MaxStackHeight = 3;
 
+	// ===== タイトル =====
+
+	/** 起動したらタイトル画面から始める（起動オプション -KakuSkipTitle なら、今まで通りすぐ始める） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Title")
+	bool bStartAtTitle = true;
+
+	/** 「つづきから」で遊べるか（セーブがある・この起動で遊んだ） */
+	bool HasContinueData() const { return bHasContinueData; }
+
+	/** タイトル：はじめから（セーブがあれば消して、ステージ 1 のかくれんぼから） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	void StartNewGame();
+
+	/** タイトル：つづきから（設置パートから） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	void ContinueGame();
+
+	/** タイトル画面へ戻る（一時停止メニューから）。かくれんぼの途中なら、そのラウンドは始める前の状態に戻す */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	void ReturnToTitle();
+
+	/** 自動テスト用：タイトルを抜けて始める（セーブがあればつづきから、無ければはじめから） */
+	void LeaveTitleForTest();
+
 	// ===== セーブ =====
 
 	/** パートが変わるたびに自動で保存し、起動時に読み込む（起動オプション -KakuNoSave で無効） */
@@ -469,6 +493,10 @@ public:
 	/** 今転生したらもらえる転生ポイント（できなければ 0） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetPrestigePointsOnReset() const;
+
+	/** 転生した後のはじめのコイン（転生した回数 × Prestige.csv の StartCoinsPerPrestige。強化ではなく自動で増える） */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetPrestigeStartCoins(int32 PrestigeCount) const;
 
 	/**
 	 * 転生する（購入パートでだけ）。転生ポイント（転生のお店で永続強化に使う）をもらう代わりに
@@ -751,7 +779,7 @@ public:
 
 	/** セーブを消して、最初（ステージ 1・何もない状態）からやり直す */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
-	void ResetProgress();
+	void ResetProgress(bool bShowNotice = true);
 
 	/** 画面上部に一時的なお知らせを出す */
 	void ShowNotice(const FText& Text, float Seconds = 5.f);
@@ -769,6 +797,9 @@ protected:
 	virtual void RestartPlayer(AController* NewPlayer) override;
 
 	void SetPhase(EKakurenboPhase NewPhase);
+	/** タイトル画面にする（鬼・お宝は片付ける。保存はしない） */
+	void EnterTitle();
+	bool bHasContinueData = false;
 	AKakurenboGameState* GS() const;
 	ACharacter* GetPlayerCharacter() const;
 

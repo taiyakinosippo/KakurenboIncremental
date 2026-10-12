@@ -32,6 +32,11 @@ int32 KakurenboBalance::GetPrestigePoints(int32 Stage, const FKakurenboPrestigeR
 	return (Stage - Settings.MinStage + 1) * FMath::Max(1, Settings.PointsPerStage);
 }
 
+double KakurenboBalance::GetPrestigeStartCoins(int32 PrestigeCount, const FKakurenboPrestigeRow& Settings)
+{
+	return FMath::Max(0, PrestigeCount) * FMath::Max(0.0, Settings.StartCoinsPerPrestige);
+}
+
 int32 KakurenboBalance::GetPrestigeUpgradeCost(const FKakurenboPrestigeUpgradeRow& Row, int32 Level)
 {
 	if (Row.MaxLevel > 0 && Level >= Row.MaxLevel)
