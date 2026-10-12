@@ -14,6 +14,7 @@
 #include "KakurenboSettings.h"
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Misc/App.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
 #include "TrapActor.h"
@@ -58,6 +59,15 @@ FString AKakurenboPlayerController::KeyName(EKakurenboAction Action, bool bBoth)
 	{
 		return FString();
 	}
+	// コントローラーで遊んでいるときは、コントローラーのボタン（あれば）
+	if (bUsingGamepad && !bBoth)
+	{
+		const FKey Pad = UKakurenboSettings::GamepadKey(Action);
+		if (Pad.IsValid())
+		{
+			return UKakurenboSettings::KeyLabel(Pad);
+		}
+	}
 	if (bBoth)
 	{
 		return S->ActionKeyLabel(Action);
@@ -65,6 +75,157 @@ FString AKakurenboPlayerController::KeyName(EKakurenboAction Action, bool bBoth)
 	// 画面の案内は 1 つ目のキーだけ（1 つ目が空なら 2 つ目）
 	const FKey Primary = S->GetKey(Action, false);
 	return UKakurenboSettings::KeyLabel(Primary.IsValid() ? Primary : S->GetKey(Action, true));
+}
+
+FString AKakurenboPlayerController::UIKeyLabel(EKakurenboUIKey Key) const
+{
+	auto K = [this](EKakurenboAction Action) { return FString::Printf(TEXT("[%s]"), *KeyName(Action)); };
+	if (bUsingGamepad)
+	{
+		switch (Key)
+		{
+		case EKakurenboUIKey::Confirm:    return TEXT("[A]");
+		case EKakurenboUIKey::Cancel:     return TEXT("[B]");
+		case EKakurenboUIKey::Menu:       return TEXT("[START]");
+		case EKakurenboUIKey::Place:      return TEXT("[A]");
+		case EKakurenboUIKey::PickUp:     return TEXT("[X]");
+		case EKakurenboUIKey::SelectSlot: return TEXT("[LB][RB]");
+		case EKakurenboUIKey::Zoom:       return TEXT("[LT][RT]");
+		case EKakurenboUIKey::Look:       return TEXT("[R スティック]");
+		case EKakurenboUIKey::Move:       return TEXT("[L スティック]");
+		case EKakurenboUIKey::Cursor:     return TEXT("[L スティック]");
+		case EKakurenboUIKey::Rotate:     return TEXT("[R スティック]");
+		case EKakurenboUIKey::Navigate:   return TEXT("[十字キー]");
+		case EKakurenboUIKey::Buy:        return TEXT("[A]");
+		case EKakurenboUIKey::Tilt:       return TEXT("[R スティック↕]");
+		default:                          return FString();
+		}
+	}
+	switch (Key)
+	{
+	case EKakurenboUIKey::Confirm:    return TEXT("[左クリック]");
+	case EKakurenboUIKey::Cancel:     return TEXT("[Esc]");
+	case EKakurenboUIKey::Menu:       return TEXT("[Esc]");
+	case EKakurenboUIKey::Place:      return TEXT("[左クリック]");
+	case EKakurenboUIKey::PickUp:     return TEXT("[右クリック]");
+	case EKakurenboUIKey::SelectSlot: return TEXT("下の欄・数字キー");
+	case EKakurenboUIKey::Zoom:       return TEXT("ホイール");
+	case EKakurenboUIKey::Look:       return TEXT("マウス");
+	case EKakurenboUIKey::Move:       return K(EKakurenboAction::MoveForward) + K(EKakurenboAction::MoveLeft) + K(EKakurenboAction::MoveBack) + K(EKakurenboAction::MoveRight);
+	case EKakurenboUIKey::Cursor:     return TEXT("マウス");
+	case EKakurenboUIKey::Rotate:     return K(EKakurenboAction::CameraLeft) + K(EKakurenboAction::CameraRight);
+	case EKakurenboUIKey::Navigate:   return TEXT("マウス");
+	case EKakurenboUIKey::Buy:        return TEXT("クリック・数字キー");
+	case EKakurenboUIKey::Tilt:       return K(EKakurenboAction::TiltDown) + K(EKakurenboAction::TiltUp);
+	default:                          return FString();
+	}
+}
+
+bool AKakurenboPlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	// 最後に触った機器を覚える（画面の案内・カーソルを出すか・設置パートのカーソルの動かし方が変わる）。
+	// スティックの小さなぶれ・マウスの小さな揺れでは切り替えない
+	if (Params.Key.IsGamepadKey())
+	{
+		if (Params.Key.IsAnalog() ? FMath::Abs(Params.AmountDepressed) > 0.4f : Params.Event == IE_Pressed)
+		{
+			bUsingGamepad = true;
+		}
+	}
+	else if (Params.Key == EKeys::MouseX || Params.Key == EKeys::MouseY)
+	{
+		if (FMath::Abs(Params.AmountDepressed) > 3.f)
+		{
+			bUsingGamepad = false;
+		}
+	}
+	else if (Params.Event == IE_Pressed)
+	{
+		bUsingGamepad = false;
+	}
+	return Super::InputKey(Params);
+}
+
+FVector2D AKakurenboPlayerController::GetStick(bool bRight) const
+{
+	if (!PlayerInput)
+	{
+		return FVector2D::ZeroVector;
+	}
+	const FVector2D Raw(PlayerInput->GetRawKeyValue(bRight ? EKeys::Gamepad_RightX : EKeys::Gamepad_LeftX),
+		PlayerInput->GetRawKeyValue(bRight ? EKeys::Gamepad_RightY : EKeys::Gamepad_LeftY));
+	// 円の遊び：中心付近は 0、そこから外側を 0〜1 に伸ばす（倒しきると 1）
+	const float Length = Raw.Size();
+	if (Length <= GamepadDeadZone)
+	{
+		return FVector2D::ZeroVector;
+	}
+	const float Scaled = FMath::Clamp((Length - GamepadDeadZone) / (1.f - GamepadDeadZone), 0.f, 1.f);
+	return Raw / Length * Scaled;
+}
+
+FIntPoint AKakurenboPlayerController::ReadNavigation(float RealDeltaSeconds, bool bWithStick)
+{
+	FIntPoint Dir = FIntPoint::ZeroValue;
+	const FVector2D Stick = bWithStick ? GetStick(false) : FVector2D::ZeroVector;
+	// 押している間（と、同じフレームで押して離したとき）
+	auto Held = [this](const FKey& Key) { return IsInputKeyDown(Key) || WasInputKeyJustPressed(Key); };
+	if (Held(EKeys::Gamepad_DPad_Up) || Stick.Y > 0.6f)
+	{
+		Dir.Y = -1;
+	}
+	else if (Held(EKeys::Gamepad_DPad_Down) || Stick.Y < -0.6f)
+	{
+		Dir.Y = 1;
+	}
+	else if (Held(EKeys::Gamepad_DPad_Left) || Stick.X < -0.6f)
+	{
+		Dir.X = -1;
+	}
+	else if (Held(EKeys::Gamepad_DPad_Right) || Stick.X > 0.6f)
+	{
+		Dir.X = 1;
+	}
+	if (Dir == FIntPoint::ZeroValue || Dir != HeldNavDir)
+	{
+		// 押した瞬間（離したらくり返しをやめる）
+		HeldNavDir = Dir;
+		NavRepeatTimer = 0.4f;
+		return Dir;
+	}
+	// 押し続けると少し待ってから、くり返し進む
+	NavRepeatTimer -= RealDeltaSeconds;
+	if (NavRepeatTimer <= 0.f)
+	{
+		NavRepeatTimer = 0.11f;
+		return Dir;
+	}
+	return FIntPoint::ZeroValue;
+}
+
+bool AKakurenboPlayerController::WasMenuKeyPressed() const
+{
+	return WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_Special_Right);
+}
+
+bool AKakurenboPlayerController::WasBackKeyPressed() const
+{
+	return WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right);
+}
+
+bool AKakurenboPlayerController::IsUIFocused(EKakurenboUIAction Action, int32 Index) const
+{
+	return bUsingGamepad && FocusAction == Action && FocusIndex == Index && Action != EKakurenboUIAction::None;
+}
+
+bool AKakurenboPlayerController::GetGamepadBuildCursor(FVector& OutWorld) const
+{
+	if (!bUsingGamepad || !bGamepadCursorValid)
+	{
+		return false;
+	}
+	OutWorld = GamepadCursor;
+	return true;
 }
 
 void AKakurenboPlayerController::BeginPlay()
@@ -86,6 +247,19 @@ void AKakurenboPlayerController::BeginPlay()
 
 void AKakurenboPlayerController::PlayerTick(float DeltaTime)
 {
+	// コントローラーで遊んでいる間にマウスを動かしたら、キーボード・マウスに戻す（カーソルが出る）。
+	// 自動テスト中は本物のマウスを見ない（テストの途中で触っても結果が変わらないように）
+	float MouseX = 0.f, MouseY = 0.f;
+	if (!bIgnoreRealInputForAutoTest && GetMousePosition(MouseX, MouseY))
+	{
+		const FVector2D Mouse(MouseX, MouseY);
+		if (bUsingGamepad && LastMousePosition.X >= 0.f && FVector2D::Distance(Mouse, LastMousePosition) > 4.f)
+		{
+			bUsingGamepad = false;
+		}
+		LastMousePosition = Mouse;
+	}
+
 	// Super の中で入力処理（→ PostProcessInput）と視点の更新が行われる
 	Super::PlayerTick(DeltaTime);
 
@@ -125,6 +299,8 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 			GetHider()->AddOverheadYaw(TitleOrbitSpeed * DeltaTime);
 		}
 
+		// 一時停止中もメニューを動かせるよう、くり返しの待ち時間は実時間で測る
+		const float RealDelta = FApp::GetDeltaTime();
 		if (IsMenuOpen())
 		{
 			HandleMenuInput();
@@ -140,6 +316,10 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 			case EKakurenboPhase::Shop:
 				HandleOverheadCamera(DeltaTime);
 				HandleShopInput();
+				if (bUsingGamepad)
+				{
+					HandleGamepadFocus(RealDelta, false);
+				}
 				break;
 			case EKakurenboPhase::Build:
 				HandleOverheadCamera(DeltaTime);
@@ -148,6 +328,7 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 				break;
 			case EKakurenboPhase::Hide:
 				HandleMouseLook();
+				HandleGamepadLook(DeltaTime);
 				HandleHideInput();
 				break;
 			case EKakurenboPhase::Result:
@@ -155,6 +336,10 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 				if (WasInputKeyJustPressed(EKeys::LeftMouseButton))
 				{
 					HandleUIClick();
+				}
+				if (bUsingGamepad)
+				{
+					HandleGamepadFocus(RealDelta, false);
 				}
 				break;
 			default:
@@ -165,8 +350,8 @@ void AKakurenboPlayerController::PostProcessInput(const float DeltaTime, const b
 			{
 				GM->AdvancePhase();
 			}
-			// Esc: メニュー（一時停止・設定・タイトルへ）。F1: 操作説明
-			if (WasInputKeyJustPressed(EKeys::Escape))
+			// Esc・START: メニュー（一時停止・設定・タイトルへ）。F1・BACK: 操作説明
+			if (WasMenuKeyPressed())
 			{
 				OpenMenu(EKakurenboMenu::Pause);
 			}
@@ -197,6 +382,8 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	ViewPhase = Phase;
 	Tips.Reset(); // 前のパートのヒントは消す
 	HideTipClock = 0.f;
+	FocusAction = EKakurenboUIAction::None; // コントローラー：新しいパートの最初のボタンを選ぶ
+	bGamepadCursorValid = false;
 
 	Hider->SetSneaking(false);
 	Hider->SetTitleCamera(Phase == EKakurenboPhase::Title);
@@ -264,28 +451,33 @@ void AKakurenboPlayerController::ApplyInputMode()
 	{
 		return;
 	}
-	// カーソルを出さないのは、メニューを開いていないかくれんぼ中だけ（マウスの動き＝カメラの回転）
-	const bool bWantCursor = IsMenuOpen() || GM->GetPhase() != EKakurenboPhase::Hide;
-	if (bCursorModeKnown && bWantCursor == bCursorModeApplied)
+	// UI のパート（メニュー・購入・設置・リザルト・タイトル）はカーソルでボタンやマスを指す。
+	// かくれんぼ中（メニューを閉じている）はマウスの動き＝カメラの回転。コントローラーで遊んでいる間はカーソルを出さない（選んでいるボタンを明るくする）
+	const bool bUIMode = IsMenuOpen() || GM->GetPhase() != EKakurenboPhase::Hide;
+	const bool bWantCursor = bUIMode && !bUsingGamepad;
+	if (bCursorModeKnown && bWantCursor == bCursorModeApplied && bUIMode == bUIModeApplied)
 	{
 		return;
 	}
+	const bool bModeChanged = !bCursorModeKnown || bUIMode != bUIModeApplied;
 	bCursorModeKnown = true;
 	bCursorModeApplied = bWantCursor;
-	if (bWantCursor)
+	bUIModeApplied = bUIMode;
+	bShowMouseCursor = bWantCursor;
+	if (bModeChanged)
 	{
-		// ボタンやマスをカーソルで指す
-		bShowMouseCursor = true;
-		FInputModeGameAndUI Mode;
-		Mode.SetHideCursorDuringCapture(false);                         // クリック中もカーソルを消さない
-		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		SetInputMode(Mode);
-	}
-	else
-	{
-		// カーソルを消してマウスを捕まえる
-		bShowMouseCursor = false;
-		SetInputMode(FInputModeGameOnly());
+		if (bUIMode)
+		{
+			FInputModeGameAndUI Mode;
+			Mode.SetHideCursorDuringCapture(false);                         // クリック中もカーソルを消さない
+			Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+			SetInputMode(Mode);
+		}
+		else
+		{
+			// カーソルを消してマウスを捕まえる
+			SetInputMode(FInputModeGameOnly());
+		}
 	}
 	ApplyAutoTestInputIsolation();
 }
@@ -326,6 +518,7 @@ void AKakurenboPlayerController::OpenMenu(EKakurenboMenu Menu)
 	MenuStack.Add(Menu);
 	WaitingKeySlot = INDEX_NONE;
 	DraggingSlider = INDEX_NONE;
+	FocusAction = EKakurenboUIAction::None; // コントローラー：開いたメニューの最初のボタンを選ぶ
 	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.4f, 1.5f);
 }
 
@@ -337,6 +530,7 @@ void AKakurenboPlayerController::CloseMenu()
 	}
 	WaitingKeySlot = INDEX_NONE;
 	DraggingSlider = INDEX_NONE;
+	FocusAction = EKakurenboUIAction::None;
 	if (MenuStack.Num() == 0 && bPausedByMenu)
 	{
 		bPausedByMenu = false;
@@ -354,6 +548,7 @@ void AKakurenboPlayerController::CloseAllMenus()
 	MenuStack.Reset();
 	WaitingKeySlot = INDEX_NONE;
 	DraggingSlider = INDEX_NONE;
+	FocusAction = EKakurenboUIAction::None;
 	if (bPausedByMenu)
 	{
 		bPausedByMenu = false;
@@ -382,10 +577,10 @@ void AKakurenboPlayerController::HandleMenuInput()
 {
 	UKakurenboSettings* S = Settings();
 
-	// キー設定：押されたキーを割り当てる（Esc で取り消し）
+	// キー設定：押されたキーを割り当てる（Esc・コントローラーの B で取り消し。コントローラーのボタンは割り当てない）
 	if (WaitingKeySlot != INDEX_NONE && PlayerInput && S)
 	{
-		if (WasInputKeyJustPressed(EKeys::Escape))
+		if (WasBackKeyPressed())
 		{
 			WaitingKeySlot = INDEX_NONE;
 			return;
@@ -444,8 +639,22 @@ void AKakurenboPlayerController::HandleMenuInput()
 		}
 	}
 
+	// コントローラー：十字キー・左スティックでボタンを選び、A で押す（つまみは左右で値を変える）
+	if (bUsingGamepad)
+	{
+		HandleGamepadFocus(FApp::GetDeltaTime(), true);
+		if (!IsMenuOpen())
+		{
+			return; // A で「つづける」などを押してメニューが閉じた
+		}
+	}
+
 	const EKakurenboMenu Menu = GetMenu();
-	if (WasInputKeyJustPressed(EKeys::Escape) || (Menu == EKakurenboMenu::Help && WasActionPressed(EKakurenboAction::Help)))
+	if (WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
+	{
+		CloseAllMenus(); // START：メニューを閉じてゲームに戻る
+	}
+	else if (WasBackKeyPressed() || (Menu == EKakurenboMenu::Help && WasActionPressed(EKakurenboAction::Help)))
 	{
 		CloseMenu();
 	}
@@ -479,12 +688,14 @@ void AKakurenboPlayerController::HandleTitleInput()
 	{
 		Step(1);
 	}
-	if (WasInputKeyJustPressed(EKeys::Up) || WasInputKeyJustPressed(EKeys::W))
+	// 十字キー・左スティック（押し続けるとくり返し進む）
+	const FIntPoint Nav = ReadNavigation(FApp::GetDeltaTime(), true);
+	if (WasInputKeyJustPressed(EKeys::Up) || WasInputKeyJustPressed(EKeys::W) || Nav.Y < 0)
 	{
 		Step(-1);
 		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.3f, 1.8f);
 	}
-	if (WasInputKeyJustPressed(EKeys::Down) || WasInputKeyJustPressed(EKeys::S))
+	if (WasInputKeyJustPressed(EKeys::Down) || WasInputKeyJustPressed(EKeys::S) || Nav.Y > 0)
 	{
 		Step(1);
 		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.3f, 1.8f);
@@ -498,7 +709,8 @@ void AKakurenboPlayerController::HandleTitleInput()
 	{
 		TitleSelection = Button.Index;
 	}
-	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar))
+	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom)
+		|| WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
 	{
 		ActivateTitleItem(static_cast<EKakurenboTitleItem>(TitleSelection));
 	}
@@ -594,9 +806,32 @@ void AKakurenboPlayerController::SetSliderValue(EKakurenboSettingSlider Slider, 
 	case EKakurenboSettingSlider::Mouse:
 		S->MouseSensitivity = FMath::Lerp(UKakurenboSettings::MinMouseSensitivity, UKakurenboSettings::MaxMouseSensitivity, V);
 		break;
+	case EKakurenboSettingSlider::Gamepad:
+		S->GamepadSensitivity = FMath::Lerp(UKakurenboSettings::MinGamepadSensitivity, UKakurenboSettings::MaxGamepadSensitivity, V);
+		break;
 	default: break;
 	}
 	S->Apply(this);
+}
+
+float AKakurenboPlayerController::GetSliderValue(EKakurenboSettingSlider Slider) const
+{
+	const UKakurenboSettings* S = Settings();
+	if (!S)
+	{
+		return 0.f;
+	}
+	switch (Slider)
+	{
+	case EKakurenboSettingSlider::Master: return S->MasterVolume;
+	case EKakurenboSettingSlider::Music:  return S->MusicVolume;
+	case EKakurenboSettingSlider::Sfx:    return S->SfxVolume;
+	case EKakurenboSettingSlider::Mouse:
+		return (S->MouseSensitivity - UKakurenboSettings::MinMouseSensitivity) / (UKakurenboSettings::MaxMouseSensitivity - UKakurenboSettings::MinMouseSensitivity);
+	case EKakurenboSettingSlider::Gamepad:
+		return (S->GamepadSensitivity - UKakurenboSettings::MinGamepadSensitivity) / (UKakurenboSettings::MaxGamepadSensitivity - UKakurenboSettings::MinGamepadSensitivity);
+	default: return 0.f;
+	}
 }
 
 void AKakurenboPlayerController::ToggleSetting(EKakurenboSettingToggle Toggle)
@@ -663,17 +898,17 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		}
 	}
 
-	// はじめての場面で、その場で使える操作を教える（[ ] はキーの形で描く）
+	// はじめての場面で、その場で使える操作を教える（[ ] はキーの形で描く。キーボード・マウスかコントローラーかで変わる）
 	HideTipClock += RealDeltaSeconds;
 	auto K = [this](EKakurenboAction Action) { return FString::Printf(TEXT("[%s]"), *KeyName(Action)); };
+	auto U = [this](EKakurenboUIKey Key) { return UIKeyLabel(Key); };
 	switch (State->Phase)
 	{
 	case EKakurenboPhase::Hide:
 	{
 		if (HideTipClock > 0.5f)
 		{
-			QueueTip(TEXT("Move"), FString::Printf(TEXT("%s%s%s%s で歩く　マウスで見回す"),
-				*K(EKakurenboAction::MoveForward), *K(EKakurenboAction::MoveLeft), *K(EKakurenboAction::MoveBack), *K(EKakurenboAction::MoveRight)));
+			QueueTip(TEXT("Move"), FString::Printf(TEXT("%s で歩く　%s で見回す"), *U(EKakurenboUIKey::Move), *U(EKakurenboUIKey::Look)));
 		}
 		if (State->HideStartCountdown <= 0.f)
 		{
@@ -685,9 +920,9 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 			QueueTip(TEXT("Sneak"), FString::Printf(TEXT("%s を押している間しゃがむ。足音が小さくなり、低い家具にも隠れられる"), *K(EKakurenboAction::Sneak)));
 			QueueTip(TEXT("Treasure"), TEXT("キラキラと鳴る方に、お宝がある"));
 		}
-		if (GM->IsJumpUnlocked())
+		if (GM->IsClimbUnlocked())
 		{
-			QueueTip(TEXT("Jump"), FString::Printf(TEXT("%s でジャンプ（壁 1 段に飛び乗れる）"), *K(EKakurenboAction::Jump)));
+			QueueTip(TEXT("Climb"), FString::Printf(TEXT("壁や低い家具に向かって %s でよじ登る（1 段ずつ。鬼はクライミング壁と 2 段の壁には飛び乗れない）"), *K(EKakurenboAction::Climb)));
 		}
 		if (GM->IsDashUnlocked())
 		{
@@ -706,10 +941,10 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		break;
 	}
 	case EKakurenboPhase::Shop:
-		QueueTip(TEXT("Shop"), FString::Printf(TEXT("商品をクリックで買う。買った壁や罠は、次の設置で置ける　%s 次へ"), *K(EKakurenboAction::Next)));
+		QueueTip(TEXT("Shop"), FString::Printf(TEXT("%s 商品を買う。買った壁や罠は、次の設置で置ける　%s 次へ"), *U(EKakurenboUIKey::Buy), *K(EKakurenboAction::Next)));
 		if (HideTipClock > 1.f)
 		{
-			QueueTip(TEXT("Menu"), FString::Printf(TEXT("[Esc] メニュー・設定（音量・マウス感度・キー設定）　%s 操作説明"), *K(EKakurenboAction::Help)));
+			QueueTip(TEXT("Menu"), FString::Printf(TEXT("%s メニュー・設定（音量・感度・キー設定）　%s 操作説明"), *U(EKakurenboUIKey::Menu), *K(EKakurenboAction::Help)));
 		}
 		if (GM->CanPrestige())
 		{
@@ -717,11 +952,13 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		}
 		break;
 	case EKakurenboPhase::Build:
-		QueueTip(TEXT("Build"), FString::Printf(TEXT("[左クリック] 置く　[右クリック] 回収　%s スタート位置をカーソルの場所へ"), *K(EKakurenboAction::SetStart)));
+		QueueTip(TEXT("Build"), FString::Printf(TEXT("%s 置く　%s 回収　%s スタート位置をカーソルの場所へ"), *U(EKakurenboUIKey::Place), *U(EKakurenboUIKey::PickUp), *K(EKakurenboAction::SetStart)));
 		if (HideTipClock > 3.f)
 		{
-			QueueTip(TEXT("BuildCamera"), FString::Printf(TEXT("%s カメラを動かす　%s%s 回す　%s 傾ける　ホイールでズーム"),
-				*K(EKakurenboAction::MoveForward), *K(EKakurenboAction::CameraLeft), *K(EKakurenboAction::CameraRight), *K(EKakurenboAction::TiltDown)));
+			QueueTip(TEXT("BuildCamera"), bUsingGamepad
+				? FString::Printf(TEXT("%s カーソル（カメラが付いてくる）　%s 回す・傾ける　%s ズーム"), *U(EKakurenboUIKey::Cursor), *U(EKakurenboUIKey::Rotate), *U(EKakurenboUIKey::Zoom))
+				: FString::Printf(TEXT("%s カメラを動かす　%s 回す　%s 傾ける　ホイールでズーム"),
+					*K(EKakurenboAction::MoveForward), *U(EKakurenboUIKey::Rotate), *K(EKakurenboAction::TiltDown)));
 		}
 		break;
 	default:
@@ -752,20 +989,31 @@ void AKakurenboPlayerController::HandleOverheadCamera(float DeltaTime)
 {
 	AHiderCharacter* Hider = GetHider();
 
-	// Q / E で回転
-	float Rotate = 0.f;
+	// Q / E（右スティックの左右）で回転
+	const FVector2D RightStick = GetStick(true);
+	float Rotate = RightStick.X;
 	if (IsActionDown(EKakurenboAction::CameraLeft)) Rotate -= 1.f;
 	if (IsActionDown(EKakurenboAction::CameraRight)) Rotate += 1.f;
-	Hider->AddOverheadYaw(Rotate * OverheadRotateSpeed * DeltaTime);
+	Hider->AddOverheadYaw(FMath::Clamp(Rotate, -1.f, 1.f) * OverheadRotateSpeed * DeltaTime);
 
-	// 設置パート（真上から）は Z / X で傾ける（Z: 斜め横から見る / X: 真上に戻す）。積んだ壁の高さが見やすくなる
+	// 設置パート（真上から）は Z / X（右スティックの上下）で傾ける（Z: 斜め横から見る / X: 真上に戻す）。積んだ壁の高さが見やすくなる
 	const bool bTopDown = Hider->GetViewMode() == EHiderViewMode::TopDown;
 	if (bTopDown)
 	{
-		float Tilt = 0.f;
+		float Tilt = RightStick.Y;
 		if (IsActionDown(EKakurenboAction::TiltDown)) Tilt += 1.f;
 		if (IsActionDown(EKakurenboAction::TiltUp)) Tilt -= 1.f;
-		Hider->AddTopDownTilt(Tilt * OverheadRotateSpeed * 0.6f * DeltaTime);
+		Hider->AddTopDownTilt(FMath::Clamp(Tilt, -1.f, 1.f) * OverheadRotateSpeed * 0.6f * DeltaTime);
+	}
+
+	// LT・RT でズーム（RT で近づく）
+	if (PlayerInput)
+	{
+		const float Zoom = PlayerInput->GetRawKeyValue(EKeys::Gamepad_RightTriggerAxis) - PlayerInput->GetRawKeyValue(EKeys::Gamepad_LeftTriggerAxis);
+		if (FMath::Abs(Zoom) > 0.15f)
+		{
+			Hider->AddZoom(-Zoom * GamepadZoomSpeed * DeltaTime);
+		}
 	}
 
 	// ホイールを押しながらドラッグで回す（カーソルの移動量で判定）。設置パートでは上下のドラッグで傾ける
@@ -795,9 +1043,9 @@ void AKakurenboPlayerController::HandleTopDownPan(float DeltaTime)
 {
 	AHiderCharacter* Hider = GetHider();
 	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
-	if (!Hider || !Grid || !Grid->IsConfigured())
+	if (!Hider || !Grid || !Grid->IsConfigured() || bUsingGamepad || IsMenuOpen())
 	{
-		return;
+		return; // コントローラーのときは、カメラがカーソルに付いていく（HandleGamepadBuild）
 	}
 	// 画面の上 = カメラの向き（OverheadYaw）
 	const FRotator YawRot(0.f, Hider->GetOverheadYaw(), 0.f);
@@ -840,24 +1088,57 @@ void AKakurenboPlayerController::HandleZoom()
 void AKakurenboPlayerController::HandleCharacterMovement()
 {
 	AHiderCharacter* Hider = GetHider();
+	if (Hider->IsClimbing())
+	{
+		return; // よじ登っている間は動けない
+	}
 
-	// WASD を今のカメラの向き基準の移動に変換する（画面の奥＝W）
+	// WASD（左スティック）を今のカメラの向き基準の移動に変換する（画面の奥＝W）
 	const FRotator YawRot(0.f, Hider->GetViewYaw(), 0.f);
 	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
 	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
 
-	float F = 0.f, R = 0.f;
+	// スティックを少しだけ倒すとゆっくり歩く（足音は歩いた距離で鳴るので、ゆっくりでも鳴る）
+	const FVector2D Stick = GetStick(false);
+	float F = Stick.Y, R = Stick.X;
 	if (IsActionDown(EKakurenboAction::MoveForward)) F += 1.f;
 	if (IsActionDown(EKakurenboAction::MoveBack)) F -= 1.f;
 	if (IsActionDown(EKakurenboAction::MoveRight)) R += 1.f;
 	if (IsActionDown(EKakurenboAction::MoveLeft)) R -= 1.f;
-	Hider->AddMovementInput(Forward, F);
-	Hider->AddMovementInput(Right, R);
-
-	if (WasActionPressed(EKakurenboAction::Jump))
+	const FVector Move = (Forward * F + Right * R).GetClampedToMaxSize(1.f);
+	if (!Hider->GetCharacterMovement()->IsFalling())
 	{
-		Hider->Jump();
+		Hider->AddMovementInput(Move, 1.f); // 空中では向きも速さも変えられない（縁から下りるとほぼ真下に落ちる）
 	}
+
+	// よじ登る：歩こうとしている方向（無ければ体の向き）の壁・家具へ
+	if (WasActionPressed(EKakurenboAction::Climb))
+	{
+		DoClimb(Move);
+	}
+}
+
+void AKakurenboPlayerController::DoClimb(const FVector& Dir)
+{
+	AHiderCharacter* Hider = GetHider();
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	if (!Hider || !GM || GM->GetPhase() != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	Hider->TryStartClimb(Dir.SizeSquared2D() > 0.01f ? Dir : Hider->GetActorForwardVector());
+}
+
+void AKakurenboPlayerController::HandleGamepadLook(float DeltaTime)
+{
+	// 右スティックでカメラを回す（マウスと同じく回転入力に直接足す。上下反転の設定も同じ）
+	const FVector2D Stick = GetStick(true);
+	if (Stick.IsNearlyZero())
+	{
+		return;
+	}
+	RotationInput.Yaw += Stick.X * GamepadLookYawSpeed * GamepadSensitivity * DeltaTime;
+	RotationInput.Pitch += (bInvertMouseY ? -Stick.Y : Stick.Y) * GamepadLookPitchSpeed * GamepadSensitivity * DeltaTime;
 }
 
 int32 AKakurenboPlayerController::GetPressedNumberKey() const
@@ -883,7 +1164,8 @@ int32 AKakurenboPlayerController::GetPressedNumberKey() const
 
 void AKakurenboPlayerController::HandleShopInput()
 {
-	if (WasActionPressed(EKakurenboAction::SwitchShop))
+	// お店の切り替え（Tab・LB。コントローラーは RB でも）
+	if (WasActionPressed(EKakurenboAction::SwitchShop) || WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
 	{
 		bPrestigeShopTab = !bPrestigeShopTab;
 	}
@@ -966,15 +1248,26 @@ bool AKakurenboPlayerController::GetUICursorPosition(FVector2D& OutPosition) con
 
 bool AKakurenboPlayerController::HandleUIClick()
 {
-	AKakurenboGameMode* GM = GetKakurenboGameMode();
 	const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
-	UKakurenboSettings* S = Settings();
 	FVector2D Cursor;
 	FKakurenboUIButton Button;
-	if (!GM || !HUD || !GetUICursorPosition(Cursor) || !HUD->FindButtonAt(Cursor, Button))
+	if (!GetKakurenboGameMode() || !HUD || !GetUICursorPosition(Cursor) || !HUD->FindButtonAt(Cursor, Button))
 	{
 		return false;
 	}
+	ActivateUIButton(Button, Cursor, true);
+	return true; // パネルの上のクリックは、後ろの床に壁を置かない
+}
+
+void AKakurenboPlayerController::ActivateUIButton(const FKakurenboUIButton& Button, const FVector2D& Point, bool bFromMouse)
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	UKakurenboSettings* S = Settings();
+	if (!GM)
+	{
+		return;
+	}
+	const FVector2D Cursor = Point;
 	switch (Button.Action)
 	{
 	case EKakurenboUIAction::ShopTab:   bPrestigeShopTab = (Button.Index == 1); break;
@@ -993,10 +1286,13 @@ bool AKakurenboPlayerController::HandleUIClick()
 	case EKakurenboUIAction::OpenHelp:  OpenMenu(EKakurenboMenu::Help); break;
 	case EKakurenboUIAction::MenuItem:  ActivatePauseItem(static_cast<EKakurenboPauseItem>(Button.Index)); break;
 	case EKakurenboUIAction::Slider:
-		// つまみ：押したところの値にして、そのままドラッグで動かせる
-		DraggingSlider = Button.Index;
-		DraggingSliderRect = Button.Rect;
-		SetSliderValue(static_cast<EKakurenboSettingSlider>(Button.Index), (Cursor.X - Button.Rect.Min.X) / FMath::Max(Button.Rect.GetSize().X, 1.0));
+		// つまみ：押したところの値にして、そのままドラッグで動かせる（コントローラーは左右で変える）
+		if (bFromMouse)
+		{
+			DraggingSlider = Button.Index;
+			DraggingSliderRect = Button.Rect;
+			SetSliderValue(static_cast<EKakurenboSettingSlider>(Button.Index), (Cursor.X - Button.Rect.Min.X) / FMath::Max(Button.Rect.GetSize().X, 1.0));
+		}
 		break;
 	case EKakurenboUIAction::Toggle:    ToggleSetting(static_cast<EKakurenboSettingToggle>(Button.Index)); break;
 	case EKakurenboUIAction::OpenKeys:  OpenMenu(EKakurenboMenu::Keys); break;
@@ -1034,7 +1330,107 @@ bool AKakurenboPlayerController::HandleUIClick()
 	case EKakurenboUIAction::ConfirmNo: CloseMenu(); break;
 	default: break;
 	}
-	return true; // パネルの上のクリックは、後ろの床に壁を置かない
+}
+
+int32 AKakurenboPlayerController::EnsureFocus(const TArray<FKakurenboUIButton>& Buttons)
+{
+	const int32 Current = Buttons.IndexOfByPredicate([this](const FKakurenboUIButton& B) { return B.Action == FocusAction && B.Index == FocusIndex; });
+	if (Current != INDEX_NONE)
+	{
+		return Current;
+	}
+	// その画面で最初に選んでおくボタン（確認は「いいえ」、リザルトは「つぎへ」、購入は 1 つ目の商品…）
+	TArray<TPair<EKakurenboUIAction, int32>> Preferred;
+	switch (GetMenu())
+	{
+	case EKakurenboMenu::Pause:          Preferred.Add({ EKakurenboUIAction::MenuItem, 0 }); break;
+	case EKakurenboMenu::Settings:       Preferred.Add({ EKakurenboUIAction::Slider, 0 }); break;
+	case EKakurenboMenu::Keys:           Preferred.Add({ EKakurenboUIAction::Back, 0 }); break;
+	case EKakurenboMenu::Help:           Preferred.Add({ EKakurenboUIAction::Back, 0 }); break;
+	case EKakurenboMenu::ConfirmNewGame:
+	case EKakurenboMenu::ConfirmTitle:   Preferred.Add({ EKakurenboUIAction::ConfirmNo, 0 }); break;
+	default:
+		Preferred.Add({ EKakurenboUIAction::ShopItem, 0 });
+		Preferred.Add({ EKakurenboUIAction::NextPhase, 0 });
+		break;
+	}
+	for (const TPair<EKakurenboUIAction, int32>& Want : Preferred)
+	{
+		const int32 Found = Buttons.IndexOfByPredicate([&Want](const FKakurenboUIButton& B) { return B.Action == Want.Key && B.Index == Want.Value; });
+		if (Found != INDEX_NONE)
+		{
+			FocusAction = Want.Key;
+			FocusIndex = Want.Value;
+			return Found;
+		}
+	}
+	FocusAction = Buttons[0].Action;
+	FocusIndex = Buttons[0].Index;
+	return 0;
+}
+
+void AKakurenboPlayerController::HandleGamepadFocus(float RealDeltaSeconds, bool bSliders)
+{
+	const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+	const AKakurenboGameMode* GM = GetKakurenboGameMode();
+	// 画面が変わった直後（まだ前の画面のボタンしか無い）は何もしない
+	if (!HUD || !GM || HUD->GetButtons().Num() == 0 || !HUD->AreButtonsFor(GM->GetPhase(), GetMenu()))
+	{
+		return;
+	}
+	const TArray<FKakurenboUIButton> Buttons = HUD->GetButtons(); // 押したボタンで画面が変わっても困らないよう写しを使う
+	const int32 Current = EnsureFocus(Buttons);
+	const FKakurenboUIButton& Focused = Buttons[Current];
+
+	const FIntPoint Nav = ReadNavigation(RealDeltaSeconds, true);
+	if (Nav != FIntPoint::ZeroValue)
+	{
+		if (bSliders && Focused.Action == EKakurenboUIAction::Slider && Nav.X != 0)
+		{
+			// つまみは左右で値を変える（5% ずつ）
+			const EKakurenboSettingSlider Slider = static_cast<EKakurenboSettingSlider>(Focused.Index);
+			SetSliderValue(Slider, GetSliderValue(Slider) + Nav.X * 0.05f);
+			if (UKakurenboSettings* S = Settings())
+			{
+				S->Save();
+			}
+		}
+		else
+		{
+			// 押した方向にある一番近いボタンへ（真横・真上から外れているほど遠いとみなす）
+			const FVector2D From = Focused.Rect.GetCenter();
+			const FVector2D Dir(Nav.X, Nav.Y);
+			int32 Best = INDEX_NONE;
+			float BestScore = TNumericLimits<float>::Max();
+			for (int32 i = 0; i < Buttons.Num(); ++i)
+			{
+				const FVector2D Delta = Buttons[i].Rect.GetCenter() - From;
+				const float Along = FVector2D::DotProduct(Delta, Dir);
+				const float Across = FMath::Abs(FVector2D::CrossProduct(Dir, Delta));
+				if (i == Current || Along <= 1.f || Across > Along * 3.f)
+				{
+					continue;
+				}
+				const float Score = Along + Across * 2.f;
+				if (Score < BestScore)
+				{
+					BestScore = Score;
+					Best = i;
+				}
+			}
+			if (Best != INDEX_NONE)
+			{
+				FocusAction = Buttons[Best].Action;
+				FocusIndex = Buttons[Best].Index;
+				UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.25f, 1.9f);
+			}
+		}
+	}
+	if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
+	{
+		const FKakurenboUIButton Pressed = Buttons[Buttons.IndexOfByPredicate([this](const FKakurenboUIButton& B) { return B.Action == FocusAction && B.Index == FocusIndex; })];
+		ActivateUIButton(Pressed, Pressed.Rect.GetCenter(), false);
+	}
 }
 
 bool AKakurenboPlayerController::IsPrestigeConfirmPending() const
@@ -1083,23 +1479,32 @@ void AKakurenboPlayerController::HandleBuildInput()
 		SelectedBuildSlot = Number - 1;
 	}
 
-	// カーソルの先の置き場所
-	float MouseX = 0.f, MouseY = 0.f;
-	if (bUseTestCursor)
+	if (bUsingGamepad)
 	{
-		UpdateBuildTargetAt(TestCursorPosition);
-	}
-	else if (GetMousePosition(MouseX, MouseY))
-	{
-		UpdateBuildTargetAt(FVector2D(MouseX, MouseY));
+		// コントローラー：カーソルはスティックで動かすマス（置く・回収は A・X）
+		HandleGamepadBuild(GetWorld()->GetDeltaSeconds());
 	}
 	else
 	{
-		ClearBuildTarget();
+		bGamepadCursorValid = false; // 次にコントローラーに持ち替えたら、カメラの真ん中から始める
+		// カーソルの先の置き場所
+		float MouseX = 0.f, MouseY = 0.f;
+		if (bUseTestCursor)
+		{
+			UpdateBuildTargetAt(TestCursorPosition);
+		}
+		else if (GetMousePosition(MouseX, MouseY))
+		{
+			UpdateBuildTargetAt(FVector2D(MouseX, MouseY));
+		}
+		else
+		{
+			ClearBuildTarget();
+		}
 	}
 
 	// 左クリック：画面下の欄やボタンの上ならそれを押す。そうでなければ置く
-	if (WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
+	if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{
@@ -1110,7 +1515,7 @@ void AKakurenboPlayerController::HandleBuildInput()
 			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
 		}
 	}
-	if (WasInputKeyJustPressed(EKeys::RightMouseButton))
+	if (WasInputKeyJustPressed(EKeys::RightMouseButton) || (bUsingGamepad && WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Left)))
 	{
 		if (PickUpTarget)
 		{
@@ -1139,6 +1544,101 @@ void AKakurenboPlayerController::HandleBuildInput()
 	if (WasActionPressed(EKakurenboAction::ClearAll))
 	{
 		RequestClearAll();
+	}
+}
+
+void AKakurenboPlayerController::HandleGamepadBuild(float DeltaTime)
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	AHiderCharacter* Hider = GetHider();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!GM || !Hider || !Grid || !Grid->IsConfigured())
+	{
+		return;
+	}
+	if (!bGamepadCursorValid)
+	{
+		GamepadCursor = Hider->GetTopDownFocus(); // カメラの真ん中から
+		bGamepadCursorValid = true;
+	}
+	// 画面の上 = カメラの向き
+	const FRotator YawRot(0.f, Hider->GetOverheadYaw(), 0.f);
+	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+	// 左スティック：なめらかに動かす（高いところから見ているほど速い）
+	const FVector2D Stick = GetStick(false);
+	const float Speed = GamepadCursorSpeed * FMath::Max(0.3f, Hider->TopDownDistance / 2600.f);
+	GamepadCursor += (Forward * Stick.Y + Right * Stick.X) * Speed * DeltaTime;
+
+	// 十字キー：1 マスずつ（画面の上下左右に一番近いマスの並びの方向へ）
+	const FIntPoint Nav = ReadNavigation(FApp::GetDeltaTime(), false);
+	if (Nav != FIntPoint::ZeroValue)
+	{
+		const FVector Want = Forward * -Nav.Y + Right * Nav.X;
+		const FIntPoint Step = FMath::Abs(Want.X) >= FMath::Abs(Want.Y) ? FIntPoint(Want.X > 0.f ? 1 : -1, 0) : FIntPoint(0, Want.Y > 0.f ? 1 : -1);
+		const FVector Floor = Grid->CellFloorCenter(Grid->WorldToCell(GamepadCursor) + Step);
+		GamepadCursor = FVector(Floor.X, Floor.Y, GamepadCursor.Z);
+	}
+
+	// 館の中に収める
+	const FVector Min = Grid->CellFloorCenter(FIntPoint(0, 0));
+	const FVector Max = Grid->CellFloorCenter(FIntPoint(Grid->GetSizeX() - 1, Grid->GetSizeY() - 1));
+	GamepadCursor.X = FMath::Clamp(GamepadCursor.X, Min.X, Max.X);
+	GamepadCursor.Y = FMath::Clamp(GamepadCursor.Y, Min.Y, Max.Y);
+	GamepadCursor.Z = Min.Z;
+
+	// カメラはカーソルに付いていく（カーソルはいつも画面の真ん中あたり）
+	const FVector Focus = Hider->GetTopDownFocus();
+	Hider->SetTopDownFocus(FMath::VInterpTo(Focus, FVector(GamepadCursor.X, GamepadCursor.Y, Focus.Z), DeltaTime, 6.f));
+
+	UpdateBuildTargetAtCell(Grid->WorldToCell(GamepadCursor));
+
+	// LB・RB：置く物（壁の種類 → 罠の種類の順にぐるっと回る）
+	const int32 NumSlots = GM->WallTypes.Num() + GM->TrapTypes.Num();
+	if (NumSlots > 0 && WasInputKeyJustPressed(EKeys::Gamepad_LeftShoulder))
+	{
+		SelectedBuildSlot = (SelectedBuildSlot + NumSlots - 1) % NumSlots;
+	}
+	if (NumSlots > 0 && WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
+	{
+		SelectedBuildSlot = (SelectedBuildSlot + 1) % NumSlots;
+	}
+	// A：置く
+	if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) && bCanPlaceAtTarget)
+	{
+		if (IsTrapSlotSelected())
+		{
+			GM->PlaceTrap(BuildTargetCell, GetSelectedTrapType());
+		}
+		else
+		{
+			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
+		}
+		UpdateBuildTargetAtCell(BuildTargetCell);
+	}
+}
+
+void AKakurenboPlayerController::UpdateBuildTargetAtCell(const FIntPoint& Cell)
+{
+	ClearBuildTarget();
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!GM || !Grid || !Grid->IsConfigured() || !Grid->IsInside(Cell))
+	{
+		return;
+	}
+	// そのマスの一番上に置く・一番上の壁を回収する（マウスのように面を選べないので、いつも一番上）
+	BuildTargetCell = Cell;
+	bHasBuildTarget = true;
+	bCanPlaceAtTarget = IsTrapSlotSelected()
+		? GM->CanPlaceTrap(Cell, GetSelectedTrapType(), &BuildTargetReason)
+		: GM->CanPlaceWall(Cell, GetSelectedWallType(), &BuildTargetReason);
+	PickUpTarget = Grid->GetTopBlock(Cell);
+	if (!PickUpTarget && Grid->HasTrap(Cell))
+	{
+		bHasTrapPickUpTarget = true;
+		TrapPickUpCell = Cell;
 	}
 }
 

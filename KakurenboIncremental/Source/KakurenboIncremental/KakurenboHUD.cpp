@@ -101,6 +101,8 @@ void AKakurenboHUD::DrawHUD()
 	{
 		return;
 	}
+	ButtonsPhase = State->Phase;
+	ButtonsMenu = PC ? PC->GetMenu() : EKakurenboMenu::None;
 
 	if (State->Phase == EKakurenboPhase::Title)
 	{
@@ -279,12 +281,26 @@ void AKakurenboHUD::DimScreen(float Alpha)
 
 float AKakurenboHUD::KeyCap(const FString& Label, float X, float Y, int32 Size, float Alpha)
 {
-	// 濃い紫の小さな板に明るい縁：キーボードのキーに見える形
+	// 濃い紫の小さな板に明るい縁：キーボードのキーに見える形。
+	// コントローラーの A・B・X・Y は、ボタンの色（緑・赤・青・黄）の板にする
 	const float Pad = Size * 0.4f;
 	const float W = MeasureText(Label, Size) + Pad * 2.f;
 	const float H = Size * 1.45f;
 	const float Top = Y - Size * 0.12f;
-	Panel(X, Top, W, H, FLinearColor(0.16f, 0.1f, 0.24f, 0.95f * Alpha));
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	FLinearColor Back(0.16f, 0.1f, 0.24f);
+	if (PC && PC->IsUsingGamepad() && Label.Len() == 1)
+	{
+		switch (Label[0])
+		{
+		case TEXT('A'): Back = FLinearColor(0.1f, 0.45f, 0.12f); break;
+		case TEXT('B'): Back = FLinearColor(0.55f, 0.1f, 0.1f); break;
+		case TEXT('X'): Back = FLinearColor(0.1f, 0.25f, 0.6f); break;
+		case TEXT('Y'): Back = FLinearColor(0.6f, 0.48f, 0.05f); break;
+		default: break;
+		}
+	}
+	Panel(X, Top, W, H, FLinearColor(Back.R, Back.G, Back.B, 0.95f * Alpha));
 	Frame(X, Top, W, H, FLinearColor(0.85f, 0.8f, 1.f, 0.75f * Alpha), FMath::Max(1.f, Size * 0.08f));
 	Panel(X + 2.f, Top + H - Size * 0.16f, W - 4.f, Size * 0.1f, FLinearColor(0.f, 0.f, 0.f, 0.35f * Alpha)); // 下の影
 	TextPx(Label, (X + Pad) * UIScale, Y * UIScale, Size, FLinearColor(1.f, 1.f, 1.f, Alpha), false);
@@ -370,11 +386,18 @@ void AKakurenboHUD::DrawButton(float X, float Y, float W, float H, const FString
 	bool bSelected, int32 Size, const FLinearColor& TextColor)
 {
 	AddButton(X, Y, W, H, Action, Index);
-	const bool bHovered = IsCursorOver(X, Y, W, H);
+	// カーソルを乗せている・コントローラーで選んでいるボタンは明るく（選んでいるボタンは金色の枠も）
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	const bool bFocused = PC && PC->IsUIFocused(Action, Index);
+	const bool bHovered = IsCursorOver(X, Y, W, H) || bFocused;
 	const FLinearColor Back = bSelected ? FLinearColor(1.f, 0.7f, 0.2f, 0.8f)
 		: bHovered ? FLinearColor(0.45f, 0.25f, 0.6f, 0.9f) : FLinearColor(0.12f, 0.05f, 0.2f, 0.82f);
 	Panel(X, Y, W, H, Back);
 	Frame(X, Y, W, H, bHovered ? FLinearColor(1.f, 1.f, 1.f, 0.7f) : FLinearColor(0.7f, 0.55f, 1.f, 0.35f), bHovered ? 2.f : 1.f);
+	if (bFocused)
+	{
+		Frame(X - 4, Y - 4, W + 8, H + 8, FLinearColor(Gold.R, Gold.G, Gold.B, 0.95f), 3.f);
+	}
 	RichText(Label, X + W * 0.5f, Y + (H - Size * 1.2f) * 0.5f, Size, TextColor, true);
 }
 
@@ -415,9 +438,15 @@ void AKakurenboHUD::TrianglePx(const FVector2D& A, const FVector2D& B, const FVe
 
 void AKakurenboHUD::DrawSlider(float X, float Y, float W, float Value01, int32 Index, const FString& ValueText)
 {
-	// 押せる範囲は線の幅ちょうど（押した横の位置が値になる）
+	// 押せる範囲は線の幅ちょうど（押した横の位置が値になる）。コントローラーで選んでいるときは金色の枠（左右で値が変わる）
 	AddButton(X, Y, W, 46, EKakurenboUIAction::Slider, Index);
-	const bool bHovered = IsCursorOver(X, Y, W, 46);
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	const bool bFocused = PC && PC->IsUIFocused(EKakurenboUIAction::Slider, Index);
+	const bool bHovered = IsCursorOver(X, Y, W, 46) || bFocused;
+	if (bFocused)
+	{
+		Frame(X - 16, Y - 2, W + 32, 50, FLinearColor(Gold.R, Gold.G, Gold.B, 0.9f), 2.f);
+	}
 	const float V = FMath::Clamp(Value01, 0.f, 1.f);
 	Panel(X, Y + 18, W, 10, FLinearColor(0.f, 0.f, 0.f, 0.6f));
 	Panel(X, Y + 18, W * V, 10, FLinearColor(0.75f, 0.5f, 1.f, 0.95f));
@@ -523,15 +552,15 @@ void AKakurenboHUD::DrawCornerButtons(EKakurenboPhase Phase)
 	{
 		// かくれんぼ中はカーソルが無いので、キーだけ小さく
 		const UKakurenboSettings* S = UKakurenboSettings::Get(this);
-		if (!S || S->bShowHints)
+		if (PC && (!S || S->bShowHints))
 		{
-			RichText(FString::Printf(TEXT("[Esc] メニュー　%s 操作説明"), *KeyOf(PC, EKakurenboAction::Help)), CanvasW - 330, 24, 16, PaleText, false, 0.75f);
+			RichText(FString::Printf(TEXT("%s メニュー　%s 操作説明"), *PC->UIKeyLabel(EKakurenboUIKey::Menu), *KeyOf(PC, EKakurenboAction::Help)), CanvasW - 360, 24, 16, PaleText, false, 0.75f);
 		}
 		return;
 	}
 	// 右上：操作説明・メニュー（クリックでも開ける）
 	DrawButton(CanvasW - 470, 20, 220, 46, FString::Printf(TEXT("操作説明 %s"), *KeyOf(PC, EKakurenboAction::Help)), EKakurenboUIAction::OpenHelp, 0, false, 19);
-	DrawButton(CanvasW - 240, 20, 220, 46, TEXT("メニュー [Esc]"), EKakurenboUIAction::OpenMenu, 0, false, 19);
+	DrawButton(CanvasW - 240, 20, 220, 46, FString::Printf(TEXT("メニュー %s"), PC ? *PC->UIKeyLabel(EKakurenboUIKey::Menu) : TEXT("")), EKakurenboUIAction::OpenMenu, 0, false, 19);
 }
 
 void AKakurenboHUD::DrawTip()
@@ -566,45 +595,55 @@ TArray<FString> AKakurenboHUD::GetHelpLines(EKakurenboPhase Phase) const
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
 	auto K = [PC](EKakurenboAction A) { return KeyOf(PC, A); };
-	const FString Move = K(EKakurenboAction::MoveForward) + K(EKakurenboAction::MoveLeft) + K(EKakurenboAction::MoveBack) + K(EKakurenboAction::MoveRight);
+	auto U = [PC](EKakurenboUIKey Key) { return PC ? PC->UIKeyLabel(Key) : FString(); };
+	const bool bPad = PC && PC->IsUsingGamepad();
+	const int32 NumSlots = GM ? GM->WallTypes.Num() + GM->TrapTypes.Num() : 5;
 	TArray<FString> Lines;
 	switch (Phase)
 	{
 	case EKakurenboPhase::Hide:
-		Lines.Add(FString::Printf(TEXT("%s 歩く（カメラの向きに）　マウス 見回す　ホイール カメラの距離"), *Move));
+		Lines.Add(FString::Printf(TEXT("%s 歩く（カメラの向きに）　%s 見回す%s"), *U(EKakurenboUIKey::Move), *U(EKakurenboUIKey::Look), bPad ? TEXT("") : TEXT("　ホイール カメラの距離")));
 		Lines.Add(FString::Printf(TEXT("%s 連打：コインを稼ぐ（音が出て、鬼が寄ってくる）"), *K(EKakurenboAction::Mash)));
 		Lines.Add(FString::Printf(TEXT("%s 押している間しゃがむ：足音が小さく、低い家具の陰に隠れられる"), *K(EKakurenboAction::Sneak)));
 		Lines.Add(FString::Printf(TEXT("%s 煙幕ダッシュ：煙の向こうは鬼から見えない%s"), *K(EKakurenboAction::Dash),
 			GM && GM->IsDashUnlocked() ? TEXT("") : TEXT("（転生のお店で解放）")));
-		Lines.Add(FString::Printf(TEXT("%s ジャンプ：壁 1 段に飛び乗れる%s"), *K(EKakurenboAction::Jump), GM && GM->IsJumpUnlocked() ? TEXT("") : TEXT("（転生のお店で解放）")));
+		Lines.Add(FString::Printf(TEXT("%s よじ登る：前の壁・低い家具に 1 段ずつ（隙間は越えられない）%s"), *K(EKakurenboAction::Climb), GM && GM->IsClimbUnlocked() ? TEXT("") : TEXT("（転生のお店で解放）")));
 		Lines.Add(TEXT("鬼にさわられたら見つかる。時間まで逃げきれば大きな報酬"));
 		Lines.Add(TEXT("鬼の足音（どたどた）とお宝のキラキラは、音の左右と大きさで場所がわかる"));
 		break;
 	case EKakurenboPhase::Shop:
-		Lines.Add(TEXT("クリック・[1]〜[8] 商品を買う（壁と罠は、次の設置で置く）"));
-		Lines.Add(FString::Printf(TEXT("%s コインのお店 ↔ 転生のお店"), *K(EKakurenboAction::SwitchShop)));
+		Lines.Add(bPad ? FString::Printf(TEXT("%s 商品を選ぶ　[A] 買う（壁と罠は、次の設置で置く）"), *U(EKakurenboUIKey::Navigate))
+			: FString::Printf(TEXT("クリック・[1]〜[%d] 商品を買う（壁と罠は、次の設置で置く）"), FMath::Min(9, 3 + NumSlots)));
+		Lines.Add(FString::Printf(TEXT("%s コインのお店 ↔ 転生のお店"), bPad ? TEXT("[LB][RB]") : *K(EKakurenboAction::SwitchShop)));
 		Lines.Add(FString::Printf(TEXT("%s 壊れた壁・使った罠をまとめて補充"), *K(EKakurenboAction::Refill)));
-		Lines.Add(FString::Printf(TEXT("%s を 2 回 転生（ステージ %d から）"), *K(EKakurenboAction::Prestige), GM ? GM->PrestigeSettings.MinStage : 5));
+		Lines.Add(bPad ? FString::Printf(TEXT("「転生」のボタンを 2 回 転生（ステージ %d から）"), GM ? GM->PrestigeSettings.MinStage : 5)
+			: FString::Printf(TEXT("%s を 2 回 転生（ステージ %d から）"), *K(EKakurenboAction::Prestige), GM ? GM->PrestigeSettings.MinStage : 5));
 		Lines.Add(FString::Printf(TEXT("%s 設置へ"), *K(EKakurenboAction::Next)));
-		Lines.Add(FString::Printf(TEXT("%s%s カメラを回す　ホイール ズーム　ホイールを押してドラッグ 回す"), *K(EKakurenboAction::CameraLeft), *K(EKakurenboAction::CameraRight)));
+		Lines.Add(FString::Printf(TEXT("%s カメラを回す　%s ズーム%s"), *U(EKakurenboUIKey::Rotate), *U(EKakurenboUIKey::Zoom), bPad ? TEXT("") : TEXT("　ホイールを押してドラッグ 回す")));
 		break;
 	case EKakurenboPhase::Build:
-		Lines.Add(TEXT("[左クリック] 置く　[右クリック] 回収　下の欄・[1]〜[6] 置く物を選ぶ"));
+		Lines.Add(FString::Printf(TEXT("%s 置く　%s 回収　%s 置く物を選ぶ"), *U(EKakurenboUIKey::Place), *U(EKakurenboUIKey::PickUp), *U(EKakurenboUIKey::SelectSlot)));
 		Lines.Add(FString::Printf(TEXT("%s スタート位置（青い印）をカーソルのマスへ"), *K(EKakurenboAction::SetStart)));
-		Lines.Add(FString::Printf(TEXT("%s カメラを動かす　ホイール ズーム"), *Move));
-		Lines.Add(FString::Printf(TEXT("%s%s 回す　%s 傾ける　%s 真上に戻す（ホイールを押してドラッグでも）"),
-			*K(EKakurenboAction::CameraLeft), *K(EKakurenboAction::CameraRight), *K(EKakurenboAction::TiltDown), *K(EKakurenboAction::TiltUp)));
+		Lines.Add(bPad ? FString::Printf(TEXT("%s・[十字キー] カーソル（カメラが付いてくる）　%s ズーム"), *U(EKakurenboUIKey::Cursor), *U(EKakurenboUIKey::Zoom))
+			: FString::Printf(TEXT("%s カメラを動かす　%s ズーム"), *U(EKakurenboUIKey::Move), *U(EKakurenboUIKey::Zoom)));
+		Lines.Add(bPad ? FString::Printf(TEXT("%s 回す・傾ける"), *U(EKakurenboUIKey::Rotate))
+			: FString::Printf(TEXT("%s 回す　%s 傾ける　%s 真上に戻す（ホイールを押してドラッグでも）"),
+				*U(EKakurenboUIKey::Rotate), *K(EKakurenboAction::TiltDown), *K(EKakurenboAction::TiltUp)));
 		Lines.Add(FString::Printf(TEXT("%s を 2 回 全部回収　%s 購入へ戻る　%s かくれんぼ開始"),
 			*K(EKakurenboAction::ClearAll), *K(EKakurenboAction::BackToShop), *K(EKakurenboAction::Next)));
 		break;
 	case EKakurenboPhase::Result:
 		Lines.Add(FString::Printf(TEXT("%s・ボタン 次へ"), *K(EKakurenboAction::Next)));
-		Lines.Add(FString::Printf(TEXT("%s%s カメラを回す　ホイール ズーム"), *K(EKakurenboAction::CameraLeft), *K(EKakurenboAction::CameraRight)));
+		Lines.Add(FString::Printf(TEXT("%s カメラを回す　%s ズーム"), *U(EKakurenboUIKey::Rotate), *U(EKakurenboUIKey::Zoom)));
 		break;
 	default:
 		break;
 	}
-	Lines.Add(FString::Printf(TEXT("[Esc] メニュー（設定・キー設定・タイトルへ）　%s 操作説明"), *K(EKakurenboAction::Help)));
+	Lines.Add(FString::Printf(TEXT("%s メニュー（設定・キー設定・タイトルへ）　%s 操作説明"), *U(EKakurenboUIKey::Menu), *K(EKakurenboAction::Help)));
+	if (bPad)
+	{
+		Lines.Add(TEXT("ボタンは [十字キー] で選んで [A] で押す　[B] もどる"));
+	}
 	return Lines;
 }
 
@@ -657,7 +696,7 @@ void AKakurenboHUD::DrawTitle(AKakurenboGameState* State, AKakurenboGameMode* GM
 		}
 		Y += 82.f;
 	}
-	RichText(TEXT("クリック・[↑][↓] と [Enter] で選ぶ"), 116, CanvasH - 70, 18, Gray);
+	RichText(PC && PC->IsUsingGamepad() ? TEXT("[十字キー] と [A] で選ぶ") : TEXT("クリック・[↑][↓] と [Enter] で選ぶ"), 116, CanvasH - 70, 18, Gray);
 }
 
 // ---------------------------------------------------------------- メニュー
@@ -669,6 +708,8 @@ void AKakurenboHUD::DrawMenu(AKakurenboGameMode* GM)
 	{
 		return;
 	}
+	// 確認の「はい」の Enter はキーボードだけ（コントローラーはボタンを選んで A）
+	const bool bPad = PC->IsUsingGamepad();
 	switch (PC->GetMenu())
 	{
 	case EKakurenboMenu::Pause:    DrawPauseMenu(GM); break;
@@ -676,13 +717,20 @@ void AKakurenboHUD::DrawMenu(AKakurenboGameMode* GM)
 	case EKakurenboMenu::Keys:     DrawKeyConfig(); break;
 	case EKakurenboMenu::Help:     DrawHelp(GM->GetPhase()); break;
 	case EKakurenboMenu::ConfirmNewGame:
-		DrawConfirm(TEXT("はじめから"), TEXT("セーブを消して、ステージ 1 からはじめます。よろしいですか？"), TEXT("はじめから [Enter]"), TEXT("やめる [Esc]"));
+		DrawConfirm(TEXT("はじめから"), TEXT("セーブを消して、ステージ 1 からはじめます。よろしいですか？"), bPad ? TEXT("はじめから") : TEXT("はじめから [Enter]"),
+			FString::Printf(TEXT("やめる %s"), *PC->UIKeyLabel(EKakurenboUIKey::Cancel)));
 		break;
 	case EKakurenboMenu::ConfirmTitle:
-		DrawConfirm(TEXT("タイトルへ"), TEXT("このかくれんぼで稼いだコインはなくなります（始める前の状態から、つづきを遊べます）"), TEXT("タイトルへ [Enter]"), TEXT("つづける [Esc]"));
+		DrawConfirm(TEXT("タイトルへ"), TEXT("このかくれんぼで稼いだコインはなくなります（始める前の状態から、つづきを遊べます）"), bPad ? TEXT("タイトルへ") : TEXT("タイトルへ [Enter]"),
+			FString::Printf(TEXT("つづける %s"), *PC->UIKeyLabel(EKakurenboUIKey::Cancel)));
 		break;
 	default:
 		break;
+	}
+	if (bPad)
+	{
+		const float CanvasH = Canvas->ClipY / UIScale;
+		RichText(TEXT("[十字キー] 選ぶ　[A] 決める　[B] もどる"), -1.f, CanvasH - 54, 18, PaleText, true, 0.85f);
 	}
 }
 
@@ -693,7 +741,9 @@ void AKakurenboHUD::DrawPauseMenu(AKakurenboGameMode* GM)
 	Panel(X, Y, W, H, FLinearColor(0.06f, 0.02f, 0.11f, 0.95f));
 	Frame(X, Y, W, H, FLinearColor(0.75f, 0.55f, 1.f, 0.6f), 2.f);
 	Text(GM->GetPhase() == EKakurenboPhase::Hide ? TEXT("ひと休み") : TEXT("メニュー"), 0, Y + 28, 36, FLinearColor::White, true);
-	const TCHAR* Labels[] = { TEXT("つづける [Esc]"), TEXT("操作説明"), TEXT("設定（音量・マウス・キー）"), TEXT("タイトルへ") };
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	const FString Labels[] = { FString::Printf(TEXT("つづける %s"), PC ? *PC->UIKeyLabel(EKakurenboUIKey::Cancel) : TEXT("")), TEXT("操作説明"),
+		TEXT("設定（音量・感度・キー）"), TEXT("タイトルへ") };
 	for (int32 i = 0; i < static_cast<int32>(EKakurenboPauseItem::Count); ++i)
 	{
 		DrawButton(X + 60, Y + 110 + i * 84, W - 120, 64, Labels[i], EKakurenboUIAction::MenuItem, i, false, 24,
@@ -708,8 +758,9 @@ void AKakurenboHUD::DrawSettings()
 	{
 		return;
 	}
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const float CanvasW = Canvas->ClipX / UIScale;
-	const float W = 960, H = 760, X = (CanvasW - W) * 0.5f, Y = 150;
+	const float W = 960, H = 830, X = (CanvasW - W) * 0.5f, Y = 120;
 	Panel(X, Y, W, H, FLinearColor(0.06f, 0.02f, 0.11f, 0.96f));
 	Frame(X, Y, W, H, FLinearColor(0.75f, 0.55f, 1.f, 0.6f), 2.f);
 	Text(TEXT("設定"), 0, Y + 24, 36, FLinearColor::White, true);
@@ -733,7 +784,11 @@ void AKakurenboHUD::DrawSettings()
 	DrawSlider(ControlX, RowY, SliderW, Sens01, static_cast<int32>(EKakurenboSettingSlider::Mouse),
 		FString::Printf(TEXT("×%.2f"), S->MouseSensitivity / UKakurenboSettings::DefaultMouseSensitivity));
 	RowY += 72;
-	Label(TEXT("マウスの上下"));
+	Label(TEXT("スティック感度"));
+	const float Pad01 = (S->GamepadSensitivity - UKakurenboSettings::MinGamepadSensitivity) / (UKakurenboSettings::MaxGamepadSensitivity - UKakurenboSettings::MinGamepadSensitivity);
+	DrawSlider(ControlX, RowY, SliderW, Pad01, static_cast<int32>(EKakurenboSettingSlider::Gamepad), FString::Printf(TEXT("×%.2f"), S->GamepadSensitivity));
+	RowY += 72;
+	Label(TEXT("上下の向き"));
 	DrawToggle(ControlX, RowY, 260, S->bInvertMouseY, static_cast<int32>(EKakurenboSettingToggle::InvertY), TEXT("反転する"), TEXT("そのまま"));
 	RowY += 66;
 	Label(TEXT("操作のヒント"));
@@ -745,7 +800,7 @@ void AKakurenboHUD::DrawSettings()
 	RowY += 90;
 
 	DrawButton(X + 60, RowY, 400, 60, TEXT("キー設定…"), EKakurenboUIAction::OpenKeys, 0, false, 24);
-	DrawButton(X + W - 460, RowY, 400, 60, TEXT("もどる [Esc]"), EKakurenboUIAction::Back, 0, false, 24, Gold);
+	DrawButton(X + W - 460, RowY, 400, 60, FString::Printf(TEXT("もどる %s"), PC ? *PC->UIKeyLabel(EKakurenboUIKey::Cancel) : TEXT("")), EKakurenboUIAction::Back, 0, false, 24, Gold);
 }
 
 void AKakurenboHUD::DrawKeyConfig()
@@ -757,7 +812,7 @@ void AKakurenboHUD::DrawKeyConfig()
 		return;
 	}
 	const float CanvasW = Canvas->ClipX / UIScale;
-	const float W = 1300, H = 900, X = (CanvasW - W) * 0.5f, Y = 90;
+	const float W = 1420, H = 900, X = (CanvasW - W) * 0.5f, Y = 90;
 	Panel(X, Y, W, H, FLinearColor(0.06f, 0.02f, 0.11f, 0.97f));
 	Frame(X, Y, W, H, FLinearColor(0.75f, 0.55f, 1.f, 0.6f), 2.f);
 	Text(TEXT("キー設定"), 0, Y + 20, 34, FLinearColor::White, true);
@@ -766,12 +821,19 @@ void AKakurenboHUD::DrawKeyConfig()
 	bool bWaitingSecondary = false;
 	const bool bWaiting = PC->IsWaitingForKey(WaitingAction, bWaitingSecondary);
 
+	// 1 行 = 操作の名前・キー 2 つ（クリックで変える）・コントローラーのボタン（決まっていて変えられない）
 	constexpr int32 ActionCount = static_cast<int32>(EKakurenboAction::Count);
 	const int32 PerColumn = (ActionCount + 1) / 2;
+	for (int32 Col = 0; Col < 2; ++Col)
+	{
+		const float ColX = X + 40 + Col * 690;
+		Text(TEXT("キーボード・マウス"), ColX + 260, Y + 66, 15, Gray);
+		Text(TEXT("コントローラー"), ColX + 540, Y + 66, 15, Gray);
+	}
 	for (int32 i = 0; i < ActionCount; ++i)
 	{
 		const EKakurenboAction Action = static_cast<EKakurenboAction>(i);
-		const float ColX = X + 40 + (i / PerColumn) * 630;
+		const float ColX = X + 40 + (i / PerColumn) * 690;
 		const float RowY = Y + 90 + (i % PerColumn) * 60;
 		Text(UKakurenboSettings::ActionDisplayName(Action).ToString(), ColX, RowY + 10, 20, FLinearColor::White);
 		for (int32 Slot = 0; Slot < 2; ++Slot)
@@ -779,14 +841,27 @@ void AKakurenboHUD::DrawKeyConfig()
 			const bool bThisWaiting = bWaiting && WaitingAction == Action && bWaitingSecondary == (Slot == 1);
 			const FKey Key = S->GetKey(Action, Slot == 1);
 			const FString Label = bThisWaiting ? FString(TEXT("キーを押す…")) : UKakurenboSettings::KeyLabel(Key);
-			DrawButton(ColX + 300 + Slot * 150, RowY, 140, 46, Label, EKakurenboUIAction::KeySlot, i * 2 + Slot, bThisWaiting, 18,
+			DrawButton(ColX + 260 + Slot * 140, RowY, 132, 46, Label, EKakurenboUIAction::KeySlot, i * 2 + Slot, bThisWaiting, 17,
 				bThisWaiting ? FLinearColor::Black : (Key.IsValid() ? FLinearColor::White : Gray));
+		}
+		const FKey Pad = UKakurenboSettings::GamepadKey(Action);
+		Panel(ColX + 540, RowY, 110, 46, FLinearColor(0.f, 0.f, 0.f, 0.35f));
+		if (Pad.IsValid())
+		{
+			RichText(FString::Printf(TEXT("[%s]"), *UKakurenboSettings::KeyLabel(Pad)), ColX + 595, RowY + 10, 16, FLinearColor::White, true, 0.9f);
+		}
+		else
+		{
+			Text(Action == EKakurenboAction::CameraLeft || Action == EKakurenboAction::CameraRight || Action == EKakurenboAction::TiltDown || Action == EKakurenboAction::TiltUp
+				? TEXT("R スティック") : TEXT("ボタンで"), ColX + 556, RowY + 12, 15, Gray);
 		}
 	}
 	const float FootY = Y + 90 + PerColumn * 60 + 14;
-	RichText(TEXT("欄をクリックして、使いたいキーを押す　[Esc] 取り消し　右クリック：2 つ目を外す　ほかの操作と同じキーなら入れ替わる"), -1.f, FootY, 18, PaleText, true);
+	RichText(PC->IsUsingGamepad()
+		? FString(TEXT("キーボードの欄を選んで [A]、使いたいキーを押す　[B] 取り消し　コントローラーのボタンは決まっている（右の列）"))
+		: FString(TEXT("欄をクリックして、使いたいキーを押す　[Esc] 取り消し　右クリック：2 つ目を外す　ほかの操作と同じキーなら入れ替わる")), -1.f, FootY, 17, PaleText, true);
 	DrawButton(X + 60, Y + H - 84, 380, 60, TEXT("初期設定に戻す"), EKakurenboUIAction::ResetKeys, 0, false, 22);
-	DrawButton(X + W - 440, Y + H - 84, 380, 60, TEXT("もどる [Esc]"), EKakurenboUIAction::Back, 0, false, 22, Gold);
+	DrawButton(X + W - 440, Y + H - 84, 380, 60, FString::Printf(TEXT("もどる %s"), *PC->UIKeyLabel(EKakurenboUIKey::Cancel)), EKakurenboUIAction::Back, 0, false, 22, Gold);
 }
 
 void AKakurenboHUD::DrawHelp(EKakurenboPhase Phase)
@@ -802,7 +877,8 @@ void AKakurenboHUD::DrawHelp(EKakurenboPhase Phase)
 	{
 		RichText(Lines[i], X + 50, Y + 90 + i * 64, 22, FLinearColor::White);
 	}
-	DrawButton(X + W - 340, Y + H - 72, 300, 54, TEXT("もどる [Esc]"), EKakurenboUIAction::Back, 0, false, 22, Gold);
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	DrawButton(X + W - 340, Y + H - 72, 300, 54, FString::Printf(TEXT("もどる %s"), PC ? *PC->UIKeyLabel(EKakurenboUIKey::Cancel) : TEXT("")), EKakurenboUIAction::Back, 0, false, 22, Gold);
 }
 
 void AKakurenboHUD::DrawConfirm(const FString& Title, const FString& Message, const FString& YesLabel, const FString& NoLabel)
@@ -839,30 +915,39 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	DrawButton(X + 16, Y + 12, 300, 44, TEXT("コインのお店"), EKakurenboUIAction::ShopTab, 0, !bPrestigeTab, 22, !bPrestigeTab ? FLinearColor::Black : FLinearColor::White);
 	DrawButton(X + 330, Y + 12, 340, 44, FString::Printf(TEXT("転生のお店（%d pt）"), State->PrestigePoints), EKakurenboUIAction::ShopTab, 1, bPrestigeTab, 22,
 		bPrestigeTab ? FLinearColor::Black : Purple);
-	RichText(FString::Printf(TEXT("%s 切り替え"), *KeyOf(PC, EKakurenboAction::SwitchShop)), X + 690, Y + 24, 16, Gray);
+	const bool bPad = PC && PC->IsUsingGamepad();
+	RichText(FString::Printf(TEXT("%s 切り替え"), bPad ? TEXT("[LB][RB]") : *KeyOf(PC, EKakurenboAction::SwitchShop)), X + 690, Y + 24, 16, Gray);
 
 	for (int32 i = 0; i < Items.Num(); ++i)
 	{
 		const FShopItemView& Item = Items[i];
-		const bool bAffordable = Item.bPrestigeItem ? (!Item.bMaxed && State->PrestigePoints >= Item.Cost) : State->Coins >= Item.Cost;
+		const bool bAffordable = !Item.bLocked && (Item.bPrestigeItem ? (!Item.bMaxed && State->PrestigePoints >= Item.Cost) : State->Coins >= Item.Cost);
 		const float RowY = RowsTop + i * RowH;
 
-		// 行全体がボタン（カーソルを乗せると明るくなる）
+		// 行全体がボタン（カーソルを乗せる・コントローラーで選ぶと明るくなる）
 		AddButton(X + 8, RowY - 4, W - 16, RowH - 2, EKakurenboUIAction::ShopItem, i);
-		const bool bHovered = IsCursorOver(X + 8, RowY - 4, W - 16, RowH - 2);
+		const bool bFocused = PC && PC->IsUIFocused(EKakurenboUIAction::ShopItem, i);
+		const bool bHovered = IsCursorOver(X + 8, RowY - 4, W - 16, RowH - 2) || bFocused;
 		if (bHovered)
 		{
 			Panel(X + 8, RowY - 4, W - 16, RowH - 2, bAffordable ? FLinearColor(0.35f, 0.35f, 0.45f, 0.6f) : FLinearColor(0.3f, 0.15f, 0.15f, 0.5f));
 		}
+		if (bFocused)
+		{
+			Frame(X + 6, RowY - 6, W - 12, RowH + 2, FLinearColor(Gold.R, Gold.G, Gold.B, 0.9f), 2.f);
+		}
 
-		RichText(FString::Printf(TEXT("[%d] %s  %s"), i + 1, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 22, bAffordable ? FLinearColor::White : Gray);
-		const FString CostText = Item.bMaxed ? FString(TEXT("最大"))
+		// 番号キーはキーボードのときだけ（コントローラーは選んで A）
+		const FString Number = bPad ? FString() : FString::Printf(TEXT("[%d] "), i + 1);
+		RichText(FString::Printf(TEXT("%s%s  %s"), *Number, *Item.DisplayName.ToString(), *Item.OwnedText.ToString()), X + 24, RowY, 22, bAffordable ? FLinearColor::White : Gray);
+		const FString CostText = Item.bLocked ? FString(TEXT("まだ買えない"))
+			: Item.bMaxed ? FString(TEXT("最大"))
 			: Item.bPrestigeItem ? FString::Printf(TEXT("%d pt"), FMath::RoundToInt(Item.Cost))
 			: FString::Printf(TEXT("%s コイン"), *Big(Item.Cost));
 		Text(CostText, X + 680, RowY, 22, bAffordable ? (Item.bPrestigeItem ? Purple : Gold) : Gray);
-		if (bHovered && !Item.bMaxed)
+		if (bHovered && !Item.bMaxed && !Item.bLocked)
 		{
-			Text(bAffordable ? TEXT("クリックで買う") : TEXT("足りない"), X + 680, RowY + RowH * 0.42f, 15, bAffordable ? Good : Bad);
+			RichText(bAffordable ? (bPad ? FString(TEXT("[A] 買う")) : FString(TEXT("クリックで買う"))) : FString(TEXT("足りない")), X + 680, RowY + RowH * 0.42f, 15, bAffordable ? Good : Bad);
 		}
 		Text(Item.Description.ToString(), X + 64, RowY + RowH * 0.42f, 15, Gray);
 		if (!Item.RepairText.IsEmpty())
@@ -918,10 +1003,12 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 			0, InfoY, 16, Gray, true);
 	}
 	const UKakurenboSettings* S = UKakurenboSettings::Get(this);
-	if (!S || S->bShowHints)
+	if (PC && (!S || S->bShowHints))
 	{
-		RichText(FString::Printf(TEXT("クリック・[1]〜[%d] 買う　%s%s カメラを回す　ホイール ズーム"), FMath::Min(Items.Num(), 9),
-			*KeyOf(PC, EKakurenboAction::CameraLeft), *KeyOf(PC, EKakurenboAction::CameraRight)), -1.f, InfoY + 30, 18, PaleText, true);
+		RichText(bPad ? FString::Printf(TEXT("[十字キー] 選ぶ　[A] 買う・押す　%s まとめて補充　%s 設置へ　%s カメラ　%s ズーム"),
+				*KeyOf(PC, EKakurenboAction::Refill), *KeyOf(PC, EKakurenboAction::Next), *PC->UIKeyLabel(EKakurenboUIKey::Rotate), *PC->UIKeyLabel(EKakurenboUIKey::Zoom))
+			: FString::Printf(TEXT("クリック・[1]〜[%d] 買う　%s カメラを回す　ホイール ズーム"), FMath::Min(Items.Num(), 9), *PC->UIKeyLabel(EKakurenboUIKey::Rotate)),
+			-1.f, InfoY + 30, 18, PaleText, true);
 	}
 }
 
@@ -935,15 +1022,24 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	const float CanvasH = Canvas->ClipY / UIScale;
 
 	// 操作の案内（キーの形で。設定で消せる）
-	if (!S || S->bShowHints)
+	const bool bPad = PC && PC->IsUsingGamepad();
+	if (PC && (!S || S->bShowHints))
 	{
 		const float HelpY = BelowStatusY;
-		Panel(20, HelpY, 500, 178, FLinearColor(0.03f, 0.01f, 0.06f, 0.6f));
-		RichText(TEXT("[左クリック] 置く　[右クリック] 回収"), 36, HelpY + 14, 18);
-		RichText(FString::Printf(TEXT("%s%s%s%s カメラを動かす　ホイール ズーム"), *KeyOf(PC, EKakurenboAction::MoveForward), *KeyOf(PC, EKakurenboAction::MoveLeft),
-			*KeyOf(PC, EKakurenboAction::MoveBack), *KeyOf(PC, EKakurenboAction::MoveRight)), 36, HelpY + 54, 18);
-		RichText(FString::Printf(TEXT("%s%s 回す　%s 傾ける　%s 真上"), *KeyOf(PC, EKakurenboAction::CameraLeft), *KeyOf(PC, EKakurenboAction::CameraRight),
-			*KeyOf(PC, EKakurenboAction::TiltDown), *KeyOf(PC, EKakurenboAction::TiltUp)), 36, HelpY + 94, 18);
+		Panel(20, HelpY, 540, 178, FLinearColor(0.03f, 0.01f, 0.06f, 0.6f));
+		RichText(FString::Printf(TEXT("%s 置く　%s 回収　%s 置く物"), *PC->UIKeyLabel(EKakurenboUIKey::Place), *PC->UIKeyLabel(EKakurenboUIKey::PickUp),
+			*PC->UIKeyLabel(EKakurenboUIKey::SelectSlot)), 36, HelpY + 14, 18);
+		if (bPad)
+		{
+			RichText(FString::Printf(TEXT("%s・[十字キー] カーソル　%s ズーム"), *PC->UIKeyLabel(EKakurenboUIKey::Cursor), *PC->UIKeyLabel(EKakurenboUIKey::Zoom)), 36, HelpY + 54, 18);
+			RichText(FString::Printf(TEXT("%s 回す・傾ける"), *PC->UIKeyLabel(EKakurenboUIKey::Rotate)), 36, HelpY + 94, 18);
+		}
+		else
+		{
+			RichText(FString::Printf(TEXT("%s カメラを動かす　ホイール ズーム"), *PC->UIKeyLabel(EKakurenboUIKey::Move)), 36, HelpY + 54, 18);
+			RichText(FString::Printf(TEXT("%s 回す　%s 傾ける　%s 真上"), *PC->UIKeyLabel(EKakurenboUIKey::Rotate),
+				*KeyOf(PC, EKakurenboAction::TiltDown), *KeyOf(PC, EKakurenboAction::TiltUp)), 36, HelpY + 94, 18);
+		}
 		RichText(FString::Printf(TEXT("%s スタート位置（青い印）をカーソルへ"), *KeyOf(PC, EKakurenboAction::SetStart)), 36, HelpY + 134, 18, Blue);
 	}
 
@@ -978,7 +1074,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	const TArray<FWallTypeDef> Walls = GM->GetEffectiveWallTypes();
 	const int32 NumWalls = Walls.Num();
 	const int32 Num = NumWalls + GM->TrapTypes.Num();
-	const float SlotW = FMath::Min(220.f, (CanvasW - 80.f) / FMath::Max(1, Num)), SlotH = 70;
+	const float SlotW = FMath::Min(262.f, (CanvasW - 80.f) / FMath::Max(1, Num)), SlotH = 70;
 	const float StartX = (CanvasW - SlotW * Num) * 0.5f;
 	const float SlotY = CanvasH - 170;
 	for (int32 i = 0; i < Num; ++i)
@@ -1007,10 +1103,10 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		{
 			Panel(X + 12, SlotY + 10, 14, SlotH - 20, Color);
 		}
-		RichText(FString::Printf(TEXT("[%d] %s"), i + 1, *Name.ToString()), X + 36, SlotY + 8, 19, Stock > 0 ? FLinearColor::White : Gray);
+		RichText(bPad ? Name.ToString() : FString::Printf(TEXT("[%d] %s"), i + 1, *Name.ToString()), X + 36, SlotY + 8, 19, Stock > 0 ? FLinearColor::White : Gray);
 		const FString Detail = bTrap
 			? FString::Printf(TEXT("在庫 %d"), Stock)
-			: FString::Printf(TEXT("在庫 %d　耐久 %s"), Stock, *Stat(Walls[i].MaxHP));
+			: FString::Printf(TEXT("在庫 %d　耐久 %s（%d 発）"), Stock, *Stat(Walls[i].MaxHP), GM->GetHitsToBreak(Walls[i].MaxHP));
 		Text(Detail, X + 36, SlotY + 40, 16, Gray);
 	}
 
@@ -1022,20 +1118,37 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	DrawButton(CanvasW - 420, CanvasH - 400, 390, 54, bClearPending ? FString(TEXT("もう一度押すと全部回収")) : FString::Printf(TEXT("全部回収 %s"), *KeyOf(PC, EKakurenboAction::ClearAll)),
 		EKakurenboUIAction::ClearAll, 0, false, 20, bClearPending ? Bad : FLinearColor::White);
 
-	// カーソルの下に、そこでできること（置ける・回収できる・置けない理由）
-	FVector2D Cursor;
+	// カーソルの下に、そこでできること（置ける・回収できる・置けない理由）。
+	// コントローラーのときは、カーソルのマス（画面の真ん中あたり）の下に出す
+	FVector2D Cursor = FVector2D::ZeroVector;
 	FKakurenboUIButton UnderCursor;
-	if (PC && PC->GetUICursorPosition(Cursor) && !FindButtonAt(Cursor, UnderCursor))
+	bool bHasCursor = false;
+	if (bPad)
+	{
+		FVector CursorWorld;
+		bHasCursor = PC->GetGamepadBuildCursor(CursorWorld) && PC->ProjectWorldLocationToScreen(CursorWorld, Cursor, true);
+	}
+	else
+	{
+		bHasCursor = PC && PC->GetUICursorPosition(Cursor) && !FindButtonAt(Cursor, UnderCursor);
+	}
+	if (bHasCursor)
 	{
 		const float CX = Cursor.X / UIScale;
 		const float CY = Cursor.Y / UIScale + 26.f;
+		// 置ける・回収できるが両方あれば両方（コントローラーは A・X で選べる）
+		FString Hint;
+		if (PC->bHasBuildTarget && PC->bCanPlaceAtTarget)
+		{
+			Hint = FString::Printf(TEXT("%s 置く"), *PC->UIKeyLabel(EKakurenboUIKey::Place));
+		}
 		if (PC->PickUpTarget || PC->bHasTrapPickUpTarget)
 		{
-			RichText(TEXT("[右クリック] 回収"), CX, CY, 17, Gold, true);
+			Hint += FString::Printf(TEXT("%s%s 回収"), Hint.IsEmpty() ? TEXT("") : TEXT("　"), *PC->UIKeyLabel(EKakurenboUIKey::PickUp));
 		}
-		else if (PC->bHasBuildTarget && PC->bCanPlaceAtTarget)
+		if (!Hint.IsEmpty())
 		{
-			RichText(TEXT("[左クリック] 置く"), CX, CY, 17, Good, true);
+			RichText(Hint, CX, CY, 17, PC->bCanPlaceAtTarget ? Good : Gold, true);
 		}
 		else if (PC->bHasBuildTarget && !PC->BuildTargetReason.IsEmpty())
 		{
@@ -1168,19 +1281,23 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 
 	// 使える操作（キーの形で。設定で消せる）
-	if (bHints)
+	if (bHints && PC)
 	{
-		FString Controls = FString::Printf(TEXT("%s%s%s%s 移動　%s しゃがむ　%s 連打"), *KeyOf(PC, EKakurenboAction::MoveForward), *KeyOf(PC, EKakurenboAction::MoveLeft),
-			*KeyOf(PC, EKakurenboAction::MoveBack), *KeyOf(PC, EKakurenboAction::MoveRight), *KeyOf(PC, EKakurenboAction::Sneak), *KeyOf(PC, EKakurenboAction::Mash));
+		FString Controls = FString::Printf(TEXT("%s 移動　%s しゃがむ　%s 連打"), *PC->UIKeyLabel(EKakurenboUIKey::Move), *KeyOf(PC, EKakurenboAction::Sneak), *KeyOf(PC, EKakurenboAction::Mash));
 		if (GM->IsDashUnlocked())
 		{
 			Controls += FString::Printf(TEXT("　%s 煙幕"), *KeyOf(PC, EKakurenboAction::Dash));
 		}
-		if (GM->IsJumpUnlocked())
+		if (GM->IsClimbUnlocked())
 		{
-			Controls += FString::Printf(TEXT("　%s ジャンプ"), *KeyOf(PC, EKakurenboAction::Jump));
+			Controls += FString::Printf(TEXT("　%s よじ登る"), *KeyOf(PC, EKakurenboAction::Climb));
 		}
 		RichText(Controls, -1.f, CanvasH - 64, 17, PaleText, true, 0.7f);
+	}
+	// よじ登っている途中（動けない）
+	if (Hider && Hider->IsClimbing())
+	{
+		Chip(TEXT("よじ登っている…"), Gold);
 	}
 }
 

@@ -53,6 +53,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 TimeIncomeLevel = 0;
 
+	/** 壁の補強のレベル（コインのお店。すべての壁の耐久が元の耐久の +50% ずつ増える。転生すると 0 に戻る） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 WallReinforceLevel = 0;
+
 	// ---- 転生（転生しても残る） ----
 	/** 使える転生ポイント（転生のお店で永続強化に使う） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
@@ -95,6 +99,10 @@ public:
 	/** このラウンドの足音の数（着地を含む） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 StepsThisRound = 0;
+
+	/** このラウンドでよじ登った回数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 ClimbsThisRound = 0;
 
 	/** このラウンドで探知鬼が仲間を呼んだ回数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")

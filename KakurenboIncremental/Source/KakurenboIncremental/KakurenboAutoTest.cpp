@@ -6,6 +6,10 @@
 // 疑似入力（SimulateKey / SimulateMouse）の結果は、次のフレームの入力処理で反映されるので NextTick で確かめる。
 
 #include "Camera/CameraComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Misc/FileHelper.h"
+#include "Components/PointLightComponent.h"
+#include "Engine/PointLight.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Animation/AnimSequence.h"
@@ -75,7 +79,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// マップそのものを確かめるシナリオ（と再起動をまたぐセーブ）だけは本物のマップを使う
 	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || bTitleScenario;
+		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
 		GM->bMapOverride = true;
@@ -670,7 +674,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			// ジャンプは最初はできない（転生のお店で解放する）
+			// ジャンプは無い。よじ登るのは最初はできない（転生のお店で解放する）
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
 			const int32 MashBefore = GS()->MashCountThisRound;
@@ -679,20 +683,22 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
-				Check(FString::Printf(TEXT("Space does not jump before it is unlocked (vz=%.0f)"), VelZ), VelZ < 50.f && !GM->IsJumpUnlocked());
+				Check(FString::Printf(TEXT("Space does not jump or climb before climbing is unlocked (vz=%.0f, climbing %d)"), VelZ, GetHider()->IsClimbing()),
+					VelZ < 50.f && !GetHider()->IsClimbing() && !GM->IsClimbUnlocked());
 				Check(FString::Printf(TEXT("left click mashes (count %d -> %d)"), MashBefore, GS()->MashCountThisRound), GS()->MashCountThisRound == MashBefore + 1);
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1; // 転生のお店で買ったことにする
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1; // 転生のお店で買ったことにする
 			GM->ApplyPrestigeToPlayer();
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
 			NextTick([=, this]
 			{
 				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
-				Check(FString::Printf(TEXT("after unlocking, Space jumps in hide phase (vz=%.0f)"), VelZ), VelZ > 100.f);
+				Check(FString::Printf(TEXT("after unlocking, Space still does not jump in the open (vz=%.0f, climbing %d)"), VelZ, GetHider()->IsClimbing()),
+					VelZ < 50.f && !GetHider()->IsClimbing());
 			});
 		} });
 
@@ -1288,9 +1294,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuAddCoins(100000.0);
 			const TArray<FShopItemView> Items = GM->GetShopItems();
 			Check(FString::Printf(TEXT("shop lists upgrades, walls and traps within the number keys (%d items)"), Items.Num()),
-				Items.Num() == 2 + GM->WallTypes.Num() + GM->TrapTypes.Num() && Items.Num() <= 9);
-			Check(TEXT("no wall reinforcement: item 3 is the first wall, then walls, then traps"),
-				GM->GetShopIndexOfWall(0) == 2
+				Items.Num() == 3 + GM->WallTypes.Num() + GM->TrapTypes.Num() && Items.Num() <= 9);
+			Check(TEXT("item 3 is the wall reinforcement, then walls, then traps"),
+				GM->GetShopIndexOfWall(0) == 3 && Items[2].DisplayName.EqualTo(GM->WallReinforceName)
 				&& Items[GM->GetShopIndexOfWall(0)].DisplayName.EqualTo(GM->WallTypes[0].DisplayName)
 				&& Items[GM->GetShopIndexOfTrap(0)].DisplayName.EqualTo(GM->TrapTypes[0].DisplayName));
 			const int32 BuyBefore = Sound()->GetPlayCount(EKakurenboSfx::Buy);
@@ -1302,8 +1308,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("wall price grows with the number owned (%.2f -> %.2f, expected %.2f)"), WoodPrice, GM->GetWallCost(0), Expected),
 				GM->WallTypes[0].CostGrowth > 1.0 && FMath::IsNearlyEqual(GM->GetWallCost(0), Expected, 0.001));
 			const int32 Quiet = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.NoiseDamping > 0.f; });
-			Check(FString::Printf(TEXT("soundproof wall prices grow like traps (x%.2f, sticky x%.2f)"), GM->WallTypes[Quiet].CostGrowth, GM->TrapTypes[0].CostGrowth),
-				Quiet != INDEX_NONE && GM->WallTypes[Quiet].CostGrowth >= GM->TrapTypes[0].CostGrowth && GM->WallTypes[0].CostGrowth < GM->TrapTypes[0].CostGrowth);
+			Check(FString::Printf(TEXT("soundproof wall prices grow much faster than normal walls, traps faster still (wall x%.2f, quiet x%.2f, sticky x%.2f)"),
+				GM->WallTypes[0].CostGrowth, Quiet != INDEX_NONE ? GM->WallTypes[Quiet].CostGrowth : 0.0, GM->TrapTypes[0].CostGrowth),
+				Quiet != INDEX_NONE && GM->WallTypes[Quiet].CostGrowth >= 1.4 && GM->WallTypes[0].CostGrowth < GM->WallTypes[Quiet].CostGrowth
+				&& GM->TrapTypes[0].CostGrowth >= GM->WallTypes[Quiet].CostGrowth);
 			Shot(TEXT("shop_01_items"));
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -2331,7 +2339,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			const TArray<FShopItemView> Items = GM->GetPrestigeShopItems();
 			Check(FString::Printf(TEXT("the prestige shop lists every permanent upgrade (%d)"), Items.Num()), Items.Num() == static_cast<int32>(EPrestigeUpgrade::Count) && Items[0].bPrestigeItem);
-			Check(TEXT("dash and jump are locked at first"), !GM->IsDashUnlocked() && !GM->IsJumpUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked);
+			Check(TEXT("dash and climbing are locked at first"), !GM->IsDashUnlocked() && !GM->IsClimbUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked && !GetHider()->bClimbUnlocked);
 			Check(TEXT("click the wall hardness upgrade"), Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::WallHP)));
 			NextTick([=, this]
 			{
@@ -2343,28 +2351,28 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 足りないと買えない（ジャンプは 2 pt）
-			Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::Jump));
+			Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::Climb));
 			NextTick([=, this]
 			{
-				Check(FString::Printf(TEXT("not enough points -> not bought (jump Lv%d, %d pt)"), GM->GetPrestigeLevel(EPrestigeUpgrade::Jump), GS()->PrestigePoints),
-					GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 0 && GS()->PrestigePoints == 1);
+				Check(FString::Printf(TEXT("not enough points -> not bought (climb Lv%d, %d pt)"), GM->GetPrestigeLevel(EPrestigeUpgrade::Climb), GS()->PrestigePoints),
+					GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == 0 && GS()->PrestigePoints == 1);
 				// ほかの強化も確かめる（ポイントを足して、番号で買う）
 				GS()->PrestigePoints += 20;
 				const double TreasureBefore = GM->GetTreasureValue();
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeDuration) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1);
 				const int32 PointsAfter = GS()->PrestigePoints;
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1); // 最大レベルなのでもう買えない
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
 				Check(FString::Printf(TEXT("treasure upgrade raises the treasure value (%.1f -> %.1f)"), TreasureBefore, GM->GetTreasureValue()),
 					FMath::IsNearlyEqual(GM->GetTreasureValue(), TreasureBefore * GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 1) / GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 0), 0.01));
 				Check(FString::Printf(TEXT("smoke dash unlocked with its smoke time and uses (%.1fs, %d per round)"), GM->GetSmokeDuration(), Hider->DashUsesPerRound),
 					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
 					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
-				Check(TEXT("jump unlocked"), Hider->JumpMaxCount == 1 && GM->IsJumpUnlocked());
-				Check(TEXT("jump is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Jump)].bMaxed);
+				Check(TEXT("climbing unlocked (and still no jumping)"), Hider->bClimbUnlocked && Hider->JumpMaxCount == 0 && GM->IsClimbUnlocked());
+				Check(TEXT("climbing is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Climb)].bMaxed);
 			});
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -2458,8 +2466,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const AKakurenboGameState* S = GS();
 			Log(TEXT("2nd launch"));
 			Check(FString::Printf(TEXT("2nd launch resumes in the build phase (phase=%s)"), *UEnum::GetValueAsString(S->Phase)), S->Phase == EKakurenboPhase::Build);
-			Check(FString::Printf(TEXT("stage and coins carried over (stage %d, coins %.2f, expected 2 / ~580)"), S->Stage, S->Coins),
-				S->Stage == 2 && FMath::Abs(S->Coins - 580.0) < 1.0);
+			// 1 回目：ステージ 1 の逃げ切り報酬 ＋ 500 − 通常壁 2 個（1 個目と 2 個目の値段）
+			const double ExpectedCoins = GM->GetStageSettingsFor(1).ClearReward + 500.0 - GM->WallTypes[0].Cost * (1.0 + GM->WallTypes[0].CostGrowth);
+			Check(FString::Printf(TEXT("stage and coins carried over (stage %d, coins %.2f, expected 2 / %.2f)"), S->Stage, S->Coins, ExpectedCoins),
+				S->Stage == 2 && FMath::Abs(S->Coins - ExpectedCoins) < 1.0);
 			Check(FString::Printf(TEXT("placed walls carried over (blocks %d, wood stock %d)"), Grid()->GetBlockCount(), S->WallStock.IsValidIndex(0) ? S->WallStock[0] : -1),
 				Grid()->GetBlockCount() == 2 && S->WallStock.IsValidIndex(0) && S->WallStock[0] == 0);
 			Check(TEXT("resume notice is shown"), !S->NoticeText.IsEmpty() && GetWorld()->GetTimeSeconds() < S->NoticeUntilTime);
@@ -2744,20 +2754,34 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("steps_crouch"));
 			bTestSneak = false;
 		} });
-		// 4) ジャンプ（転生のお店で解放）で音が出る
+		// 4) よじ登る（転生のお店で解放）と音が出る：目の前に壁を置いて、そちらを向いてよじ登る
 		Steps.Add({ 0.3f, [=, this]
 		{
 			Check(FString::Printf(TEXT("sneaking stops when Ctrl is released and the player stands up (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->IsSneaking() && !GetHider()->bIsCrouched);
-			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1;
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
 			GM->ApplyPrestigeToPlayer();
-			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerJump);
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			for (const FIntPoint Dir : { FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1), FIntPoint(1, 0) })
+			{
+				if (Grid()->IsWalkable(Me + Dir) && !Grid()->IsReservedCell(Me + Dir))
+				{
+					PlaceTestWall(Me + Dir);
+					GetPawn()->SetActorRotation(FRotator(0.f, FVector(Dir.X, Dir.Y, 0.f).Rotation().Yaw, 0.f));
+					break;
+				}
+			}
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb);
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 		} });
 		Steps.Add({ 0.4f, [=, this]
 		{
 			SimulateKey(EKeys::SpaceBar, IE_Released);
-			Check(FString::Printf(TEXT("jumping makes a sound (%d)"), Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds),
-				Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds >= 1);
+			Check(FString::Printf(TEXT("climbing makes a sound (%d, climbs %d)"), Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb) - Before->JumpSounds, GetHider()->GetClimbCount()),
+				Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb) - Before->JumpSounds >= 1 && GetHider()->GetClimbCount() >= 1);
 		} });
 	}
 	// ================================================================ TreasureOni（宝物鬼）
@@ -2769,8 +2793,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 3.3f, [=, this]
 		{
 			AOniCharacter* Oni = GM->GetOnis()[0];
-			Check(FString::Printf(TEXT("treasure oni: deaf to mashing, sensitive to footsteps (hearing %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
-				Oni->OniType == EOniType::Treasure && Oni->HearingRadius < GM->GetOniHearingRadius() * 0.5f && Oni->StepHearingRadius > GM->GetOniHearingRadius() * 1.5f);
+			Check(FString::Printf(TEXT("treasure oni: ignores mashing and decoys, very sensitive to footsteps (hearing %.0f / decoy %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->DecoyHearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
+				Oni->OniType == EOniType::Treasure && Oni->HearingRadius <= 0.f && Oni->DecoyHearingRadius <= 0.f && Oni->StepHearingRadius >= GM->GetOniHearingRadius() * 2.5f);
 			Check(FString::Printf(TEXT("treasure oni is weak at breaking walls (damage %.2f) and does not inspect hollows"), Oni->AttackDamage),
 				Oni->AttackDamage < GM->GetOniAttackDamage() && Oni->PocketInspectChance <= 0.f);
 			Oni->SightRadius = 0.f;
@@ -3147,6 +3171,16 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				}
 			}
 			Check(FString::Printf(TEXT("all %d maps keep every furniture mesh in its own cells:%s"), GM->MapOrder.Num(), Problems.IsEmpty() ? TEXT(" ok") : *Problems), Problems.IsEmpty());
+			// M14：音の届く距離は館の大きさに合わせる（小さい館ほど小さい。連打の音が館じゅうに届かないように）
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+			const float CrownScale = GM->GetMapNoiseScale();
+			GM->MapOverride = TEXT("Parlor");
+			GM->SwitchToMap(TEXT("Parlor"));
+			const float ParlorScale = GM->GetMapNoiseScale();
+			Check(FString::Printf(TEXT("noise reaches less far in small mansions (Parlor x%.2f, Crown x%.2f, hearing %.0f)"), ParlorScale, CrownScale, GM->GetOniHearingRadius()),
+				FMath::IsNearlyEqual(ParlorScale, GM->MapNoiseScaleSmall, 0.01f) && FMath::IsNearlyEqual(CrownScale, 1.f, 0.01f)
+				&& FMath::IsNearlyEqual(GM->GetOniHearingRadius(), GM->GetStageSettings().OniHearingRadius * ParlorScale, 1.f));
 			// 2×2 のテーブルがある館（書斎）を上から撮る
 			GM->MapOverride = TEXT("Study");
 			GM->SwitchToMap(TEXT("Study"));
@@ -3224,6 +3258,118 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			SetControlRotation(FRotator(-15.f, 0.f, 0.f));
 		} });
 		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("mood_04_library")); } });
+		// M14：一番大きな館（王の間）を部屋ごとに三人称で撮る。部屋の隅から、その部屋らしい家具（小文字は床の種類）の方を向く
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+			GS()->HideTimeRemaining = 600.f; // 撮り終わるまでかくれんぼを終わらせない
+			const AKakurenboArena* Arena = GM->GetArena();
+			Check(FString::Printf(TEXT("the mansion has floor kinds (%d), door frames (%d), windows (%d), paintings (%d) and wall lights (%d)"), Arena->GetFloorKindCount(),
+				Arena->GetDecorCount(EKakurenboDecorKind::DoorFrame) + Arena->GetDecorCount(EKakurenboDecorKind::DoorFrameWide), Arena->GetDecorCount(EKakurenboDecorKind::Window),
+				Arena->GetDecorCount(EKakurenboDecorKind::Painting), Arena->GetDecorCount(EKakurenboDecorKind::Sconce)),
+				Arena->GetFloorKindCount() >= 4 && Arena->GetDecorCount(EKakurenboDecorKind::Window) > 0 && Arena->GetDecorCount(EKakurenboDecorKind::Painting) > 0
+				&& Arena->GetDecorCount(EKakurenboDecorKind::Sconce) > 0);
+			// M14：出入り口の上には壁がある（枠だけが天井まで抜けた隙間に立って見えない）。家具の当たり判定はメッシュ 1 個ずつ
+			Check(FString::Printf(TEXT("doorways have a wall above them (%d headers, %d door frames), furniture collision follows each mesh (%d boxes, %d meshes)"), Arena->GetDoorHeaderCount(),
+				Arena->GetDecorCount(EKakurenboDecorKind::DoorFrame) + Arena->GetDecorCount(EKakurenboDecorKind::DoorFrameWide), Arena->GetFurnitureCollisionBoxCount(), Arena->GetFurnitureMeshCount()),
+				Arena->GetDoorHeaderCount() >= 10 && Arena->GetFurnitureCollisionBoxCount() >= Arena->GetFurnitureMeshCount());
+		} });
+		struct FRoomShot { TCHAR Key; const TCHAR* Name; };
+		static const FRoomShot RoomShots[] = { { TEXT('m'), TEXT("entrance") }, { TEXT('p'), TEXT("corridor") }, { TEXT('D'), TEXT("bedroom") }, { TEXT('I'), TEXT("dining") },
+			{ TEXT('V'), TEXT("kitchen") }, { TEXT('Y'), TEXT("bath") }, { TEXT('B'), TEXT("library") }, { TEXT('J'), TEXT("lounge") }, { TEXT('3'), TEXT("great_hall") } };
+		for (int32 r = 0; r < UE_ARRAY_COUNT(RoomShots); ++r)
+		{
+			const FRoomShot Room = RoomShots[r];
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AKakurenboArena* Arena = GM->GetArena();
+				UKakurenboGridSubsystem* G = Grid();
+				const bool bFloorKind = FChar::IsLower(Room.Key);
+				auto Matches = [&](const FIntPoint& C) { return bFloorKind ? (Arena->GetFloorKind(C) == Room.Key && Arena->GetLayoutChar(C) != KakurenboMaps::WallChar) : Arena->GetLayoutChar(C) == Room.Key; };
+				// 見る物：床の種類なら、その種類のマスの真ん中。家具なら最初に見つかった 1 つ（同じ文字のつながったマス）
+				TArray<FIntPoint> Target;
+				for (int32 Y = 0; Y < G->GetSizeY() && (bFloorKind || Target.Num() == 0); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						if (Matches(FIntPoint(X, Y)))
+						{
+							Target.Add(FIntPoint(X, Y));
+							if (!bFloorKind)
+							{
+								break;
+							}
+						}
+					}
+				}
+				if (Target.Num() == 0)
+				{
+					Check(FString::Printf(TEXT("room '%c' (%s) exists in Crown"), Room.Key, Room.Name), false);
+					return;
+				}
+				for (int32 i = 0; !bFloorKind && i < Target.Num(); ++i)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						if (Matches(Target[i] + D) && !Target.Contains(Target[i] + D))
+						{
+							Target.Add(Target[i] + D);
+						}
+					}
+				}
+				FVector2D Sum(0.0, 0.0);
+				for (const FIntPoint& C : Target)
+				{
+					Sum += FVector2D(C.X, C.Y);
+				}
+				const FVector2D Mid = Sum / Target.Num();
+				// 立つ場所：見る物から歩いて行ける、同じ床の種類のマス（部屋の中）のうち、見る物から遠い所（最大 6 マス）
+				TMap<FIntPoint, int32> Dist;
+				TArray<FIntPoint> Queue;
+				for (const FIntPoint& C : Target)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint N = C + D;
+						if (G->IsWalkable(N) && !G->IsObstacle(N) && !Dist.Contains(N) && (bFloorKind || Arena->GetFloorKind(N) == Arena->GetFloorKind(C)))
+						{
+							Dist.Add(N, 1);
+							Queue.Add(N);
+						}
+					}
+				}
+				const TCHAR RoomFloor = Arena->GetFloorKind(Target[0]); // 家具の下の床＝その部屋の床の種類
+				FIntPoint Spot = Queue.Num() > 0 ? Queue[0] : Target[0];
+				double BestScore = -1.0;
+				for (int32 q = 0; q < Queue.Num(); ++q)
+				{
+					const FIntPoint C = Queue[q];
+					const int32 Dc = Dist[C];
+					const double Score = FVector2D::Distance(FVector2D(C.X, C.Y), Mid);
+					if (Score > BestScore && Dc <= 6)
+					{
+						BestScore = Score;
+						Spot = C;
+					}
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint N = C + D;
+						if (Dc < 6 && G->IsWalkable(N) && !G->IsObstacle(N) && !Dist.Contains(N) && (bFloorKind || Arena->GetFloorKind(N) == RoomFloor))
+						{
+							Dist.Add(N, Dc + 1);
+							Queue.Add(N);
+						}
+					}
+				}
+				const FVector From = G->CellFloorCenter(Spot);
+				const FVector To = G->CellFloorCenter(FIntPoint(FMath::RoundToInt(Mid.X), FMath::RoundToInt(Mid.Y)));
+				TeleportPlayer(From);
+				SetControlRotation(FRotator(-16.f, (To - From).Rotation().Yaw, 0.f));
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] room %s: stand (%d,%d), look at (%.1f,%.1f)"), Room.Name, Spot.X, Spot.Y, Mid.X, Mid.Y);
+			} });
+			Steps.Add({ 1.5f, [=, this] { Shot(FString::Printf(TEXT("mood_%02d_crown_%s"), 10 + r, Room.Name)); } });
+		}
 	}
 	// ================================================================ Sounds（鬼の足音・お宝のキラキラ・BGM）
 	else if (Scenario.Equals(TEXT("Sounds"), ESearchCase::IgnoreCase))
@@ -3451,29 +3597,40 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			SetStageOniTypes({ EOniType::Balanced });
 			GM->bMapOverride = true;
-			GM->MapOverride = TEXT("Observatory");
-			GM->SwitchToMap(TEXT("Observatory"));
-			// 周り 8 マス＋その先 3 マス西が空いている、1 マスだけの家具
-			for (int32 Y = 2; Y < Grid()->GetSizeY() - 2 && Walk->Target.X < 0; ++Y)
+			// 周り 8 マス＋その先 3 マス西が空いている、1 マスだけの家具（天文台から順に、全部の館から探す。M14 で館が部屋に分かれた）
+			TArray<FName> Order = GM->MapOrder;
+			Order.Remove(TEXT("Observatory"));
+			Order.Insert(TEXT("Observatory"), 0);
+			for (const FName& MapName : Order)
 			{
-				for (int32 X = 5; X < Grid()->GetSizeX() - 2 && Walk->Target.X < 0; ++X)
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				for (int32 Y = 2; Y < Grid()->GetSizeY() - 2 && Walk->Target.X < 0; ++Y)
 				{
-					const FIntPoint C(X, Y);
-					bool bAlone = Grid()->IsObstacle(C);
-					for (int32 DY = -2; DY <= 2 && bAlone; ++DY)
+					for (int32 X = 5; X < Grid()->GetSizeX() - 2 && Walk->Target.X < 0; ++X)
 					{
-						for (int32 DX = -4; DX <= 2 && bAlone; ++DX)
+						const FIntPoint C(X, Y);
+						bool bAlone = Grid()->IsObstacle(C) && GM->GetArena()->GetLayoutChar(C) != KakurenboMaps::WallChar;
+						for (int32 DY = -2; DY <= 2 && bAlone; ++DY)
 						{
-							bAlone = (DX == 0 && DY == 0) || Grid()->IsWalkable(C + FIntPoint(DX, DY));
+							for (int32 DX = -4; DX <= 2 && bAlone; ++DX)
+							{
+								bAlone = (DX == 0 && DY == 0) || Grid()->IsWalkable(C + FIntPoint(DX, DY));
+							}
+						}
+						if (bAlone)
+						{
+							Walk->Target = C;
 						}
 					}
-					if (bAlone)
-					{
-						Walk->Target = C;
-					}
+				}
+				if (Walk->Target.X >= 0)
+				{
+					break;
 				}
 			}
-			Check(FString::Printf(TEXT("found a lone piece of furniture at (%d,%d)"), Walk->Target.X, Walk->Target.Y), Walk->Target.X >= 0);
+			Check(FString::Printf(TEXT("found a lone piece of furniture at (%d,%d) in %s ('%c')"), Walk->Target.X, Walk->Target.Y, *GM->GetCurrentMapName().ToString(),
+				Walk->Target.X >= 0 ? GM->GetArena()->GetLayoutChar(Walk->Target) : TEXT('-')), Walk->Target.X >= 0);
 		} });
 		Steps.Add({ 3.3f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } Begin(true, 0.f); } });
 		Steps.Add({ 2.5f, [=, this] { Shot(TEXT("crouchwalk_01_sneak_straight")); } });
@@ -3572,18 +3729,18 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("pressing K binds mash to K (%s)"), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
 				Settings()->GetKey(EKakurenboAction::Mash) == EKeys::K && GetMenu() == EKakurenboMenu::Keys);
 			// ジャンプにも K → 入れ替わる（連打は Space になる）
-			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Jump) * 2);
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Climb) * 2);
 		} });
 		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			Check(FString::Printf(TEXT("the same key on another action swaps them (jump %s, mash %s)"), *Settings()->GetKey(EKakurenboAction::Jump).ToString(), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
-				Settings()->GetKey(EKakurenboAction::Jump) == EKeys::K && Settings()->GetKey(EKakurenboAction::Mash) == EKeys::SpaceBar);
+			Check(FString::Printf(TEXT("the same key on another action swaps them (climb %s, mash %s)"), *Settings()->GetKey(EKakurenboAction::Climb).ToString(), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
+				Settings()->GetKey(EKakurenboAction::Climb) == EKeys::K && Settings()->GetKey(EKakurenboAction::Mash) == EKeys::SpaceBar);
 			ClickUI(EKakurenboUIAction::ResetKeys, 0);
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			Check(TEXT("reset brings the default keys back"), Settings()->GetKey(EKakurenboAction::Mash) == EKeys::LeftMouseButton && Settings()->GetKey(EKakurenboAction::Jump) == EKeys::SpaceBar);
+			Check(TEXT("reset brings the default keys back"), Settings()->GetKey(EKakurenboAction::Mash) == EKeys::LeftMouseButton && Settings()->GetKey(EKakurenboAction::Climb) == EKeys::SpaceBar);
 			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Mash) * 2);
 		} });
 		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
@@ -3825,6 +3982,760 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("no heartbeat when no oni is near (danger %.2f, beats %d)"), GM->GetCurrentDanger(), GM->GetHeartbeatCount() - Hear->Beats),
 				GS()->Phase == EKakurenboPhase::Hide && GM->GetCurrentDanger() < 0.05f && GM->GetHeartbeatCount() == Hear->Beats);
 		} });
+	}
+	// ================================================================ Climb（M14：ジャンプの代わりによじ登る）
+	else if (Scenario.Equals(TEXT("Climb"), ESearchCase::IgnoreCase))
+	{
+		// 家具の無い舞台に並べる（東 = +X）：
+		//   (4,4) から東へ [通常壁 1 段][通常壁 2 段][すき間][通常壁 1 段]（登る・2 段目へ・すき間は越えられない）
+		//   (4,9) から北へ [クライミング壁 1 段]、その東に [通常壁 2 段]（すばやく登る・鬼が飛び乗れない塔）
+		//   (11,4) の東に低い家具（80cm）・(11,8) の東に高い家具（220cm）
+		struct FClimbState { float FloorZ = 0.f; int32 LeapsWhileStanding = 0; bool bTowerStood = true; int32 Samples = 0; };
+		TSharedRef<FClimbState> CS = MakeShared<FClimbState>();
+		const FIntPoint Start(4, 4), WallA(5, 4), WallB(6, 4), WallC(8, 4);
+		const FIntPoint LadderFrom(4, 9), Ladder(4, 8), Tower(5, 8);
+		const FIntPoint LowFrom(11, 4), Low(12, 4), TallFrom(11, 8), Tall(12, 8);
+		auto FeetHeight = [this, CS]() { return GetPawn()->GetActorLocation().Z - GetPawn()->GetSimpleCollisionHalfHeight() - CS->FloorZ; };
+		auto PressClimb = [=]() { SimulateKey(EKeys::SpaceBar, IE_Pressed); SimulateKey(EKeys::SpaceBar, IE_Released); };
+		auto StandAt = [=, this](const FIntPoint& Cell, float Yaw)
+		{
+			TeleportPlayer(Grid()->CellFloorCenter(Cell));
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-20.f, Yaw, 0.f));
+		};
+		auto SpawnBox = [this, Grid](const FIntPoint& Cell, float Height)
+		{
+			const FVector Center = Grid()->CellFloorCenter(Cell);
+			AStaticMeshActor* Box = GetWorld()->SpawnActor<AStaticMeshActor>(Center + FVector(0.f, 0.f, Height * 0.5f), FRotator::ZeroRotator);
+			Box->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Box->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+			Box->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+			Box->SetActorScale3D(FVector(Grid()->GetCellSize() / 100.f, Grid()->GetCellSize() / 100.f, Height / 100.f));
+		};
+		const int32 LadderType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.bLadder; });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f; // 途中で時間切れにならないように
+			CS->FloorZ = Grid()->CellFloorCenter(Start).Z;
+			PlaceTestWall(WallA);
+			PlaceTestWall(WallB);
+			PlaceTestWall(WallB);
+			PlaceTestWall(WallC);
+			const FWallTypeDef& LadderDef = GM->WallTypes[FMath::Max(LadderType, 0)];
+			Grid()->PlaceBlock(Ladder, LadderType, LadderDef.MaxHP, LadderDef.Color);
+			PlaceTestWall(Tower);
+			PlaceTestWall(Tower);
+			Grid()->SetObstacles({ Low, Tall });
+			SpawnBox(Low, 80.f);
+			SpawnBox(Tall, 220.f);
+			StandAt(Start, 0.f);
+			const APlaceableBlock* LadderBlock = Grid()->GetTopBlock(Ladder);
+			Check(FString::Printf(TEXT("the climbing wall has rungs (%d)"), LadderBlock ? LadderBlock->GetRungCount() : -1), LadderType != INDEX_NONE && LadderBlock && LadderBlock->bLadder && LadderBlock->GetRungCount() == 12);
+		} });
+		Steps.Add({ 3.4f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE); // 鬼は後で 1 体だけ使う
+			StandAt(Start, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot climb before it is unlocked (climbing %d, unlocked %d)"), GetHider()->IsClimbing(), GM->IsClimbUnlocked()),
+					!GetHider()->IsClimbing() && GetHider()->GetClimbCount() == 0 && !GM->IsClimbUnlocked());
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1; // 転生のお店で買ったことにする
+				GM->ApplyPrestigeToPlayer();
+			});
+		} });
+		// 1) 1 段の壁によじ登る（通常壁は 1 秒）
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("Space climbs the wall in front (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()),
+					GetHider()->IsClimbing() && FMath::IsNearlyEqual(GetHider()->GetLastClimbSeconds(), GM->WallTypes[0].ClimbSeconds, 0.01f));
+			});
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("still climbing (cannot move meanwhile) (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
+			Shot(TEXT("climb_01_climbing"));
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the 1-high wall (feet %.0f cm, climbing %d)"), FeetHeight(), GetHider()->IsClimbing()),
+				!GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			Shot(TEXT("climb_02_on_wall"));
+			PressClimb(); // 2) となりの 2 段の壁へ（1 段ずつ）
+		} });
+		Steps.Add({ 1.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("climbs one more level onto the 2-high wall (feet %.0f cm)"), FeetHeight()),
+				!GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight() * 2.f, 15.f) && GetHider()->GetClimbCount() == 2);
+			// 3) すき間の先の壁へは跳べない（ジャンプは無い）
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot cross the gap (climbing %d, vz %.0f)"), GetHider()->IsClimbing(), GetHider()->GetVelocity().Z),
+					!GetHider()->IsClimbing() && GetHider()->GetClimbCount() == 2 && GetHider()->GetVelocity().Z < 50.f);
+			});
+		} });
+		Steps.Add({ 0.4f, [=, this] { SimulateKey(EKeys::W, IE_Pressed); } }); // 歩いて縁から下りる
+		Steps.Add({ 0.9f, [=, this] { SimulateKey(EKeys::W, IE_Released); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const FIntPoint Here = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			Check(FString::Printf(TEXT("walking off the edge drops nearly straight into the gap, not onto the wall beyond (feet %.0f cm, cell (%d,%d))"), FeetHeight(), Here.X, Here.Y),
+				FeetHeight() < 20.f && Here == WallB + FIntPoint(1, 0));
+			// 4) 床から 2 段の壁へは登れない（1 段ずつ）
+			StandAt(WallB + FIntPoint(0, 1), -90.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot climb a 2-high wall from the floor (climbing %d)"), GetHider()->IsClimbing()), !GetHider()->IsClimbing());
+			});
+		} });
+		// 5) クライミング壁はすばやく登れる
+		Steps.Add({ 0.3f, [=, this] { StandAt(LadderFrom, -90.f); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the climbing wall is quick to climb (%.2f s, normal %.2f s)"), GetHider()->GetLastClimbSeconds(), GM->WallTypes[0].ClimbSeconds),
+					GetHider()->IsClimbing() && GetHider()->GetLastClimbSeconds() < GM->WallTypes[0].ClimbSeconds * 0.5f);
+			});
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("already on top of the climbing wall (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			GetPawn()->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 東の塔（2 段）へ
+			PressClimb();
+		} });
+		Steps.Add({ 1.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("from the climbing wall onto the 2-high tower (feet %.0f cm)"), FeetHeight()), FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight() * 2.f, 15.f));
+			// 6) 鬼は塔に飛び乗れない（クライミング壁にも乗れない）→ 下から壊すしかない
+			AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr;
+			if (Oni)
+			{
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Tower + FIntPoint(4, 2)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+				Oni->Activate(GetHider());
+				Oni->SightRadius = 3000.f;
+				Oni->SightHalfAngle = 180.f;
+				Oni->bDrawDebug = true;
+			}
+			LookAtOni();
+		} });
+		for (int32 i = 0; i < 24; ++i)
+		{
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr;
+				const bool bTowerUp = Grid()->GetColumnHeight(Tower) == 2;
+				if (Oni && bTowerUp && CS->bTowerStood)
+				{
+					CS->LeapsWhileStanding = Oni->GetLeapCount();
+					++CS->Samples;
+				}
+				CS->bTowerStood = CS->bTowerStood && bTowerUp;
+				if (i == 6)
+				{
+					Shot(TEXT("climb_03_tower"));
+				}
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the oni could not leap onto the tower or the climbing wall while the tower stood (leaps %d over %d samples)"), CS->LeapsWhileStanding, CS->Samples),
+				CS->Samples > 0 && CS->LeapsWhileStanding == 0);
+			Check(FString::Printf(TEXT("so it broke the tower from below (walls destroyed %d, phase %s)"), GS()->LastRoundWallsDestroyed, *UEnum::GetValueAsString(GS()->Phase)),
+				GS()->LastRoundWallsDestroyed >= 1);
+		} });
+		// 7) 低い家具にはよじ登れる（家具はゆっくり）・高い家具には登れない
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE);
+			if (GS()->Phase != EKakurenboPhase::Hide)
+			{
+				KakuNext(); KakuNext(); KakuNext(); // 捕まっていたら、次のかくれんぼへ
+			}
+		} });
+		Steps.Add({ 3.6f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE);
+			GS()->HideTimeRemaining = 300.f;
+			StandAt(LowFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("low furniture can be climbed, slowly (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()),
+					GetHider()->IsClimbing() && FMath::IsNearlyEqual(GetHider()->GetLastClimbSeconds(), GM->FurnitureClimbSeconds, 0.01f));
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the low furniture (feet %.0f cm)"), FeetHeight()), FMath::IsNearlyEqual(FeetHeight(), 80.f, 15.f));
+			StandAt(TallFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 Before = GetHider()->GetClimbCount();
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("tall furniture (220 cm) cannot be climbed (climbing %d)"), GetHider()->IsClimbing()), !GetHider()->IsClimbing() && GetHider()->GetClimbCount() == Before);
+			});
+		} });
+	}
+	// ================================================================ Walls（M14：通常壁・消音壁・クライミング壁と、壁の補強）
+	else if (Scenario.Equals(TEXT("Walls"), ESearchCase::IgnoreCase))
+	{
+		struct FWallsState { double HPBefore = 0.0; FIntPoint Cell = FIntPoint::ZeroValue; };
+		TSharedRef<FWallsState> WS = MakeShared<FWallsState>();
+		const int32 LadderType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.bLadder; });
+		const int32 QuietType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.NoiseDamping > 0.f; });
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(1000000.0);
+			Check(FString::Printf(TEXT("three wall types: normal, soundproof, climbing (%d)"), GM->WallTypes.Num()),
+				GM->WallTypes.Num() == 3 && LadderType == 2 && QuietType == 1 && !GM->WallTypes[0].bLadder && GM->WallTypes[0].NoiseDamping <= 0.f);
+			// クライミング壁は「よじ登る」を解放するまで買えない
+			const TArray<FShopItemView> Items = GM->GetShopItems();
+			const int32 StockBefore = GS()->WallStock[LadderType];
+			BuyWall(LadderType, 1);
+			Check(FString::Printf(TEXT("the climbing wall is locked before climbing is unlocked (locked %d, stock %d)"), Items[GM->GetShopIndexOfWall(LadderType)].bLocked, GS()->WallStock[LadderType]),
+				Items[GM->GetShopIndexOfWall(LadderType)].bLocked && GS()->WallStock[LadderType] == StockBefore && !Items[GM->GetShopIndexOfWall(0)].bLocked);
+			// 壁の補強：足し算で伸びる（1 レベルで元の耐久の +50%）。説明に「何回で壊れるか」
+			WS->HPBefore = GM->GetEffectiveWallTypes()[0].MaxHP;
+			KakuBuy(3); // 3 番目の商品 = 壁の補強
+			const double After1 = GM->GetEffectiveWallTypes()[0].MaxHP;
+			KakuBuy(3);
+			const double After2 = GM->GetEffectiveWallTypes()[0].MaxHP;
+			const double Step = GM->WallTypes[0].MaxHP * GM->WallReinforcePerLevel;
+			Check(FString::Printf(TEXT("wall reinforcement adds a fixed amount per level (%.2f -> %.2f -> %.2f)"), WS->HPBefore, After1, After2),
+				GS()->WallReinforceLevel == 2 && FMath::IsNearlyEqual(After1 - WS->HPBefore, Step, 0.001) && FMath::IsNearlyEqual(After2 - After1, Step, 0.001));
+			const FString Desc = GM->GetShopItems()[2].Description.ToString();
+			Check(FString::Printf(TEXT("the reinforcement shows the hits to break ('%s')"), *Desc), Desc.Contains(TEXT("回")) && Desc.Contains(UKakurenboLibrary::FormatStatNumber(After2)));
+			// 転生のお店の「壁の硬さ」はかけ算（補強の上に掛かる）
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::WallHP)] = 1;
+			const double WithPrestige = GM->GetEffectiveWallTypes()[0].MaxHP;
+			Check(FString::Printf(TEXT("prestige wall hardness multiplies the reinforced HP (%.2f -> %.2f)"), After2, WithPrestige),
+				FMath::IsNearlyEqual(WithPrestige, After2 * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1), 0.001));
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::WallHP)] = 0;
+			// よじ登るを解放すると、クライミング壁が買える
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
+			BuyWall(0, 2);
+			BuyWall(QuietType, 1);
+			BuyWall(LadderType, 1);
+			Check(FString::Printf(TEXT("after unlocking climbing, the climbing wall can be bought (stock %d)"), GS()->WallStock[LadderType]),
+				GS()->WallStock[LadderType] == 1 && !GM->GetShopItems()[GM->GetShopIndexOfWall(LadderType)].bLocked);
+			Shot(TEXT("walls_01_shop"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			WS->Cell = Me + FIntPoint(2, 0);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y, 0);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y + 2, QuietType);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y - 2, LadderType);
+			const APlaceableBlock* Normal = Grid()->GetTopBlock(WS->Cell);
+			const APlaceableBlock* LadderBlock = Grid()->GetTopBlock(WS->Cell - FIntPoint(0, 2));
+			Check(FString::Printf(TEXT("placed walls get the reinforced HP (%.2f, expected %.2f)"), Normal ? Normal->MaxHP : -1.0, GM->GetEffectiveWallTypes()[0].MaxHP),
+				Normal && FMath::IsNearlyEqual(Normal->MaxHP, GM->GetEffectiveWallTypes()[0].MaxHP, 0.001));
+			Check(TEXT("the climbing wall has rungs, the others do not"), LadderBlock && LadderBlock->bLadder && LadderBlock->GetRungCount() > 0 && Normal && Normal->GetRungCount() == 0);
+			GetHider()->AddTopDownTilt(40.f); // 斜めから見る（横木が見えるように）
+		} });
+		Steps.Add({ 1.0f, [=] { Shot(TEXT("walls_02_build")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuShop(); // 購入パートへ戻って補強をもう 1 つ：置いてある壁もすぐ硬くなる
+			const double Before = Grid()->GetTopBlock(WS->Cell)->MaxHP;
+			KakuBuy(3);
+			const double After = Grid()->GetTopBlock(WS->Cell)->MaxHP;
+			Check(FString::Printf(TEXT("placed walls get harder right away (%.2f -> %.2f, expected %.2f)"), Before, After, GM->GetEffectiveWallTypes()[0].MaxHP),
+				FMath::IsNearlyEqual(After, GM->GetEffectiveWallTypes()[0].MaxHP, 0.001) && After > Before);
+		} });
+	}
+	// ================================================================ Gamepad（M14：コントローラーで遊ぶ）
+	else if (Scenario.Equals(TEXT("Gamepad"), ESearchCase::IgnoreCase))
+	{
+		// コントローラーの入力は PlayerController の InputKey を通す（最後に触った機器の切り替えも確かめる）
+		auto PadPress = [this](const FKey& Key)
+		{
+			InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Pressed, 1.f));
+			InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Released, 0.f));
+		};
+		auto PadHold = [this](const FKey& Key, bool bDown) { InputKey(FInputKeyEventArgs::CreateSimulated(Key, bDown ? IE_Pressed : IE_Released, bDown ? 1.f : 0.f)); };
+		auto PadAxis = [this](const FKey& Key, float Value) { InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Axis, Value, 1)); };
+		struct FPadState { FVector Pos = FVector::ZeroVector; FRotator Rot = FRotator::ZeroRotator; int32 Mash = 0; FIntPoint Cell = FIntPoint::ZeroValue; int32 Stock = 0; float Volume = 0.f; };
+		TSharedRef<FPadState> PS = MakeShared<FPadState>();
+		Steps.Add({ 3.4f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			KeepOnlyOni(INDEX_NONE); // 鬼に捕まらないように
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f;
+			PS->Pos = GetPawn()->GetActorLocation();
+			SetControlRotation(FRotator(-20.f, 0.f, 0.f));
+			PadAxis(EKeys::Gamepad_LeftY, 1.f); // 左スティックを前へ
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_LeftY, 0.f);
+			const float Moved = FVector::DotProduct(GetPawn()->GetActorLocation() - PS->Pos, FVector::ForwardVector);
+			Check(FString::Printf(TEXT("the left stick walks forward (%.0f cm) and the game switches to the controller (%d)"), Moved, IsUsingGamepad()), Moved > 100.f && IsUsingGamepad());
+			Check(FString::Printf(TEXT("the on-screen controls show controller buttons (climb key '%s')"), *KeyName(EKakurenboAction::Climb)), KeyName(EKakurenboAction::Climb) == TEXT("A"));
+			PS->Rot = GetControlRotation();
+			PadAxis(EKeys::Gamepad_RightX, 1.f); // 右スティックでカメラ
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_RightX, 0.f);
+			const float DYaw = FRotator::NormalizeAxis(GetControlRotation().Yaw - PS->Rot.Yaw);
+			Check(FString::Printf(TEXT("the right stick turns the camera (dYaw %.1f)"), DYaw), DYaw > 40.f);
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			Check(TEXT("the hide controls line shows controller buttons"), HUD && HUD->HasDrawnText(TEXT("[RT] 連打")) && HUD->HasDrawnText(TEXT("[L スティック] 移動")));
+			PS->Mash = GS()->MashCountThisRound;
+			PadPress(EKeys::Gamepad_RightTrigger); // RT：連打
+			PadHold(EKeys::Gamepad_LeftTrigger, true); // LT：しゃがむ
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("RT mashes (%d -> %d), LT crouches (%d)"), PS->Mash, GS()->MashCountThisRound, GetHider()->IsSneaking()),
+					GS()->MashCountThisRound == PS->Mash + 1 && GetHider()->IsSneaking());
+			});
+			Shot(TEXT("gamepad_01_hide"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PadHold(EKeys::Gamepad_LeftTrigger, false);
+			// A：よじ登る（目の前に壁を置く）
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
+			GM->ApplyPrestigeToPlayer();
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			PlaceTestWall(Me + FIntPoint(1, 0));
+			GetPawn()->SetActorRotation(FRotator::ZeroRotator);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+			NextTick([=, this] { Check(FString::Printf(TEXT("A climbs (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing()); });
+		} });
+		// START：一時停止メニュー。十字キーで選んで A、B でもどる（一時停止中はワールドのタイマーが止まるので実時間で進める）
+		Steps.Add({ 1.4f, [=, this]
+		{
+			PadPress(EKeys::Gamepad_Special_Right);
+			RealDelay(0.3f, [=, this]
+			{
+				Check(FString::Printf(TEXT("START opens the pause menu (menu %d, paused %d)"), static_cast<int32>(GetMenu()), IsPaused()), GetMenu() == EKakurenboMenu::Pause && IsPaused());
+				Check(TEXT("no mouse cursor while using the controller"), !bShowMouseCursor);
+				PadPress(EKeys::Gamepad_DPad_Down);
+				RealDelay(0.2f, [=, this]
+				{
+					Check(TEXT("the first menu item was selected, D-pad down moves to the next"), IsUIFocused(EKakurenboUIAction::MenuItem, 1));
+					PadPress(EKeys::Gamepad_DPad_Down);
+					RealDelay(0.2f, [=, this]
+					{
+						Check(TEXT("D-pad down moves to the settings item"), IsUIFocused(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Settings)));
+						PadPress(EKeys::Gamepad_FaceButton_Bottom);
+						RealDelay(0.3f, [=, this]
+						{
+							Check(FString::Printf(TEXT("A opens the settings (menu %d)"), static_cast<int32>(GetMenu())), GetMenu() == EKakurenboMenu::Settings);
+							PS->Volume = Settings()->MasterVolume;
+							PadPress(EKeys::Gamepad_DPad_Left);
+							RealDelay(0.2f, [=, this]
+							{
+								Check(FString::Printf(TEXT("the first slider is selected and left turns it down (%.2f -> %.2f)"), PS->Volume, Settings()->MasterVolume),
+									IsUIFocused(EKakurenboUIAction::Slider, 0) && FMath::IsNearlyEqual(Settings()->MasterVolume, PS->Volume - 0.05f, 0.001f));
+								Shot(TEXT("gamepad_02_settings"));
+								RealDelay(0.3f, [=, this]
+								{
+									PadPress(EKeys::Gamepad_FaceButton_Right); // B：もどる
+									RealDelay(0.2f, [=, this]
+									{
+										Check(TEXT("B goes back to the pause menu"), GetMenu() == EKakurenboMenu::Pause);
+										PadPress(EKeys::Gamepad_Special_Right); // START：閉じる
+										RealDelay(0.2f, [=, this] { Check(TEXT("START closes the menu and resumes"), !IsMenuOpen() && !IsPaused()); });
+									});
+								});
+							});
+						});
+					});
+				});
+			});
+		} });
+		// リザルト → 購入（十字キーで選んで A で買う・LB/RB でお店の切り替え）
+		Steps.Add({ 3.0f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Check(TEXT("result: the next button is selected"), GS()->Phase == EKakurenboPhase::Result && IsUIFocused(EKakurenboUIAction::NextPhase, 0));
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A on the next button goes to the shop (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Shop);
+			KakuAddCoins(100000.0);
+			// 設置パートのカーソルの通り道に、自分（スタート位置）や前に置いた壁が無いように
+			Grid()->ClearAllBlocks();
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			PadPress(EKeys::Gamepad_DPad_Down);
+		} });
+		Steps.Add({ 0.2f, [=, this] { PadPress(EKeys::Gamepad_DPad_Down); } });
+		Steps.Add({ 0.2f, [=, this] { PadPress(EKeys::Gamepad_DPad_Down); } });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(TEXT("D-pad moves down the shop list to the first wall"), IsUIFocused(EKakurenboUIAction::ShopItem, GM->GetShopIndexOfWall(0)));
+			PS->Stock = GS()->WallStock[0];
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A buys the selected item (stock %d -> %d)"), PS->Stock, GS()->WallStock[0]), GS()->WallStock[0] == PS->Stock + 1);
+			Shot(TEXT("gamepad_03_shop"));
+			PadPress(EKeys::Gamepad_RightShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("RB switches to the prestige shop"), bPrestigeShopTab);
+			PadPress(EKeys::Gamepad_LeftShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("LB switches back"), !bPrestigeShopTab);
+			PadPress(EKeys::Gamepad_FaceButton_Top); // Y：設置へ
+		} });
+		// 設置：左スティックでカーソル（カメラが付いてくる）、A で置く、X で回収、十字キーで 1 マス
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("Y goes to the build phase (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Build);
+			PS->Cell = BuildTargetCell;
+			PadAxis(EKeys::Gamepad_LeftX, 1.f);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_LeftX, 0.f);
+			Check(FString::Printf(TEXT("the left stick moves the build cursor ((%d,%d) -> (%d,%d))"), PS->Cell.X, PS->Cell.Y, BuildTargetCell.X, BuildTargetCell.Y),
+				bHasBuildTarget && BuildTargetCell != PS->Cell);
+			PS->Cell = BuildTargetCell;
+			PadPress(EKeys::Gamepad_DPad_Right);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 Moved = FMath::Abs(BuildTargetCell.X - PS->Cell.X) + FMath::Abs(BuildTargetCell.Y - PS->Cell.Y);
+			Check(FString::Printf(TEXT("the D-pad moves the cursor one cell ((%d,%d) -> (%d,%d))"), PS->Cell.X, PS->Cell.Y, BuildTargetCell.X, BuildTargetCell.Y), Moved == 1);
+			PS->Stock = GS()->WallStock[0];
+			PS->Cell = BuildTargetCell;
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A places a wall at the cursor (height %d, stock %d -> %d)"), Grid()->GetColumnHeight(PS->Cell), PS->Stock, GS()->WallStock[0]),
+				Grid()->GetColumnHeight(PS->Cell) == 1 && GS()->WallStock[0] == PS->Stock - 1);
+			Shot(TEXT("gamepad_04_build"));
+			PadPress(EKeys::Gamepad_FaceButton_Left);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("X picks it up (height %d, stock %d)"), Grid()->GetColumnHeight(PS->Cell), GS()->WallStock[0]),
+				Grid()->GetColumnHeight(PS->Cell) == 0 && GS()->WallStock[0] == PS->Stock);
+			PadPress(EKeys::Gamepad_RightShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("RB selects the next item (slot %d)"), SelectedBuildSlot), SelectedBuildSlot == 1);
+			PadPress(EKeys::Gamepad_FaceButton_Right); // B：購入へ戻る
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("B goes back to the shop"), GS()->Phase == EKakurenboPhase::Shop);
+			PadPress(EKeys::Gamepad_FaceButton_Top);
+		} });
+		Steps.Add({ 0.4f, [=, this] { PadPress(EKeys::Gamepad_FaceButton_Top); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(TEXT("Y twice starts hiding"), GS()->Phase == EKakurenboPhase::Hide);
+			// マウスを動かすとキーボード・マウスに戻る
+			InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::MouseX, IE_Axis, 25.f, 1));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("moving the mouse switches back to keyboard and mouse (gamepad %d, climb key '%s')"), IsUsingGamepad(), *KeyName(EKakurenboAction::Climb)),
+					!IsUsingGamepad() && KeyName(EKakurenboAction::Climb) == TEXT("Space"));
+			});
+		} });
+	}
+	// ================================================================ CameraWall（M14：壁に当たって寄ったカメラは、壁から離れたらゆっくり戻る。グワングワン揺れない）
+	else if (Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase))
+	{
+		struct FCam { FIntPoint Spot = FIntPoint(-1, -1); FIntPoint Dir = FIntPoint(1, 0); float Short = 0.f; float Soon = 0.f; };
+		TSharedRef<FCam> Cam = MakeShared<FCam>();
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			GS()->HideTimeRemaining = 600.f;
+			KeepOnlyOni(-1);
+			// 後ろが部屋の壁（#）で、前に 7 マス歩ける場所を探す
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			for (int32 Y = 0; Y < G->GetSizeY() && Cam->Spot.X < 0; ++Y)
+			{
+				for (int32 X = 0; X < G->GetSizeX() && Cam->Spot.X < 0; ++X)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint P(X, Y);
+						bool bOpen = Arena->GetLayoutChar(P - D) == KakurenboMaps::WallChar;
+						for (int32 k = 0; k <= 7 && bOpen; ++k)
+						{
+							bOpen = G->IsWalkable(P + D * k) && !G->IsObstacle(P + D * k);
+						}
+						if (bOpen)
+						{
+							Cam->Spot = P;
+							Cam->Dir = D;
+							break;
+						}
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("found a spot with a room wall behind (%d,%d dir %d,%d)"), Cam->Spot.X, Cam->Spot.Y, Cam->Dir.X, Cam->Dir.Y), Cam->Spot.X >= 0);
+			const float Yaw = FVector(Cam->Dir.X, Cam->Dir.Y, 0.f).Rotation().Yaw;
+			TeleportPlayer(G->CellFloorCenter(Cam->Spot));
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-15.f, Yaw, 0.f)); // カメラは後ろ＝壁の方
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Cam->Short = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("camera moves in front of the wall behind (arm %.0f)"), Cam->Short), Cam->Short < 200.f);
+			Shot(TEXT("camerawall_01_wall_behind"));
+			const float Yaw = FVector(-Cam->Dir.X, -Cam->Dir.Y, 0.f).Rotation().Yaw;
+			SetControlRotation(FRotator(-15.f, Yaw, 0.f)); // 向きを変える：カメラの後ろは 7 マス空いている
+		} });
+		Steps.Add({ 0.12f, [=, this]
+		{
+			Cam->Soon = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("after turning away from the wall the camera eases out instead of jumping (%.0f -> %.0f in 0.12 s)"), Cam->Short, Cam->Soon),
+				Cam->Soon >= Cam->Short - 1.f && Cam->Soon < Cam->Short + 180.f);
+		} });
+		Steps.Add({ 2.5f, [=, this]
+		{
+			const float Late = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("the camera returns to its distance (%.0f -> %.0f, wanted %.0f)"), Cam->Short, Late, GetHider()->ThirdPersonDistance),
+				Late > GetHider()->ThirdPersonDistance - 40.f);
+			Shot(TEXT("camerawall_02_open"));
+		} });
+	}
+	// ================================================================ Lineup（M14：Furniture.csv の家具を全部、壁ぎわに並べて部屋の側から写す。向きと大きさの確認用）
+	else if (Scenario.Equals(TEXT("Lineup"), ESearchCase::IgnoreCase))
+	{
+		// 北の壁ぎわ（部屋の方＝南を向く）と南の壁ぎわ（北を向く）に 1 マスずつあけて並べる。文字・幅・奥行き
+		struct FLineupItem { TCHAR Key; int32 W; int32 H; };
+		static const FLineupItem North[] = { { 'B', 1, 1 }, { 'S', 1, 1 }, { 'O', 1, 1 }, { 'X', 1, 1 }, { 'K', 1, 1 }, { 'F', 2, 1 }, { 'V', 2, 1 }, { 'Q', 2, 1 },
+			{ 'E', 2, 1 }, { 'N', 1, 1 }, { 'J', 2, 1 }, { 'D', 2, 2 }, { 'Y', 2, 1 }, { 'Z', 1, 1 } };
+		static const FLineupItem South[] = { { 'A', 1, 1 }, { 'H', 1, 1 }, { 'T', 1, 1 }, { 'G', 1, 1 }, { 'P', 1, 1 }, { 'R', 1, 1 }, { 'L', 1, 1 }, { 'U', 1, 1 },
+			{ 'W', 1, 1 }, { 'M', 1, 1 }, { '1', 1, 1 }, { '2', 1, 1 }, { '3', 1, 1 }, { '4', 2, 1 }, { '5', 1, 1 }, { 'I', 4, 2 } };
+		constexpr int32 SizeX = 37;
+		constexpr int32 SizeY = 10;
+		TArray<FString> Rows;
+		Rows.Init(FString::ChrN(SizeX, TEXT('.')), SizeY);
+		TArray<TPair<TCHAR, FIntPoint>> Labels;
+		auto Put = [&Rows, &Labels](const FLineupItem* Items, int32 Count, bool bNorth)
+		{
+			int32 X = 1;
+			for (int32 i = 0; i < Count; ++i)
+			{
+				const FLineupItem& It = Items[i];
+				const int32 Y0 = bNorth ? 0 : SizeY - It.H;
+				for (int32 dy = 0; dy < It.H; ++dy)
+				{
+					for (int32 dx = 0; dx < It.W; ++dx)
+					{
+						Rows[Y0 + dy][X + dx] = It.Key;
+					}
+				}
+				Labels.Add(TPair<TCHAR, FIntPoint>(It.Key, FIntPoint(X, bNorth ? Y0 + It.H : Y0 - 1)));
+				X += It.W + 1;
+			}
+		};
+		Put(North, UE_ARRAY_COUNT(North), true);
+		Put(South, UE_ARRAY_COUNT(South), false);
+		FFileHelper::SaveStringToFile(FString::Join(Rows, TEXT("\n")) + TEXT("\n"), *(FPaths::ProjectSavedDir() / TEXT("lineup.txt")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 一時的なマップ（居間の色で、間取りだけ Saved/lineup.txt）
+			FKakurenboMapRow Row = GM->MapRows.FindRef(TEXT("Parlor"));
+			Row.LayoutFile = TEXT("../../Saved/lineup.txt");
+			GM->MapRows.Add(TEXT("Lineup"), Row);
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Lineup");
+			GM->SwitchToMap(TEXT("Lineup"));
+			GS()->HideTimeRemaining = 600.f;
+			const AKakurenboArena* Arena = GM->GetArena();
+			Check(FString::Printf(TEXT("lineup map built (%dx%d, %d pieces, %d with meshes)"), Grid()->GetSizeX(), Grid()->GetSizeY(), Arena->GetFurniturePieceCount(), Arena->GetFurnitureMeshCount()),
+				Grid()->GetSizeX() == SizeX && Arena->GetFurniturePieceCount() == UE_ARRAY_COUNT(North) + UE_ARRAY_COUNT(South));
+			Check(FString::Printf(TEXT("lineup: furniture stays in its cells (overhang %.1f, straddle %d)"), Arena->GetMaxFurnitureOverhang(), Arena->GetFurnitureStraddleCount()),
+				Arena->GetMaxFurnitureOverhang() < 8.f && Arena->GetFurnitureStraddleCount() == 0);
+			for (const TPair<TCHAR, FIntPoint>& Label : Labels)
+			{
+				DrawDebugString(GetWorld(), Grid()->CellFloorCenter(Label.Value) + FVector(0.f, 0.f, 30.f), FString::ChrN(1, Label.Key), nullptr, FColor::White, 120.f, true, 2.0f);
+			}
+		} });
+		// 北の列（南を向いているはず）→ 南の列（北を向いているはず）を、真ん中の通路から写す
+		for (int32 Side = 0; Side < 2; ++Side)
+		{
+			for (int32 Part = 0; Part < 4; ++Part)
+			{
+				Steps.Add({ Side == 0 && Part == 0 ? 6.f : 0.5f, [=, this]
+				{
+					KeepOnlyOni(-1); // 鬼は全部どける（後から出てきた鬼も）
+					GS()->HideTimeRemaining = 600.f;
+					TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(5 + Part * 9, Side == 0 ? 6 : 3)));
+					SetControlRotation(FRotator(-12.f, Side == 0 ? -90.f : 90.f, 0.f));
+				} });
+				Steps.Add({ 1.2f, [=] { Shot(FString::Printf(TEXT("lineup_%d_%d"), Side + 1, Part + 1)); } });
+			}
+		}
+		// M14：家具の当たり判定は見えているメッシュの大きさ。浅い衣装だんす（O：奥行き約 55cm）の前のすき間には入れる（家具のマスの中まで歩ける）
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KeepOnlyOni(-1);
+			const FIntPoint Shelf(5, 0);
+			Check(FString::Printf(TEXT("lineup: (5,0) is the wardrobe O (%c)"), GM->GetArena()->GetLayoutChar(Shelf)), GM->GetArena()->GetLayoutChar(Shelf) == TEXT('O'));
+			TeleportPlayer(Grid()->CellFloorCenter(Shelf + FIntPoint(0, 3)));
+			GetPawn()->SetActorRotation(FRotator(0.f, -90.f, 0.f));
+			SetControlRotation(FRotator(-20.f, -90.f, 0.f));
+			SimulateKey(EKeys::W, IE_Pressed);
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			SimulateKey(EKeys::W, IE_Released);
+			const FVector Me = GetPawn()->GetActorLocation();
+			const FIntPoint Cell = Grid()->WorldToCell(Me);
+			const float IntoCell = static_cast<float>(Grid()->CellFloorCenter(FIntPoint(5, 1)).Y - Grid()->GetCellSize() * 0.5f - Me.Y);
+			Check(FString::Printf(TEXT("lineup: the player walks into the gap in front of the shallow wardrobe (cell %d,%d, %.0f cm into the furniture cell)"), Cell.X, Cell.Y, IntoCell),
+				Cell == FIntPoint(5, 0) && IntoCell > 5.f);
+			Shot(TEXT("lineup_3_gap"));
+		} });
+	}
+	// ================================================================ Catalog（家具のメッシュを並べて写す。素材選び用。Saved/catalog.txt に /Game/... を 1 行ずつ、"#" で次のページ）
+	else if (Scenario.Equals(TEXT("Catalog"), ESearchCase::IgnoreCase))
+	{
+		TArray<FString> Lines;
+		FFileHelper::LoadFileToStringArray(Lines, *(FPaths::ProjectSavedDir() / TEXT("catalog.txt")));
+		TArray<TArray<FString>> Pages;
+		Pages.AddDefaulted();
+		for (const FString& Line : Lines)
+		{
+			const FString Trimmed = Line.TrimStartAndEnd();
+			if (Trimmed.StartsWith(TEXT("#")))
+			{
+				Pages.AddDefaulted();
+			}
+			else if (!Trimmed.IsEmpty())
+			{
+				Pages.Last().Add(Trimmed);
+			}
+		}
+		TSharedRef<TArray<TObjectPtr<AActor>>> Spawned = MakeShared<TArray<TObjectPtr<AActor>>>();
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.0f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置（真上から。斜めに傾けて見る）
+			if (MyHUD)
+			{
+				MyHUD->bShowHUD = false;
+			}
+			const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+			GetHider()->SetTopDownFocus(Center);
+			GetHider()->TopDownDistance = 2300.f;
+			GetHider()->TopDownPitch = -48.f;
+			GetHider()->SetOverheadYaw(0.f);
+			// 見やすいように明るくする
+			for (int32 i = 0; i < 4; ++i)
+			{
+				APointLight* Light = GetWorld()->SpawnActor<APointLight>(Center + FVector(-500.f + (i % 2) * 1000.f, -500.f + (i / 2) * 1000.f, 600.f), FRotator::ZeroRotator);
+				Light->PointLightComponent->SetIntensityUnits(ELightUnits::Candelas);
+				Light->PointLightComponent->SetIntensity(400.f);
+				Light->PointLightComponent->SetAttenuationRadius(2500.f);
+				Light->PointLightComponent->SetCastShadows(false);
+			}
+		} });
+		for (int32 PageIndex = 0; PageIndex < Pages.Num(); ++PageIndex)
+		{
+			const TArray<FString> Page = Pages[PageIndex];
+			Steps.Add({ 0.5f, [=, this]
+			{
+				for (AActor* Old : *Spawned)
+				{
+					if (Old)
+					{
+						Old->Destroy();
+					}
+				}
+				Spawned->Reset();
+				const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+				for (int32 i = 0; i < Page.Num(); ++i)
+				{
+					UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Page[i]);
+					const int32 Col = i % 5;
+					const int32 Row = i / 5;
+					// 画面の上 = +X（カメラの向き）。列は Y 方向、行は X 方向（奥から手前へ）
+					const FVector Slot = Center + FVector(450.f - Row * 330.f, -840.f + Col * 420.f, 0.f);
+					FString Label = FString::Printf(TEXT("%d %s"), i + 1, *FPaths::GetBaseFilename(Page[i]));
+					if (Mesh)
+					{
+						const FBox Box = Mesh->GetBoundingBox();
+						const FVector Size = Box.GetSize();
+						const float Scale = static_cast<float>(FMath::Min(1.0, 300.0 / FMath::Max3(Size.X, Size.Y, 1.0)));
+						AStaticMeshActor* Actor = GetWorld()->SpawnActor<AStaticMeshActor>(Slot, FRotator::ZeroRotator);
+						Actor->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+						Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+						Actor->SetActorScale3D(FVector(Scale));
+						Actor->SetActorLocation(Slot - Box.GetCenter() * Scale + FVector(0.f, 0.f, Box.GetExtent().Z * Scale + 1.f));
+						Spawned->Add(Actor);
+						Label += FString::Printf(TEXT(" %.0fx%.0fx%.0f"), Size.X, Size.Y, Size.Z);
+						UE_LOG(LogTemp, Display, TEXT("[AutoTest] catalog %d-%d %s size %.0f x %.0f x %.0f"), PageIndex + 1, i + 1, *Page[i], Size.X, Size.Y, Size.Z);
+					}
+					else
+					{
+						Label += TEXT(" (missing)");
+						UE_LOG(LogTemp, Warning, TEXT("[AutoTest] catalog %d-%d %s missing"), PageIndex + 1, i + 1, *Page[i]);
+					}
+					DrawDebugString(GetWorld(), Slot + FVector(-130.f, -150.f, 10.f), Label, nullptr, FColor::White, 30.f, true, 1.0f);
+				}
+			} });
+			// 2 段ずつ近くから写す（はじめはシェーダーの準備に時間がかかるので長めに待つ）
+			for (int32 Half = 0; Half < 2; ++Half)
+			{
+				Steps.Add({ PageIndex == 0 && Half == 0 ? 12.f : 2.5f, [=, this]
+				{
+					const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+					GetHider()->SetTopDownFocus(Center + FVector(285.f - Half * 660.f, 0.f, 0.f));
+					GetHider()->TopDownDistance = 1500.f;
+				} });
+				Steps.Add({ 1.5f, [=] { Shot(FString::Printf(TEXT("catalog_%02d_%d"), PageIndex + 1, Half + 1)); } });
+			}
+		}
 	}
 	// ================================================================ Loop
 	else

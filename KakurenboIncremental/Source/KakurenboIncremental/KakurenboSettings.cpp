@@ -51,11 +51,17 @@ void UKakurenboSettings::Load()
 	MusicVolume = FMath::Clamp(Saved->MusicVolume, 0.f, 1.f);
 	SfxVolume = FMath::Clamp(Saved->SfxVolume, 0.f, 1.f);
 	MouseSensitivity = FMath::Clamp(Saved->MouseSensitivity, MinMouseSensitivity, MaxMouseSensitivity);
+	GamepadSensitivity = Saved->Version >= 2 ? FMath::Clamp(Saved->GamepadSensitivity, MinGamepadSensitivity, MaxGamepadSensitivity) : 1.f;
 	bInvertMouseY = Saved->bInvertMouseY;
 	bShowHints = Saved->bShowHints;
 	for (int32 i = 0; i < NumActions; ++i)
 	{
-		if (const FKakurenboKeyBinding* Found = Saved->Bindings.Find(ActionName(static_cast<EKakurenboAction>(i))))
+		const FKakurenboKeyBinding* Found = Saved->Bindings.Find(ActionName(static_cast<EKakurenboAction>(i)));
+		if (!Found && static_cast<EKakurenboAction>(i) == EKakurenboAction::Climb)
+		{
+			Found = Saved->Bindings.Find(TEXT("Jump")); // 版 1 の「ジャンプ」のキーは「よじ登る」に使う
+		}
+		if (Found)
 		{
 			// 今は使えないキー（古いセーブ）なら初期設定のまま
 			if (!Found->Primary.IsValid() || CanBindKey(Found->Primary))
@@ -78,6 +84,7 @@ void UKakurenboSettings::Save()
 	Out->MusicVolume = MusicVolume;
 	Out->SfxVolume = SfxVolume;
 	Out->MouseSensitivity = MouseSensitivity;
+	Out->GamepadSensitivity = GamepadSensitivity;
 	Out->bInvertMouseY = bInvertMouseY;
 	Out->bShowHints = bShowHints;
 	for (int32 i = 0; i < NumActions; ++i)
@@ -104,6 +111,7 @@ void UKakurenboSettings::Apply(const UObject* WorldContext) const
 	if (AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(World->GetFirstPlayerController()))
 	{
 		PC->MouseSensitivity = MouseSensitivity;
+		PC->GamepadSensitivity = GamepadSensitivity;
 		PC->bInvertMouseY = bInvertMouseY;
 	}
 }
@@ -154,7 +162,7 @@ FKakurenboKeyBinding UKakurenboSettings::DefaultBinding(EKakurenboAction Action)
 	case EKakurenboAction::Mash:        return Make(EKeys::LeftMouseButton, EKeys::F);
 	case EKakurenboAction::Sneak:       return Make(EKeys::LeftControl, EKeys::C);
 	case EKakurenboAction::Dash:        return Make(EKeys::LeftShift, EKeys::RightShift);
-	case EKakurenboAction::Jump:        return Make(EKeys::SpaceBar);
+	case EKakurenboAction::Climb:       return Make(EKeys::SpaceBar);
 	case EKakurenboAction::CameraLeft:  return Make(EKeys::Q);
 	case EKakurenboAction::CameraRight: return Make(EKeys::E);
 	case EKakurenboAction::TiltDown:    return Make(EKeys::Z);
@@ -168,6 +176,30 @@ FKakurenboKeyBinding UKakurenboSettings::DefaultBinding(EKakurenboAction Action)
 	case EKakurenboAction::Prestige:    return Make(EKeys::P);
 	case EKakurenboAction::Help:        return Make(EKeys::F1, EKeys::H);
 	default:                            return Make(EKeys::Invalid);
+	}
+}
+
+FKey UKakurenboSettings::GamepadKey(EKakurenboAction Action)
+{
+	// コントローラーのボタンは決まっている（キー設定では変えない）。スティック（移動・カメラ）とメニューの操作は PlayerController が直接見る
+	switch (Action)
+	{
+	case EKakurenboAction::MoveForward: return EKeys::Gamepad_DPad_Up;
+	case EKakurenboAction::MoveBack:    return EKeys::Gamepad_DPad_Down;
+	case EKakurenboAction::MoveLeft:    return EKeys::Gamepad_DPad_Left;
+	case EKakurenboAction::MoveRight:   return EKeys::Gamepad_DPad_Right;
+	case EKakurenboAction::Mash:        return EKeys::Gamepad_RightTrigger;     // RT：連打しながら右スティックでカメラも回せる
+	case EKakurenboAction::Sneak:       return EKeys::Gamepad_LeftTrigger;      // LT を押している間しゃがむ
+	case EKakurenboAction::Dash:        return EKeys::Gamepad_RightShoulder;    // RB
+	case EKakurenboAction::Climb:       return EKeys::Gamepad_FaceButton_Bottom; // A
+	case EKakurenboAction::Next:        return EKeys::Gamepad_FaceButton_Top;   // Y
+	case EKakurenboAction::SetStart:    return EKeys::Gamepad_LeftThumbstick;   // L スティック押し込み
+	case EKakurenboAction::BackToShop:  return EKeys::Gamepad_FaceButton_Right; // B
+	case EKakurenboAction::ClearAll:    return EKeys::Gamepad_RightThumbstick;  // R スティック押し込み（2 回）
+	case EKakurenboAction::SwitchShop:  return EKeys::Gamepad_LeftShoulder;     // LB（RB でも切り替わる）
+	case EKakurenboAction::Refill:      return EKeys::Gamepad_FaceButton_Left;  // X
+	case EKakurenboAction::Help:        return EKeys::Gamepad_Special_Left;     // BACK（ビュー）
+	default:                            return EKeys::Invalid;                  // カメラ（右スティック）・転生（ボタンを選んで A）
 	}
 }
 
@@ -260,7 +292,8 @@ bool UKakurenboSettings::IsDown(const APlayerController* PC, EKakurenboAction Ac
 	}
 	const FKey A = GetKey(Action, false);
 	const FKey B = GetKey(Action, true);
-	return (A.IsValid() && PC->IsInputKeyDown(A)) || (B.IsValid() && PC->IsInputKeyDown(B));
+	const FKey Pad = GamepadKey(Action);
+	return (A.IsValid() && PC->IsInputKeyDown(A)) || (B.IsValid() && PC->IsInputKeyDown(B)) || (Pad.IsValid() && PC->IsInputKeyDown(Pad));
 }
 
 bool UKakurenboSettings::WasPressed(const APlayerController* PC, EKakurenboAction Action) const
@@ -271,12 +304,14 @@ bool UKakurenboSettings::WasPressed(const APlayerController* PC, EKakurenboActio
 	}
 	const FKey A = GetKey(Action, false);
 	const FKey B = GetKey(Action, true);
-	return (A.IsValid() && PC->WasInputKeyJustPressed(A)) || (B.IsValid() && PC->WasInputKeyJustPressed(B));
+	const FKey Pad = GamepadKey(Action);
+	return (A.IsValid() && PC->WasInputKeyJustPressed(A)) || (B.IsValid() && PC->WasInputKeyJustPressed(B)) || (Pad.IsValid() && PC->WasInputKeyJustPressed(Pad));
 }
 
 bool UKakurenboSettings::CanBindKey(const FKey& Key)
 {
-	if (!Key.IsValid() || Key.IsAxis1D() || Key.IsAxis2D() || Key.IsAxis3D() || Key.IsTouch() || Key.IsGesture())
+	// コントローラーのボタンは決まっているので、キーボード・マウスの欄には付けない
+	if (!Key.IsValid() || Key.IsAxis1D() || Key.IsAxis2D() || Key.IsAxis3D() || Key.IsTouch() || Key.IsGesture() || Key.IsGamepadKey())
 	{
 		return false;
 	}
@@ -322,6 +357,23 @@ FString UKakurenboSettings::KeyLabel(const FKey& Key)
 		{ EKeys::Down, TEXT("↓") },
 		{ EKeys::Left, TEXT("←") },
 		{ EKeys::Right, TEXT("→") },
+		// コントローラー（Xbox の並び）
+		{ EKeys::Gamepad_FaceButton_Bottom, TEXT("A") },
+		{ EKeys::Gamepad_FaceButton_Right, TEXT("B") },
+		{ EKeys::Gamepad_FaceButton_Left, TEXT("X") },
+		{ EKeys::Gamepad_FaceButton_Top, TEXT("Y") },
+		{ EKeys::Gamepad_LeftShoulder, TEXT("LB") },
+		{ EKeys::Gamepad_RightShoulder, TEXT("RB") },
+		{ EKeys::Gamepad_LeftTrigger, TEXT("LT") },
+		{ EKeys::Gamepad_RightTrigger, TEXT("RT") },
+		{ EKeys::Gamepad_LeftThumbstick, TEXT("L 押し込み") },
+		{ EKeys::Gamepad_RightThumbstick, TEXT("R 押し込み") },
+		{ EKeys::Gamepad_Special_Left, TEXT("BACK") },
+		{ EKeys::Gamepad_Special_Right, TEXT("START") },
+		{ EKeys::Gamepad_DPad_Up, TEXT("十字↑") },
+		{ EKeys::Gamepad_DPad_Down, TEXT("十字↓") },
+		{ EKeys::Gamepad_DPad_Left, TEXT("十字←") },
+		{ EKeys::Gamepad_DPad_Right, TEXT("十字→") },
 	};
 	for (const FNamed& Named : Names)
 	{
@@ -349,7 +401,7 @@ FText UKakurenboSettings::ActionDisplayName(EKakurenboAction Action)
 	case EKakurenboAction::Mash:        return NSLOCTEXT("Kakurenbo", "ActMash", "連打（コインを稼ぐ）");
 	case EKakurenboAction::Sneak:       return NSLOCTEXT("Kakurenbo", "ActSneak", "しゃがむ・しのび足");
 	case EKakurenboAction::Dash:        return NSLOCTEXT("Kakurenbo", "ActDash", "煙幕ダッシュ");
-	case EKakurenboAction::Jump:        return NSLOCTEXT("Kakurenbo", "ActJump", "ジャンプ");
+	case EKakurenboAction::Climb:       return NSLOCTEXT("Kakurenbo", "ActClimb", "よじ登る");
 	case EKakurenboAction::CameraLeft:  return NSLOCTEXT("Kakurenbo", "ActCamLeft", "カメラを左に回す");
 	case EKakurenboAction::CameraRight: return NSLOCTEXT("Kakurenbo", "ActCamRight", "カメラを右に回す");
 	case EKakurenboAction::TiltDown:    return NSLOCTEXT("Kakurenbo", "ActTiltDown", "設置：カメラを傾ける");

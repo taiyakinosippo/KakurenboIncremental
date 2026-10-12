@@ -1,12 +1,67 @@
 ﻿#include "KakurenboMaps.h"
 
-KakurenboMaps::FLayout KakurenboMaps::ParseLayout(const FString& Text, int32 SizeX, int32 SizeY, TArray<FString>& OutProblems)
+namespace
+{
+	/** 区切りの行（"[floor]" など）か。区切りの名前を返す */
+	bool IsSectionLine(const FString& Line, FString& OutName)
+	{
+		FString Trimmed = Line.TrimStartAndEnd();
+		if (Trimmed.StartsWith(TEXT("[")) && Trimmed.EndsWith(TEXT("]")) && Trimmed.Len() >= 2)
+		{
+			OutName = Trimmed.Mid(1, Trimmed.Len() - 2).ToLower();
+			return true;
+		}
+		return false;
+	}
+}
+
+FString KakurenboMaps::GetSection(const FString& Text, const FString& Name)
+{
+	TArray<FString> Lines;
+	Text.ParseIntoArrayLines(Lines, false);
+	FString Current; // 最初の区切りより前は間取り（名前は空）
+	const FString Wanted = Name.ToLower();
+	FString Out;
+	for (const FString& Line : Lines)
+	{
+		FString Section;
+		if (IsSectionLine(Line, Section))
+		{
+			Current = Section;
+			continue;
+		}
+		if (Current == Wanted)
+		{
+			Out += Line;
+			Out += TEXT("\n");
+		}
+	}
+	return Out;
+}
+
+KakurenboMaps::FLayout KakurenboMaps::ParseFloorLayer(const FString& Text, int32 SizeX, int32 SizeY)
+{
+	TArray<FString> Ignore;
+	FLayout Floor = ParseLayout(GetSection(Text, TEXT("floor")), SizeX, SizeY, Ignore);
+	for (TCHAR& C : Floor.Cells)
+	{
+		if (C == EmptyChar)
+		{
+			C = DefaultFloorChar; // 書いていないマスはマップの床
+		}
+	}
+	return Floor;
+}
+
+KakurenboMaps::FLayout KakurenboMaps::ParseLayout(const FString& InText, int32 SizeX, int32 SizeY, TArray<FString>& OutProblems)
 {
 	FLayout Layout;
 	Layout.SizeX = FMath::Max(1, SizeX);
 	Layout.SizeY = FMath::Max(1, SizeY);
 	Layout.Cells.Init(EmptyChar, Layout.SizeX * Layout.SizeY);
 
+	// 区切り（[floor] など）より前だけが間取り
+	const FString Text = GetSection(InText, FString());
 	TArray<FString> Lines;
 	Text.ParseIntoArrayLines(Lines, false);
 	int32 Y = 0;
@@ -40,10 +95,10 @@ KakurenboMaps::FLayout KakurenboMaps::ParseLayout(const FString& Text, int32 Siz
 	return Layout;
 }
 
-bool KakurenboMaps::MeasureLayout(const FString& Text, int32& OutSizeX, int32& OutSizeY)
+bool KakurenboMaps::MeasureLayout(const FString& InText, int32& OutSizeX, int32& OutSizeY)
 {
 	TArray<FString> Lines;
-	Text.ParseIntoArrayLines(Lines, false);
+	GetSection(InText, FString()).ParseIntoArrayLines(Lines, false);
 	int32 Rows = 0;
 	int32 Longest = 0;
 	for (FString Line : Lines)

@@ -6,6 +6,7 @@
 //   '.' は何もない床。'#' は部屋の壁。それ以外の文字は Data/Furniture.csv の行の名前（家具）。
 //   ';' で始まる行と空の行は読み飛ばす（メモ用）。
 //   同じ文字が長方形に並んでいる所は 1 つの家具になる（例: "BB" は横に 2 マスの本棚）。
+//   "[floor]" の行から後は床の種類（同じ大きさの文字の図。1 文字 = Data/FloorKinds.csv の行の名前）。無ければ全部 'w'（マップの床）
 
 #pragma once
 
@@ -18,6 +19,9 @@ namespace KakurenboMaps
 
 	/** 部屋の壁の文字（Furniture.csv に無くても使える） */
 	constexpr TCHAR WallChar = TEXT('#');
+
+	/** 床の種類の既定（マップの床。Maps.csv の FloorSurface） */
+	constexpr TCHAR DefaultFloorChar = TEXT('w');
 
 	/** 読んだ間取り（マスごとの文字） */
 	struct KAKURENBOINCREMENTAL_API FLayout
@@ -56,4 +60,14 @@ namespace KakurenboMaps
 	 * '.' は含めない
 	 */
 	KAKURENBOINCREMENTAL_API TArray<FPiece> FindPieces(const FLayout& Layout);
+
+	/**
+	 * 間取りのファイルの区切り "[Name]" の行から次の区切りまでの文（Name が空なら、最初の区切りより前＝間取り）
+	 */
+	KAKURENBOINCREMENTAL_API FString GetSection(const FString& Text, const FString& Name);
+
+	/**
+	 * 床の種類（"[floor]" の区切り）を SizeX × SizeY で読む。書いていないマスは DefaultFloorChar
+	 */
+	KAKURENBOINCREMENTAL_API FLayout ParseFloorLayer(const FString& Text, int32 SizeX, int32 SizeY);
 }

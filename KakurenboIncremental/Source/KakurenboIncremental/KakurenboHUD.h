@@ -80,7 +80,27 @@ enum class EKakurenboSettingSlider : uint8
 	Music,
 	Sfx,
 	Mouse,
+	Gamepad, // コントローラーのスティックでカメラを回す速さ
 	Count
+};
+
+/** 決まった操作（キー設定に無いもの）の案内。キーボード・マウスかコントローラーかで出し分ける */
+enum class EKakurenboUIKey : uint8
+{
+	Confirm,    // 選ぶ・押す（左クリック / A）
+	Cancel,     // もどる（Esc / B）
+	Menu,       // メニュー（Esc / START）
+	Place,      // 設置：置く（左クリック / A）
+	PickUp,     // 設置：回収（右クリック / X）
+	SelectSlot, // 設置：置く物を選ぶ（下の欄・数字キー / LB・RB）
+	Zoom,       // ズーム（ホイール / LT・RT）
+	Look,       // 見回す（マウス / 右スティック）
+	Move,       // 歩く（WASD / 左スティック）
+	Cursor,     // 設置のカーソル（マウス / 左スティック）
+	Rotate,     // カメラを回す（Q・E / 右スティック）
+	Navigate,   // 項目を選ぶ（マウス / 十字キー）
+	Buy,        // 買う（クリック・数字キー / A）
+	Tilt,       // 設置のカメラを傾ける（Z・X / 右スティックの上下）
 };
 
 /** 設定の切り替え */
@@ -124,6 +144,12 @@ public:
 
 	/** 画面上の位置（ピクセル）にあるボタン。前のフレームで描いたボタンから探す */
 	bool FindButtonAt(const FVector2D& ScreenPx, FKakurenboUIButton& OutButton) const;
+
+	/** 前のフレームで描いたボタン（コントローラーで選ぶのに使う） */
+	const TArray<FKakurenboUIButton>& GetButtons() const { return Buttons; }
+
+	/** 前のフレームのボタンが、そのパート・メニューの画面のものか（画面が変わった直後の 1 フレームは前の画面のボタンが残っている） */
+	bool AreButtonsFor(EKakurenboPhase Phase, EKakurenboMenu Menu) const { return ButtonsPhase == Phase && ButtonsMenu == Menu; }
 
 	/** ボタンの真ん中の位置（テスト用。描いていなければ false） */
 	bool GetButtonCenter(EKakurenboUIAction Action, int32 Index, FVector2D& OutScreenPx) const;
@@ -211,8 +237,10 @@ protected:
 	void DrawSlider(float X, float Y, float W, float Value01, int32 Index, const FString& ValueText);
 	void DrawToggle(float X, float Y, float W, bool bOn, int32 Index, const FString& OnText, const FString& OffText);
 
-	/** このフレームに描いたボタン（次のフレームの入力で使う） */
+	/** このフレームに描いたボタン（次のフレームの入力で使う）と、描いた画面 */
 	TArray<FKakurenboUIButton> Buttons;
+	EKakurenboPhase ButtonsPhase = EKakurenboPhase::Title;
+	EKakurenboMenu ButtonsMenu = EKakurenboMenu::None;
 
 	/** 画面の大きさに合わせた UI 倍率（1080p 基準） */
 	float UIScale = 1.f;

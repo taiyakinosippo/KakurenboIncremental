@@ -87,6 +87,21 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Balance")
 	TObjectPtr<UDataTable> SurfaceTable;
 
+	/** 床の種類。Data/FloorKinds.csv の代わりに使う DataTable（行の型: KakurenboFloorKindRow。行の名前は間取りの [floor] の 1 文字） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> FloorKindTable;
+
+	/** 読み込んだ床の種類（[floor] の 1 文字 → 種類） */
+	TMap<TCHAR, FKakurenboFloorKindRow> FloorKindRows;
+
+	/** 壁の飾り（窓・絵・明かり・出入り口の枠）。Data/Decor.csv の代わりに使う DataTable（行の型: KakurenboDecorRow） */
+	UPROPERTY(EditAnywhere, Category = "Balance")
+	TObjectPtr<UDataTable> DecorTable;
+
+	/** 読み込んだ壁の飾り */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Map")
+	TArray<FKakurenboDecorRow> DecorRows;
+
 	/** 読み込んだ鬼の種類ごとの数値 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance")
 	TMap<EOniType, FKakurenboOniTypeRow> OniTypeRows;
@@ -177,6 +192,25 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	FText TimeUpgradeName;
+
+	/**
+	 * 壁の補強（コインのお店）：すべての壁の耐久 = 元の耐久 × (WallReinforceBase + WallReinforcePerLevel × レベル)。
+	 * 足し算で伸びる（1 周の中の強化）。転生のお店の「壁の硬さ」はかけ算（×1.5 ずつ）。Upgrades.csv の Wall の行で上書きされる
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallReinforceBase = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallReinforcePerLevel = 0.5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallReinforceBaseCost = 40.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	double WallReinforceCostGrowth = 1.9;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
+	FText WallReinforceName;
 
 	// ===== 転生（Prestige.csv で上書きされる） =====
 
@@ -437,9 +471,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetTimeUpgradeCost() const;
 
-	/** 今の壁の耐久の倍率（転生ポイントで決まる） */
+	/** 今の壁の耐久の倍率（転生のお店の「壁の硬さ」で決まる。かけ算） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetWallHPMultiplier() const;
+
+	/** 壁の補強の倍率（元の耐久に対して。足し算で伸びる：Lv0 = 1、Lv1 = 1.5 …）。Level を省くと今のレベル */
+	double GetWallReinforceFactor(int32 Level) const;
+	double GetWallReinforceFactor() const;
+
+	/** 壁の補強を 1 つ上げる価格 */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	double GetWallReinforceCost() const;
+
+	/** 壁の補強を買う（置いてある壁もすぐ硬くなる） */
+	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
+	bool TryBuyWallReinforce();
+
+	/** その壁を今買えるか（クライミング壁は「よじ登る」を解放してから） */
+	bool IsWallTypeAvailable(int32 WallTypeIndex) const;
+
+	/** 今のステージの標準鬼の攻撃で、耐久 HP の壁が何回で壊れるか */
+	int32 GetHitsToBreak(double HP) const;
 
 	/** 転生のお店の強化レベル */
 	int32 GetPrestigeLevel(EPrestigeUpgrade Upgrade) const;
@@ -459,10 +511,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyPrestigeUpgrade(int32 Index);
 
-	/** ダッシュ・ジャンプなど、転生のお店の強化をプレイヤーに反映する */
+	/** 煙幕ダッシュ・よじ登るなど、転生のお店の強化をプレイヤーに反映する */
 	void ApplyPrestigeToPlayer();
 
-	/** ダッシュ・ジャンプが使えるか（転生のお店で解放） */
+	/** 煙幕ダッシュが使えるか（転生のお店で解放） */
 	bool IsDashUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::SmokeDuration) > 0; }
 
 	/** 1 ラウンドに煙幕ダッシュを使える回数（「煙幕の数」の行は足し算：BaseValue + ValueGrowth × レベル） */
@@ -479,9 +531,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dash")
 	float MaxSmokeDuration = 7.f;
-	bool IsJumpUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::Jump) > 0; }
 
-	/** 転生を反映した壁の種類（耐久 = 元の耐久 × 倍率） */
+	/** よじ登れるか（転生のお店で解放。M14 でジャンプの代わりに） */
+	bool IsClimbUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::Climb) > 0; }
+
+	/** 家具によじ登るのにかかる秒数（壁は Walls.csv の ClimbSeconds） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+	float FurnitureClimbSeconds = 1.2f;
+
+	/** その壁の種類によじ登る秒数（壁でなければ家具の秒数） */
+	float GetClimbSeconds(int32 WallTypeIndex) const;
+
+	/** 補強と転生を反映した壁の種類（耐久 = 元の耐久 × 補強の倍率 × 壁の硬さの倍率） */
 	TArray<FWallTypeDef> GetEffectiveWallTypes() const;
 
 	// ===== 転生 =====
@@ -533,18 +594,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	float MashNoiseLoudness = 0.75f;
 
-	/** 足音 1 歩・ジャンプ 1 回の音の大きさ（連打 = 1） */
+	/** 足音 1 歩・よじ登る 1 回の音の大きさ（連打 = 1） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	float StepNoiseLoudness = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
-	float JumpNoiseLoudness = 0.7f;
+	float ClimbNoiseLoudness = 0.6f;
 
 	/** しのび足（Ctrl を押しながら歩く）のときの足音の倍率 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	float SneakStepMultiplier = 0.3f;
 
-	/** 壁に囲まれた場所（空洞）にいるときの足音・ジャンプの音の倍率（消音壁でなくても小さくなる） */
+	/** 壁に囲まれた場所（空洞）にいるときの足音・よじ登る音の倍率（消音壁でなくても小さくなる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	float EnclosedStepMultiplier = 0.2f;
 
@@ -555,8 +616,8 @@ public:
 	/** プレイヤーが 1 歩歩いた（着地も 1 歩）。かくれんぼ中だけ鬼に聞こえる */
 	void HandlePlayerStep(const FVector& FeetLocation, bool bSneaking);
 
-	/** プレイヤーがジャンプした */
-	void HandlePlayerJump(const FVector& FeetLocation);
+	/** プレイヤーがよじ登り始めた（音が出る） */
+	void HandlePlayerClimb(const FVector& FeetLocation);
 
 	/** 今の場所での足音の倍率（壁に囲まれていれば小さい） */
 	float GetStepNoiseMultiplier() const;
@@ -622,8 +683,26 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetOniAttackDamage() const;
 
+	/** 鬼の聞こえる距離の基準（ステージの OniHearingRadius × 館の大きさの倍率 GetMapNoiseScale） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetOniHearingRadius() const;
+
+	/**
+	 * M14：音の届く距離の、館の大きさによる倍率。小さい館（16 マス）で MapNoiseScaleSmall、大きい館（40 マス）で 1。
+	 * 連打・足音・ダッシュ・おとりの音が全部これで小さくなる（小さい館で連打の音が館じゅうに届いて連打できなかった）。
+	 * 間取りの無い舞台（テスト用の家具の無い舞台）は 1
+	 */
+	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
+	float GetMapNoiseScale() const;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
+	float MapNoiseScaleSmall = 0.45f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
+	int32 MapNoiseSmallSide = 16;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
+	int32 MapNoiseLargeSide = 40;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetNumOnis() const;
@@ -675,7 +754,7 @@ public:
 	/** まとめて買うと何個・いくらになるか（足りない分を全部買ったとき） */
 	void GetRefillPlan(int32& OutCount, double& OutCost) const;
 
-	/** 商品の番号（0 始まり）。並び: 強化（連打・時間）→ 壁 → 罠 */
+	/** 商品の番号（0 始まり）。並び: 強化（連打・時間・壁の補強）→ 壁 → 罠 */
 	int32 GetShopIndexOfWall(int32 WallTypeIndex) const;
 	int32 GetShopIndexOfTrap(int32 TrapTypeIndex) const;
 
@@ -781,6 +860,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	void ResetProgress(bool bShowNotice = true);
 
+	/**
+	 * 版 5 までのセーブの壁の種類（0 木 / 1 石 / 2 鉄 / 3 消音壁）を今の種類（0 通常壁 / 1 消音壁）に直す。
+	 * 在庫は足し合わせ、置き方（設計図・残っていた壁）は種類の番号を付け替える（単体テストあり）
+	 */
+	static void RemapLegacyWallTypes(TArray<int32>& Stock, TArray<struct FKakurenboSavedColumn>& Columns);
+	static int32 RemapLegacyWallType(int32 OldType);
+
 	/** 画面上部に一時的なお知らせを出す */
 	void ShowNotice(const FText& Text, float Seconds = 5.f);
 
@@ -815,8 +901,8 @@ protected:
 
 	/** 今のマップの家具・部屋の壁を舞台とグリッドに反映する */
 	void ApplyCurrentMap();
-	/** 間取りのファイルを読む（無ければ全部床） */
-	KakurenboMaps::FLayout LoadMapLayout(const FKakurenboMapRow& Row) const;
+	/** 間取りのファイルを読む（無ければ全部床）。OutFloorLayer があれば床の種類（[floor]）も */
+	KakurenboMaps::FLayout LoadMapLayout(const FKakurenboMapRow& Row, KakurenboMaps::FLayout* OutFloorLayer = nullptr) const;
 	/** 家具の上に壁・罠が残っていたら在庫に戻して消す（古いセーブ・間取りを変えたとき） */
 	void ClearLayoutOnObstacles();
 	/** 今の館の外になったマスの壁・罠を在庫に戻して、列から取り除く */

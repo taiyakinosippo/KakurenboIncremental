@@ -146,6 +146,12 @@ public:
 		if (Surface) { WallSurfaces.Add(WallTypeIndex, *Surface); } else { WallSurfaces.Remove(WallTypeIndex); }
 	}
 
+	/** クライミング壁の種類（足場の横木を付ける） */
+	void SetWallLadder(int32 WallTypeIndex, bool bLadder)
+	{
+		if (bLadder) { LadderWallTypes.Add(WallTypeIndex); } else { LadderWallTypes.Remove(WallTypeIndex); }
+	}
+
 	/** 壁が攻撃されたとき（演出と音に使う） */
 	FOnKakurenboBlockHit OnBlockHit;
 
@@ -308,6 +314,7 @@ private:
 	TArray<FIntPoint> ReservedCells;
 
 	TMap<int32, FKakurenboSurfaceRow> WallSurfaces;
+	TSet<int32> LadderWallTypes;
 
 	/** マスごとの「家具・部屋の壁がある」 */
 	TArray<bool> Obstacles;

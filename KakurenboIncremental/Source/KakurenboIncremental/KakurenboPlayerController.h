@@ -10,7 +10,14 @@
 //   リザルト（俯瞰）      クリック・Enter: 次へ / Q・E: カメラ回転 / ホイール: ズーム
 //   設置（真上から）       WASD: カメラを動かす / カーソル+左クリック: 壁・罠を置く / 右クリック: 回収 / T: スタート位置をカーソルのマスへ
 //                         数字キー・下の欄をクリック: 置く物（壁の種類 → 罠の種類の順） / Q・E / ホイールを押してドラッグ: カメラ回転 / ホイール: ズーム
-//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Ctrl: しゃがむ / Space: ジャンプ / Shift: 煙幕ダッシュ（回数制） / 左クリック・F: 連打 / ホイール: カメラの距離
+//   かくれんぼ（三人称）   マウス: カメラ回転 / WASD: 移動 / Ctrl: しゃがむ / Space: よじ登る / Shift: 煙幕ダッシュ（回数制） / 左クリック・F: 連打 / ホイール: カメラの距離
+//
+// コントローラー（Xbox の並び。ボタンは決まっている。UKakurenboSettings::GamepadKey）:
+//   共通                 START: メニュー / BACK: 操作説明 / 十字キー・左スティック: ボタンを選ぶ / A: 押す / B: もどる / Y: 次へ
+//   購入                 LB・RB: お店の切り替え / X: まとめて補充 / 右スティック: カメラ回転 / LT・RT: ズーム
+//   設置                 左スティック・十字キー: カーソル（カメラが付いてくる） / A: 置く / X: 回収 / LB・RB: 置く物 / B: 購入へ戻る
+//                        L 押し込み: スタート位置 / R 押し込み 2 回: 全部回収 / 右スティック: 回す・傾ける / LT・RT: ズーム
+//   かくれんぼ            左スティック: 移動 / 右スティック: カメラ / RT: 連打 / LT: しゃがむ / A: よじ登る / RB: 煙幕ダッシュ
 
 #pragma once
 
@@ -47,9 +54,47 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
 	float MouseSensitivity = 0.12f;
 
-	/** マウスの上下を反転する */
+	/** マウス（とスティック）の上下を反転する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
 	bool bInvertMouseY = false;
+
+	/** コントローラーのスティックでカメラを回す速さの倍率（設定画面で変えられる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadSensitivity = 1.f;
+
+	/** 右スティックを倒しきったときにカメラが回る速さ（度/秒。倍率 1 のとき）：左右・上下 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadLookYawSpeed = 170.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadLookPitchSpeed = 110.f;
+
+	/** スティックの遊び（中心からこの割合までは 0） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadDeadZone = 0.22f;
+
+	/** 設置パートで左スティックがカーソルを動かす速さ（cm/秒。高さ 2600 のとき。ズームすると遅くなる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadCursorSpeed = 1000.f;
+
+	/** LT・RT でズームする速さ（cm/秒） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|Gamepad")
+	float GamepadZoomSpeed = 1600.f;
+
+	/** コントローラーで遊んでいるか（最後に触ったのがコントローラー）。画面の案内とカーソルの出し方が変わる */
+	bool IsUsingGamepad() const { return bUsingGamepad; }
+
+	/** コントローラーで選んでいるボタンか（HUD が明るく描く。マウスで遊んでいるときは false） */
+	bool IsUIFocused(EKakurenboUIAction Action, int32 Index) const;
+
+	/** 決まった操作（キー設定に無いもの）の案内。キーボード・マウスかコントローラーかで変わる。[ ] で囲んだところはキーの形 */
+	FString UIKeyLabel(EKakurenboUIKey Key) const;
+
+	/** 設置パートでコントローラーのカーソルが指している床の位置（コントローラーで遊んでいなければ false） */
+	bool GetGamepadBuildCursor(FVector& OutWorld) const;
+
+	/** すべての入力（本物のキー・マウス・コントローラー）。最後に触った機器を覚える */
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 	/** 俯瞰カメラの Q/E 回転速度（度/秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
@@ -274,11 +319,15 @@ protected:
 	void ApplyInputMode();
 
 	void HandleMouseLook();
+	/** かくれんぼ：右スティックでカメラを回す */
+	void HandleGamepadLook(float DeltaTime);
 	void HandleOverheadCamera(float DeltaTime);
 	/** 設置パート：WASD で真上からのカメラを画面の向きに動かす */
 	void HandleTopDownPan(float DeltaTime);
 	void HandleCharacterMovement();
 	void DoDash();
+	/** よじ登る（Dir の方向。無ければ体の向き） */
+	void DoClimb(const FVector& Dir);
 	/** 設置パート：スタート位置をそのマスへ（できなければ理由をお知らせに出す） */
 	bool SetStartCell(const FIntPoint& Cell);
 	void HandleZoom();
@@ -316,6 +365,39 @@ protected:
 	 * @return ボタンを押した（クリックを使った）なら true
 	 */
 	bool HandleUIClick();
+
+	/** ボタンを押したのと同じ働きをする（bFromMouse: マウスで押した。つまみはその位置の値にしてドラッグを始める） */
+	void ActivateUIButton(const FKakurenboUIButton& Button, const FVector2D& Point, bool bFromMouse);
+
+	// ---- コントローラー ----
+
+	/** スティックの値（遊びを除いて 0〜1 に伸ばしたもの。上・右がプラス） */
+	FVector2D GetStick(bool bRight) const;
+
+	/** 十字キー（bWithStick なら左スティックも）を押した方向。押した瞬間と、押し続けたときのくり返しで返す（上が Y = -1）。無ければ (0, 0) */
+	FIntPoint ReadNavigation(float RealDeltaSeconds, bool bWithStick);
+
+	/**
+	 * 画面のボタンを十字キー・左スティックで選び、A で押す（メニュー・購入・リザルト）。
+	 * bSliders: 選んでいるのがつまみなら、左右で値を変える
+	 */
+	void HandleGamepadFocus(float RealDeltaSeconds, bool bSliders);
+
+	/** 選んでいるボタンが画面に無ければ、その画面の最初のボタンを選ぶ */
+	int32 EnsureFocus(const TArray<FKakurenboUIButton>& Buttons);
+
+	/** 設置パート：左スティック・十字キーでカーソル、A で置く、X で回収、LB・RB で置く物を選ぶ */
+	void HandleGamepadBuild(float DeltaTime);
+
+	/** マスを指したときの置き場所と回収対象（コントローラーのカーソル用） */
+	void UpdateBuildTargetAtCell(const FIntPoint& Cell);
+
+	/** 設定のつまみの今の値（0〜1） */
+	float GetSliderValue(EKakurenboSettingSlider Slider) const;
+
+	/** メニューを開く・閉じるボタン（Esc / START）・もどるボタン（Esc / B）がこのフレームに押されたか */
+	bool WasMenuKeyPressed() const;
+	bool WasBackKeyPressed() const;
 
 	AKakurenboGameMode* GetKakurenboGameMode() const;
 	UKakurenboSettings* Settings() const;
@@ -377,4 +459,25 @@ private:
 	TArray<FKakurenboTip> Tips;
 	/** かくれんぼの経過（ヒントを出す時間の目安・実時間） */
 	float HideTipClock = 0.f;
+
+	// ---- コントローラー ----
+
+	/** 最後に触ったのがコントローラーか（キーボード・マウスを触ると false に戻る） */
+	bool bUsingGamepad = false;
+	/** カーソルの位置（マウスが動いたらキーボード・マウスに戻すため） */
+	FVector2D LastMousePosition = FVector2D(-1.f, -1.f);
+	/** 入力モード（カーソルを出しているか・UI のパートか）を最後に設定した状態 */
+	bool bUIModeApplied = false;
+
+	/** コントローラーで選んでいるボタン（Action が None なら選んでいない） */
+	EKakurenboUIAction FocusAction = EKakurenboUIAction::None;
+	int32 FocusIndex = 0;
+
+	/** 十字キー・スティックを押し続けたときのくり返し */
+	FIntPoint HeldNavDir = FIntPoint::ZeroValue;
+	float NavRepeatTimer = 0.f;
+
+	/** 設置パートのコントローラーのカーソル（床の位置） */
+	FVector GamepadCursor = FVector::ZeroVector;
+	bool bGamepadCursorValid = false;
 };

@@ -50,8 +50,9 @@ class KAKURENBOINCREMENTAL_API UKakurenboSettingsSave : public USaveGame
 	GENERATED_BODY()
 
 public:
+	/** 1: 最初 / 2: コントローラーの感度・「ジャンプ」のキーを「よじ登る」へ */
 	UPROPERTY()
-	int32 Version = 1;
+	int32 Version = 2;
 
 	UPROPERTY()
 	float MasterVolume = 0.7f;
@@ -64,6 +65,10 @@ public:
 
 	UPROPERTY()
 	float MouseSensitivity = 0.12f;
+
+	/** コントローラーのスティックでカメラを回す速さの倍率（版 2 から） */
+	UPROPERTY()
+	float GamepadSensitivity = 1.f;
 
 	UPROPERTY()
 	bool bInvertMouseY = false;
@@ -106,6 +111,11 @@ public:
 
 	bool bInvertMouseY = false;
 
+	/** コントローラーのスティックでカメラを回す速さの倍率と、その範囲 */
+	float GamepadSensitivity = 1.f;
+	static constexpr float MinGamepadSensitivity = 0.3f;
+	static constexpr float MaxGamepadSensitivity = 2.5f;
+
 	/** 画面下のキーの案内と、はじめての操作のヒントを出す */
 	bool bShowHints = true;
 
@@ -124,9 +134,15 @@ public:
 	/** 操作に割り当てたキー（bSecondary: 2 つ目） */
 	FKey GetKey(EKakurenboAction Action, bool bSecondary = false) const;
 
-	/** その操作のキーが押されているか / このフレームに押されたか */
+	/** その操作のキー（コントローラーのボタンも）が押されているか / このフレームに押されたか */
 	bool IsDown(const APlayerController* PC, EKakurenboAction Action) const;
 	bool WasPressed(const APlayerController* PC, EKakurenboAction Action) const;
+
+	/**
+	 * コントローラーのボタン（決まっていて変えられない。Xbox の並び）。パートごとに使う操作が違うので、
+	 * 別のパートの操作と同じボタンでもよい（例: RB はかくれんぼでは煙幕、購入ではお店の切り替え）。無ければ Invalid
+	 */
+	static FKey GamepadKey(EKakurenboAction Action);
 
 	/** キーを割り当てる。ほかの操作で使っていたキーなら、その操作には今のキーを渡す（入れ替え）。割り当てられないキーなら false */
 	bool Bind(EKakurenboAction Action, const FKey& Key, bool bSecondary);
@@ -137,10 +153,10 @@ public:
 	/** キー設定を初期設定に戻す */
 	void ResetBindings();
 
-	/** 割り当てられるキーか（Esc・マウスの移動とホイール・コンソールのキーは使えない） */
+	/** 割り当てられるキーか（Esc・マウスの移動とホイール・コンソールのキー・コントローラーのボタンは使えない） */
 	static bool CanBindKey(const FKey& Key);
 
-	/** 画面に出すキーの名前（「W」「Ctrl」「左クリック」など） */
+	/** 画面に出すキーの名前（「W」「Ctrl」「左クリック」、コントローラーなら「A」「LB」「十字↑」など） */
 	static FString KeyLabel(const FKey& Key);
 
 	/** 操作のキーの名前（2 つあれば「Ctrl / C」） */

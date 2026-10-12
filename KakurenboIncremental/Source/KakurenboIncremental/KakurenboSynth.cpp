@@ -149,9 +149,9 @@ namespace KakurenboSynth
 			// 小さな「トッ」
 			return { Noise(0.f, 0.05f, 0.30f, 0.22f, 2.5f), Tone(0.f, 0.05f, 190.f, 120.f, EWave::Sine, 0.30f, 2.5f) };
 
-		case EKakurenboSfx::PlayerJump:
-			// 「ぴょん」
-			return { Tone(0.f, 0.16f, 300.f, 720.f, EWave::Sine, 0.35f, 1.2f), Noise(0.f, 0.04f, 0.15f, 0.4f, 2.f) };
+		case EKakurenboSfx::PlayerClimb:
+			// 「ガサッ、トン」（よじ登る：こすれる音と、上に乗る小さな音）
+			return { Noise(0.f, 0.14f, 0.32f, 0.55f, 1.6f), Noise(0.10f, 0.10f, 0.22f, 0.35f, 2.f), Tone(0.20f, 0.06f, 210.f, 130.f, EWave::Sine, 0.28f, 2.5f) };
 
 		case EKakurenboSfx::OniStep:
 			// 重い「ドタッ」。低い音だけだと小さなスピーカーで聞こえず、方向もわからないので、

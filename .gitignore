@@ -3,6 +3,13 @@
 # Only the original wood pack stays out: it is 2.8 GB, and the game uses 1K copies of the 16 woods
 # (Content/Kakurenbo/Wood, made by Tools/ImportSourceArt.ps1 from SourceArt/Wood).
 KakurenboIncremental/Content/Substance_Materials_Vol1_Wood/
+# The mansion packs (Fab) stay out too: the game uses copies of the few pieces it needs.
+# Medieval Room Kit -> SourceArt/MedievalRoomKit, StylizedKitchen and Isometric-Interiors -> SourceArt/FabProps
+# (Tools/ExtractFabProps.py), imported by Tools/ImportSourceArt.ps1 into Content/Kakurenbo/Mansion.
+KakurenboIncremental/Content/StylizedKitchen/
+KakurenboIncremental/Content/Isometric-Interiors/
+KakurenboIncremental/Content/Medieval Room Kit/
+KakurenboIncremental/Content/Medieval Room Kit Textures/
 # Editor-only per-user folders
 KakurenboIncremental/Content/Developers/
 KakurenboIncremental/Content/Collections/

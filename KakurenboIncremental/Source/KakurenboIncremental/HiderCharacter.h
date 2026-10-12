@@ -161,6 +161,45 @@ public:
 	/** 残りの回数を増やす・減らす（転生のお店で回数が変わったとき） */
 	void AddDashUses(int32 Delta) { DashUsesLeft = FMath::Max(0, DashUsesLeft + Delta); }
 
+	// ===== よじ登る（転生のお店で解放。前の壁・低い家具の上へ 1 段ずつ。M14 でジャンプの代わりに） =====
+	// 横への勢いは無いので、隙間は越えられない（壁の上どうしは、つながっている所だけ歩ける）。
+	// 登っている間は動けず、音も出る。2 段以上に積んだ壁の上は鬼が飛び乗れない（下から壊すしかない）＝籠城
+
+	/** よじ登れるか（最初は使えない。GameMode が転生のお店のレベルから設定する） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Climb")
+	bool bClimbUnlocked = false;
+
+	/** よじ登れる高さ（cm）。壁 1 段（160cm）と少し */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Climb")
+	float ClimbMaxHeight = 175.f;
+
+	/** これより低い段差はよじ登らない（歩いて上る・上れない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Climb")
+	float ClimbMinHeight = 40.f;
+
+	/** 体の縁から前へ何 cm までの壁・家具によじ登れるか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Climb")
+	float ClimbReach = 45.f;
+
+	/**
+	 * Dir の方向（水平）の壁・家具によじ登り始める。登れる物が無い・解放していない・空中・ダッシュ中なら false。
+	 * 登る秒数は壁の種類（Walls.csv の ClimbSeconds）・家具（GameMode の FurnitureClimbSeconds）で決まる
+	 */
+	bool TryStartClimb(const FVector& Dir);
+
+	/** Dir の方向によじ登れる物があるか（あれば上に立つ位置と、登るのにかかる秒数） */
+	bool FindClimbTarget(const FVector& Dir, FVector& OutStandLocation, float& OutSeconds) const;
+
+	/** よじ登っている途中か（その間は動けない） */
+	bool IsClimbing() const { return bClimbing; }
+
+	/** よじ登るのをやめる（パートが変わったとき） */
+	void CancelClimb();
+
+	/** よじ登った回数・最後にかかった秒数（テスト用） */
+	int32 GetClimbCount() const { return ClimbCount; }
+	float GetLastClimbSeconds() const { return ClimbDuration; }
+
 	// ===== 足音・しのび足 =====
 
 	/** 1 歩の長さ（cm）。これだけ歩くたびに足音が出る（鬼に聞こえる） */
@@ -213,6 +252,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
 	float ThirdPersonLookHeight = 70.f;
 
+	/**
+	 * M14：壁に当たって寄ったカメラが、壁から離れたときに元の距離へ戻る速さ（FInterpTo の速さ。大きいほど速い）。
+	 * 寄るときはすぐ（壁の中に入らない）、戻るときはゆっくり。すぐ戻すと、部屋の壁ぎわ・廊下で寄ったり離れたりを繰り返して揺れた
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Camera")
+	float CameraReturnSpeed = 2.5f;
+
+	/** 今のカメラのアームの長さ（壁に当たって寄った分を含む。テスト用） */
+	float GetCameraArmLength() const;
+
 	/** 視点を切り替える（アームの動かし方・体の向きの制御をまとめて変える） */
 	void SetViewMode(EHiderViewMode NewMode);
 	EHiderViewMode GetViewMode() const { return ViewMode; }
@@ -251,12 +300,14 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
-	/** ジャンプした（音が出る） */
-	virtual void OnJumped_Implementation() override;
 	/** 着地した（1 歩ぶんの足音） */
 	virtual void Landed(const FHitResult& Hit) override;
 
 private:
+	/** 三人称カメラ：ホイールの距離へなめらかに近づけている長さ / 壁で縮めた長さ（-1 はまだ決めていない） */
+	float ZoomArmLength = -1.f;
+	float CollisionArmLength = -1.f;
+
 	EHiderViewMode ViewMode = EHiderViewMode::ThirdPerson;
 	float OverheadYaw = 0.f;
 	float MashPulse = 0.f;
@@ -266,6 +317,15 @@ private:
 	float WalkSpeed = 420.f;
 	float DashTimeRemaining = 0.f;
 	int32 DashUsesLeft = 0;
+
+	/** よじ登っている途中：前半で真上へ上がり、後半で前へ出て上に立つ */
+	bool bClimbing = false;
+	float ClimbElapsed = 0.f;
+	float ClimbDuration = 1.f;
+	FVector ClimbFrom = FVector::ZeroVector;
+	FVector ClimbTo = FVector::ZeroVector;
+	int32 ClimbCount = 0;
+	void TickClimb(float DeltaSeconds);
 
 	bool bSneaking = false;
 	float StepDistance = 0.f;

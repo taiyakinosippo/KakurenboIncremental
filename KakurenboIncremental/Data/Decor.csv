@@ -1,0 +1,9 @@
+﻿---,Kind,Mesh,Width,Height,Bottom,Offset,MeshYaw,LightIntensity
+Window,Window,/Game/Kakurenbo/Mansion/Medieval/Meshes/Window_2m.Window_2m,150,200,40,-24,0,0
+Window2,Window,/Game/Kakurenbo/Mansion/Medieval/Meshes/Window_2m_1.Window_2m_1,150,190,45,-24,0,0
+Picture1,Painting,/Game/Kakurenbo/Mansion/Props/Meshes/SM_Picture_01.SM_Picture_01,80,65,140,2,0,0
+Picture3,Painting,/Game/Kakurenbo/Mansion/Props/Meshes/SM_Picture_03.SM_Picture_03,80,65,140,2,0,0
+Frames,Painting,/Game/Kakurenbo/Mansion/Props/Meshes/SM_Frames_01.SM_Frames_01,90,70,135,2,0,0
+Torch,Sconce,/Game/Kakurenbo/Mansion/Medieval/Meshes/Wall-mounted_torch.Wall-mounted_torch,28,62,150,2,0,2.5
+DoorFrame,DoorFrame,/Game/Kakurenbo/Mansion/Props/Meshes/SM_Door_Frame.SM_Door_Frame,100,230,0,0,0,0
+ArchFrame,DoorFrameWide,/Game/Kakurenbo/Mansion/Medieval/Meshes/Door_1.Door_1,200,255,0,0,0,0

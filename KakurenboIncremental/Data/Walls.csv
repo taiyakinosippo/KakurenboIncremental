@@ -1,5 +1,4 @@
-﻿---,DisplayName,MaxHP,Cost,CostGrowth,Color,NoiseDamping,SoundHP,Surface
-Wood,木の壁,1,10,1.04,"(R=0.55,G=0.35,B=0.18,A=1.0)",0,0,WoodWall
-Stone,石の壁,4,120,1.06,"(R=0.22,G=0.22,B=0.25,A=1.0)",0,0,StoneWall
-Iron,鉄の壁,16,1500,1.08,"(R=0.25,G=0.35,B=0.55,A=1.0)",0,0,IronWall
-Quiet,消音壁,3,300,1.5,"(R=0.85,G=0.8,B=0.65,A=1.0)",0.8,40,QuietWall
+﻿---,DisplayName,MaxHP,Cost,CostGrowth,Color,NoiseDamping,SoundHP,Surface,ClimbSeconds,bLadder
+Normal,通常壁,3,15,1.12,"(R=0.55,G=0.35,B=0.18,A=1.0)",0,0,WoodWall,1.0,False
+Quiet,消音壁,3,300,1.5,"(R=0.85,G=0.8,B=0.65,A=1.0)",0.8,40,QuietWall,1.0,False
+Climb,クライミング壁,1.5,40,1.15,"(R=0.95,G=0.55,B=0.2,A=1.0)",0,0,ClimbWall,0.3,True

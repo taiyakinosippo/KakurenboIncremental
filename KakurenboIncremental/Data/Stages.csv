@@ -8,7 +8,7 @@
 7,60,"(Balanced,Treasure,Detector)",4,409600,16.78,1500,60,Rooms
 8,65,"(Balanced,Scout,Scout,Breaker,Detector)",4,1638400,53.69,1750,100,Cellar
 9,70,"(Balanced,Scout,Careful,Careful)",4,6553600,85.9,1800,110,Gallery
-10,75,"(Balanced,Breaker,Breaker,Careful,Detector)",4,26214400,137.4,1850,120,Hall
+10,75,"(Balanced,Breaker,Breaker,Treasure,Detector)",4,26214400,137.4,1850,120,Hall
 11,80,"(Scout,Careful,Careful,Treasure,Detector)",5,104857600,219.9,1900,130,Conservatory
 12,85,"(Balanced,Scout,Breaker,Careful,Careful,Detector)",5,419430400,351.8,1950,140,Archive
 13,90,"(Scout,Scout,Breaker,Careful,Detector,Detector)",5,1677721600,1126,2200,180,Attic

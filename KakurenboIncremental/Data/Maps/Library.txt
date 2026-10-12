@@ -1,21 +1,42 @@
-; 書庫（19 x 19）。家具 26%。テーマ rows。生成: scratchpad の genmaps.py（手で直してよい）
-; 右端の真ん中は鬼の出入り口の前なので空けておく
-.SS.L.SS..SS...A...
-.............G...SS
-.BBBB..BBBB........
-............L.T....
-.......G......T.T.A
-S.BBBB...BBBB...T..
-S......G......G...A
+; 書庫（19 x 19）。家具 24%（床のマスに対して）。部屋：玄関ホール・書庫・書斎・浴室・居間・寝室・寝室・物置
+; 生成: Tools/GenerateMansion.py（手で直してよい。作り直すと上書きされる）。右端の真ん中は鬼の出入り口の前なので空けておく
+.BB..........#NADD.
+.BBBBBBBBBB..#..DD.
 ...................
-..BBBB...BBBB.L....
-S......L...........
-S.............L....
-..BBBB.S.BBBB......
-L......S.........SS
-..............A....
-G.BBBB..BBBB.....SS
-..............L....
-S................SS
-S.S..S.SS.A.A.SS...
-..S..S...........L.
+..................O
+.BBBBBBBBBB..#....N
+.............###.##
+.........BB..#3..23
+#####..#######.....
+...................
+...................
+##..######.###.....
+G...BBB#B...A#.....
+B.EE...#BJJ.A#3K..3
+B......#F...R###.##
+B......###.###...U.
+##..####N..N.#.....
+.S.....#.....#S...1
+......Y#O..DD#S...S
+Z.....Y#...DD#..U.S
+[floor]
+; 床の種類（Data/FloorKinds.csv の行の名前。壁や家具の下のマスは使わない）
+pppppppppppppwwwwww
+pppppppppppppwwwwww
+ppppppppppppppwwwww
+ppppppppppppppwwwww
+pppppppppppppwwwwww
+pppppppppppppwwwpww
+pppppppppppppwmmmmm
+wwwwwppwwwwwwwmmmmm
+ppppppppppppppmmmmm
+ppppppppppppppmmmmm
+wwppwwwwwwpwwwmmmmm
+wwwwwwwwwwwwwwmmmmm
+wwwwwwwwwwwwwwmmmmm
+wwwwwwwwwwwwwwwwpww
+wwwwwwwwwwpwwwsssss
+wwppwwwwwwwwwwsssss
+bbbbbbbwwwwwwwsssss
+bbbbbbbwwwwwwwsssss
+bbbbbbbwwwwwwwsssss

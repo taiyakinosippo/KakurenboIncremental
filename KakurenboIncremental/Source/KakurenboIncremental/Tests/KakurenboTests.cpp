@@ -4,6 +4,8 @@
 #include "Engine/DataTable.h"
 #include "GridPathfinder.h"
 #include "KakurenboBalance.h"
+#include "KakurenboGameMode.h"
+#include "KakurenboSaveGame.h"
 #include "KakurenboLayout.h"
 #include "KakurenboMaps.h"
 #include "KakurenboSettings.h"
@@ -246,8 +248,9 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 	{
 		TestNotNull(TEXT("Mash row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Mash"), TEXT("Test")));
 		TestNotNull(TEXT("Time row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Time"), TEXT("Test")));
-		// 壁の補強はやめた（壁を硬くするのは転生）
-		TestNull(TEXT("no Wall reinforcement row"), Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Test"), false));
+		// M14：壁の補強（コイン）は足し算で伸びる（1 周の中の強化）。転生のお店の「壁の硬さ」はかけ算
+		const FKakurenboUpgradeRow* Wall = Upgrades->FindRow<FKakurenboUpgradeRow>(TEXT("Wall"), TEXT("Test"), false);
+		TestTrue(TEXT("wall reinforcement row (starts at x1 and adds a fixed amount per level)"), Wall && FMath::IsNearlyEqual(Wall->BaseValue, 1.0) && Wall->ValueGrowth > 0.0 && Wall->CostGrowth > 1.0);
 	}
 	if (UDataTable* Prestige = Load(FKakurenboPrestigeRow::StaticStruct(), TEXT("Prestige.csv")))
 	{
@@ -272,8 +275,8 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 				TestTrue(FString::Printf(TEXT("%s has a name and a price"), *Name), !Row->DisplayName.IsEmpty() && Row->BaseCost >= 1.0);
 			}
 		}
-		const FKakurenboPrestigeUpgradeRow* Jump = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Jump"), TEXT("Test"));
-		TestTrue(TEXT("jump is a one-time unlock"), Jump && Jump->MaxLevel == 1);
+		const FKakurenboPrestigeUpgradeRow* Climb = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Climb"), TEXT("Test"));
+		TestTrue(TEXT("climbing is a one-time unlock"), Climb && Climb->MaxLevel == 1);
 		// 煙幕ダッシュは回数制（足し算）。最初から 1 回は使えて、レベルで増える
 		const FKakurenboPrestigeUpgradeRow* Smoke = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("SmokeCount"), TEXT("Test"));
 		TestTrue(TEXT("smoke uses start at 1 or more and grow"), Smoke && Smoke->BaseValue >= 1.0 && Smoke->ValueGrowth >= 1.0 && Smoke->MaxLevel > 0);
@@ -321,7 +324,11 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestTrue(FString::Printf(TEXT("%s gets pricier as you buy more"), *Row->DisplayName.ToString()), Row->CostGrowth > 1.0);
 		}
 		TestTrue(TEXT("the soundproof wall price grows faster than normal walls"), Quiet && Rows.Num() > 0 && (*Quiet)->CostGrowth > Rows[0]->CostGrowth);
-		TestTrue(TEXT("shop fits the number keys (2 upgrades + walls + traps <= 9)"), Rows.Num() + 2 + 2 <= 9);
+		TestTrue(TEXT("shop fits the number keys (3 upgrades + walls + traps <= 9)"), Rows.Num() + 3 + 2 <= 9);
+		// M14：壁は 通常壁・消音壁・クライミング壁 の 3 つ。クライミング壁はすばやく登れる（足場の横木）
+		const FWallTypeDef* const* Ladder = Rows.FindByPredicate([](const FWallTypeDef* Row) { return Row->bLadder; });
+		TestTrue(TEXT("three wall types"), Rows.Num() == 3);
+		TestTrue(TEXT("the climbing wall climbs faster than the normal wall"), Ladder && Rows.Num() > 0 && (*Ladder)->ClimbSeconds < Rows[0]->ClimbSeconds && (*Ladder)->ClimbSeconds > 0.f);
 	}
 	if (UDataTable* OniTypes = Load(FKakurenboOniTypeRow::StaticStruct(), TEXT("OniTypes.csv")))
 	{
@@ -343,11 +350,11 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale == 0.f && Scout->StunScale > 1.f);
 		TestTrue(TEXT("power oni: lured by decoys, strong against sticky and disarms it"),
 			Breaker && Breaker->DecoyHearingScale > 1.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
-		// 宝物鬼：連打には鈍く足音に敏感・壁を壊すのが苦手。探知鬼：仲間を呼ぶ
+		// 宝物鬼：連打・おとりには一切反応しない代わりに足音にとても敏感（M14）・壁を壊すのが苦手。探知鬼：仲間を呼ぶ
 		const FKakurenboOniTypeRow* Treasure = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Treasure"), TEXT("Test"));
 		const FKakurenboOniTypeRow* Detector = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Detector"), TEXT("Test"));
 		TestTrue(TEXT("treasure oni: deaf to mashing, sensitive to footsteps, weak at walls"),
-			Treasure && Treasure->HearingScale < 0.5f && Treasure->StepHearingScale > 1.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f);
+			Treasure && Treasure->HearingScale == 0.f && Treasure->DecoyHearingScale == 0.f && Treasure->StepHearingScale >= 2.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f);
 		TestTrue(TEXT("detector: summons others from far"), Detector && Detector->SummonRadius >= 1500.f && Detector->SightRadius > 1000.f);
 		TestTrue(TEXT("enum has Treasure and Detector"), StaticEnum<EOniType>()->GetValueByNameString(TEXT("Treasure")) != INDEX_NONE && StaticEnum<EOniType>()->GetValueByNameString(TEXT("Detector")) != INDEX_NONE);
 	}
@@ -743,18 +750,39 @@ bool FKakurenboKeyBindingTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("action %d has a key"), i), Keys.Get(static_cast<EKakurenboAction>(i)).IsValid());
 	}
 	// ほかの操作のキーを付けると入れ替わる
-	TestTrue(TEXT("bind jump to E"), Keys.Bind(EKakurenboAction::Jump, EKeys::E, false));
-	TestTrue(TEXT("jump is E, camera right gets Space"), Keys.Get(EKakurenboAction::Jump) == EKeys::E && Keys.Get(EKakurenboAction::CameraRight) == EKeys::SpaceBar);
+	TestTrue(TEXT("bind climb to E"), Keys.Bind(EKakurenboAction::Climb, EKeys::E, false));
+	TestTrue(TEXT("climb is E, camera right gets Space"), Keys.Get(EKakurenboAction::Climb) == EKeys::E && Keys.Get(EKakurenboAction::CameraRight) == EKeys::SpaceBar);
 	// 使えないキー
-	TestFalse(TEXT("Esc cannot be bound"), Keys.Bind(EKakurenboAction::Jump, EKeys::Escape, false));
-	TestFalse(TEXT("the mouse wheel cannot be bound"), Keys.Bind(EKakurenboAction::Jump, EKeys::MouseScrollUp, false));
+	TestFalse(TEXT("Esc cannot be bound"), Keys.Bind(EKakurenboAction::Climb, EKeys::Escape, false));
+	TestFalse(TEXT("the mouse wheel cannot be bound"), Keys.Bind(EKakurenboAction::Climb, EKeys::MouseScrollUp, false));
 	TestFalse(TEXT("mouse movement cannot be bound"), UKakurenboSettings::CanBindKey(EKeys::MouseX));
+	// コントローラーのボタンは決まっている（キーボードの欄には付けない）。どの操作も、コントローラーで遊べるボタンがある
+	TestFalse(TEXT("gamepad buttons cannot be bound to keyboard slots"), UKakurenboSettings::CanBindKey(EKeys::Gamepad_FaceButton_Bottom));
+	TestTrue(TEXT("gamepad: A climbs, RT mashes, LT sneaks, RB smokes, Y goes next"), UKakurenboSettings::GamepadKey(EKakurenboAction::Climb) == EKeys::Gamepad_FaceButton_Bottom
+		&& UKakurenboSettings::GamepadKey(EKakurenboAction::Mash) == EKeys::Gamepad_RightTrigger && UKakurenboSettings::GamepadKey(EKakurenboAction::Sneak) == EKeys::Gamepad_LeftTrigger
+		&& UKakurenboSettings::GamepadKey(EKakurenboAction::Dash) == EKeys::Gamepad_RightShoulder && UKakurenboSettings::GamepadKey(EKakurenboAction::Next) == EKeys::Gamepad_FaceButton_Top);
+	TestEqual(TEXT("gamepad label"), UKakurenboSettings::KeyLabel(EKeys::Gamepad_FaceButton_Bottom), FString(TEXT("A")));
 	// 2 つ目を外す・名前
 	Keys.ClearSecondary(EKakurenboAction::Sneak);
 	TestEqual(TEXT("sneak label without the 2nd key"), Keys.Label(EKakurenboAction::Sneak), FString(TEXT("Ctrl")));
 	Keys.Reset();
 	TestEqual(TEXT("sneak label with both keys"), Keys.Label(EKakurenboAction::Sneak), FString(TEXT("Ctrl / C")));
 	TestEqual(TEXT("left click label"), UKakurenboSettings::KeyLabel(EKeys::LeftMouseButton), FString(TEXT("左クリック")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboLegacyWallsTest, "Kakurenbo.Save.LegacyWalls", TestFlags)
+bool FKakurenboLegacyWallsTest::RunTest(const FString& Parameters)
+{
+	// 版 5 までのセーブ：木 2・石 1・鉄 3・消音壁 4 の在庫 → 通常壁 6・消音壁 4・クライミング壁 0
+	TArray<int32> Stock = { 2, 1, 3, 4 };
+	TArray<FKakurenboSavedColumn> Columns;
+	FKakurenboSavedColumn& Column = Columns.AddDefaulted_GetRef();
+	Column.Design = { 0, 1, 3 };
+	Column.Live = { 2, 3 };
+	AKakurenboGameMode::RemapLegacyWallTypes(Stock, Columns);
+	TestTrue(TEXT("stock: wood + stone + iron become normal walls, soundproof walls stay"), Stock.Num() == 3 && Stock[0] == 6 && Stock[1] == 4 && Stock[2] == 0);
+	TestTrue(TEXT("layout: wood / stone / iron -> 0 (normal), soundproof -> 1"), Columns[0].Design == TArray<int32>({ 0, 0, 1 }) && Columns[0].Live == TArray<int32>({ 0, 1 }));
 	return true;
 }
 

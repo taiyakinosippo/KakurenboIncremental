@@ -106,6 +106,12 @@ UMaterialInstanceDynamic* UKakurenboLibrary::CreateSurfaceMaterial(UObject* Oute
 	{
 		MID->SetTextureParameterValue(TEXT("RoughnessTex"), Roughness);
 	}
+	else if (UTexture* White = LoadObject<UTexture>(nullptr, TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture")))
+	{
+		// 粗さのテクスチャが無い模様：マテリアルの既定のテクスチャ（エンジンの "HLOD" の文字入り）が透けて見えないように、
+		// 白（粗さ＝RoughnessScale のまま）にする
+		MID->SetTextureParameterValue(TEXT("RoughnessTex"), White);
+	}
 	MID->SetVectorParameterValue(TEXT("Color"), Surface.Tint * Tint);
 	MID->SetScalarParameterValue(TEXT("Metallic"), Surface.Metallic);
 	MID->SetScalarParameterValue(TEXT("RoughnessScale"), Surface.RoughnessScale);

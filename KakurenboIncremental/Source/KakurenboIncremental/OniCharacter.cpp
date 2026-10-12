@@ -1005,12 +1005,24 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 	// （下で待っているだけだと、乗られたら手が出せず無敵になってしまうため）。高すぎる積んだ壁は今まで通り下から壊す
 	FIntPoint PathGoal = TargetCell;
 	float PlatformHeight = 0.f;
-	if (bTargetInSight && IsTargetOnPlatform(PlatformHeight) && PlatformHeight <= LeapMaxHeight)
+	// クライミング壁の上には飛び乗れないので、その壁を下から壊す（経路の行き先を相手のマス＝壁にすると壊しに行く）
+	const APlaceableBlock* UnderTarget = Grid()->GetTopBlock(TargetCell);
+	const bool bOnLadder = UnderTarget && UnderTarget->bLadder;
+	if (bTargetInSight && !bOnLadder && IsTargetOnPlatform(PlatformHeight) && PlatformHeight <= LeapMaxHeight)
 	{
 		if (TryStartLeap())
 		{
 			return;
 		}
+		FIntPoint Approach;
+		if (FindApproachCell(TargetCell, ChaseLocation, Approach))
+		{
+			PathGoal = Approach;
+		}
+	}
+	else if (Grid()->IsObstacle(TargetCell))
+	{
+		// M14：家具のすき間（家具のマスの中の、メッシュの無い所）に入った相手：そばの歩けるマスまで行き、そこからまっすぐ手を伸ばす
 		FIntPoint Approach;
 		if (FindApproachCell(TargetCell, ChaseLocation, Approach))
 		{
@@ -1141,6 +1153,10 @@ bool AOniCharacter::TryStartLeap()
 	if (Rise < 20.f || Rise > LeapMaxHeight)
 	{
 		return false; // 段差でない・高すぎる
+	}
+	if (const APlaceableBlock* Block = Cast<APlaceableBlock>(Hit.GetActor()); Block && Block->bLadder)
+	{
+		return false; // クライミング壁は細い足場なので、鬼は飛び乗れない（プレイヤーだけのはしご。2 段の壁の上にこもれる）
 	}
 
 	// 真上に跳ぶ（台の縁にぶつからないよう、上に出てから前へ進む。TickLeap）
@@ -1688,7 +1704,13 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	// 遠い音ほど場所がずれて聞こえる
 	const float ErrorCm = NoiseInaccuracyCells * G->GetCellSize() * (Dist / FMath::Max(Range, 1.f));
 	const FVector2D Offset = FMath::RandPointInCircle(ErrorCm);
-	const FIntPoint Cell = ClampToGrid(G->WorldToCell(NoiseLocation + FVector(Offset.X, Offset.Y, 0.f)));
+	FIntPoint Cell = ClampToGrid(G->WorldToCell(NoiseLocation + FVector(Offset.X, Offset.Y, 0.f)));
+	// 家具のすき間から鳴った音：家具のマスへは行けないので、そばの歩けるマスを調べに行く
+	FIntPoint Beside;
+	if (G->IsObstacle(Cell) && FindApproachCell(Cell, NoiseLocation, Beside))
+	{
+		Cell = Beside;
+	}
 
 	// すでにその辺りへ向かっているなら、経路は作り直さない（連打のたびに迷わないように）
 	const bool bAlreadyGoingThere = GetIntent() == EOniState::Investigate && bHasGoal
