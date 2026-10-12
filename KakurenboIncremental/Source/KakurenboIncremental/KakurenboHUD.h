@@ -109,6 +109,7 @@ enum class EKakurenboSettingToggle : uint8
 	InvertY,
 	Hints,
 	Fullscreen,
+	PadLayout,  // コントローラーのボタン配置（Xbox / 任天堂）
 	Count
 };
 

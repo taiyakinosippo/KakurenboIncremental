@@ -762,6 +762,19 @@ bool FKakurenboKeyBindingTest::RunTest(const FString& Parameters)
 		&& UKakurenboSettings::GamepadKey(EKakurenboAction::Mash) == EKeys::Gamepad_RightTrigger && UKakurenboSettings::GamepadKey(EKakurenboAction::Sneak) == EKeys::Gamepad_LeftTrigger
 		&& UKakurenboSettings::GamepadKey(EKakurenboAction::Dash) == EKeys::Gamepad_RightShoulder && UKakurenboSettings::GamepadKey(EKakurenboAction::Next) == EKeys::Gamepad_FaceButton_Top);
 	TestEqual(TEXT("gamepad label"), UKakurenboSettings::KeyLabel(EKeys::Gamepad_FaceButton_Bottom), FString(TEXT("A")));
+	// M14：任天堂の配置（右が A＝決定・下が B＝戻る・上が X・左が Y。L / R / ZL / ZR / ＋ / －）
+	const EKakurenboPadLayout OldLayout = UKakurenboSettings::GetPadLayout();
+	UKakurenboSettings::SetPadLayout(EKakurenboPadLayout::Nintendo);
+	TestTrue(TEXT("nintendo layout: A is the right button, B the bottom, X the top, Y the left"),
+		UKakurenboSettings::PadFace(EKakurenboPadFace::A) == EKeys::Gamepad_FaceButton_Right && UKakurenboSettings::PadFace(EKakurenboPadFace::B) == EKeys::Gamepad_FaceButton_Bottom
+		&& UKakurenboSettings::PadFace(EKakurenboPadFace::X) == EKeys::Gamepad_FaceButton_Top && UKakurenboSettings::PadFace(EKakurenboPadFace::Y) == EKeys::Gamepad_FaceButton_Left);
+	TestTrue(TEXT("nintendo layout: climb / next / back / refill follow the letters"),
+		UKakurenboSettings::GamepadKey(EKakurenboAction::Climb) == EKeys::Gamepad_FaceButton_Right && UKakurenboSettings::GamepadKey(EKakurenboAction::Next) == EKeys::Gamepad_FaceButton_Left
+		&& UKakurenboSettings::GamepadKey(EKakurenboAction::BackToShop) == EKeys::Gamepad_FaceButton_Bottom && UKakurenboSettings::GamepadKey(EKakurenboAction::Refill) == EKeys::Gamepad_FaceButton_Top);
+	TestTrue(TEXT("nintendo layout labels"), UKakurenboSettings::KeyLabel(EKeys::Gamepad_FaceButton_Right) == TEXT("A") && UKakurenboSettings::KeyLabel(EKeys::Gamepad_FaceButton_Bottom) == TEXT("B")
+		&& UKakurenboSettings::KeyLabel(EKeys::Gamepad_RightTrigger) == TEXT("ZR") && UKakurenboSettings::KeyLabel(EKeys::Gamepad_LeftShoulder) == TEXT("L")
+		&& UKakurenboSettings::KeyLabel(EKeys::Gamepad_Special_Right) == TEXT("＋"));
+	UKakurenboSettings::SetPadLayout(OldLayout);
 	// 2 つ目を外す・名前
 	Keys.ClearSecondary(EKakurenboAction::Sneak);
 	TestEqual(TEXT("sneak label without the 2nd key"), Keys.Label(EKakurenboAction::Sneak), FString(TEXT("Ctrl")));

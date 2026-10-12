@@ -107,7 +107,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Def.bLadder = bLadder;
 	};
 	AddWall(TEXT("通常壁"), 3.0, 15.0, 1.12, FLinearColor(0.55f, 0.35f, 0.18f), 0.f, 0.0, 1.f, false);
-	AddWall(TEXT("消音壁"), 3.0, 300.0, 1.5, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f, 40.0, 1.f, false);
+	AddWall(TEXT("消音壁"), 3.0, 150.0, 1.5, FLinearColor(0.85f, 0.8f, 0.65f), 0.8f, 60.0, 1.f, false); // M14：連打の音が館の大きさで小さくなったので、安く・長持ちに
 	AddWall(TEXT("クライミング壁"), 1.5, 40.0, 1.15, FLinearColor(0.95f, 0.55f, 0.2f), 0.f, 0.0, 0.3f, true);
 
 	// 転生のお店の既定値（Data/PrestigeUpgrades.csv が読めなかったときに使う。並びは EPrestigeUpgrade の順）

@@ -669,6 +669,8 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		{
 			StartChase();
 		}
+		// 見えていなくても、すぐそばにいれば気配でわかることがある
+		UpdatePresence(SenseInterval);
 	}
 
 	// 一定時間たった／見失ったら、うろうろに戻る（壁を壊している途中でも）
@@ -1596,6 +1598,10 @@ bool AOniCharacter::CanSeeTarget() const
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniSight), false, this);
 	Params.AddIgnoredActor(Target);
+	// しゃがんでいる相手が近いときは、腰の高さの家具の陰でも見える（のぞき込む）
+	const bool bCrouchedTarget = Target->bIsCrouched;
+	bool bPeekChecked = false;
+	bool bPeekClear = false;
 
 	TArray<FVector> Points;
 	Target->GetSightTargetPoints(Points);
@@ -1625,8 +1631,95 @@ bool AOniCharacter::CanSeeTarget() const
 		{
 			return true;
 		}
+		if (bCrouchedTarget && ToP.Size2D() <= PeekRadius)
+		{
+			if (!bPeekChecked)
+			{
+				bPeekChecked = true;
+				bPeekClear = IsOnlyLowCoverBetween();
+			}
+			if (bPeekClear)
+			{
+				return true;
+			}
+		}
 	}
 	return false;
+}
+
+bool AOniCharacter::IsOnlyLowCoverBetween() const
+{
+	if (!Target)
+	{
+		return false;
+	}
+	// 足元から LowCoverHeight の高さで、自分と相手を結ぶ（腰の高さの家具の上は通り、壁 1 段・本棚には当たる）。煙幕もさえぎる
+	const FVector Me = GetActorLocation();
+	const FVector Them = Target->GetActorLocation();
+	const float MyFeet = Me.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float TheirFeet = Them.Z - Target->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector From(Me.X, Me.Y, MyFeet + LowCoverHeight);
+	const FVector To(Them.X, Them.Y, TheirFeet + LowCoverHeight);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniLowCover), false, this);
+	Params.AddIgnoredActor(Target);
+	return !ASmokeCloud::IsSightBlocked(GetWorld(), From, To) && !GetWorld()->LineTraceTestByChannel(From, To, ECC_Visibility, Params);
+}
+
+void AOniCharacter::UpdatePresence(float DeltaSeconds)
+{
+	UKakurenboGridSubsystem* G = Grid();
+	auto Decay = [this, DeltaSeconds]() { Presence = FMath::Max(0.f, Presence - DeltaSeconds * 0.5f); };
+	if (!Target || !G || bTargetInSight || OniType == EOniType::Detector || PresenceRadius <= 0.f || GetIntent() == EOniState::Chase)
+	{
+		Decay();
+		return;
+	}
+	const FVector Me = GetActorLocation();
+	const FVector Them = Target->GetActorLocation();
+	const float Dist = FVector::Dist2D(Me, Them);
+	if (Dist > PresenceRadius || FMath::Abs(Me.Z - Them.Z) > 150.f)
+	{
+		Decay();
+		return;
+	}
+	// 間に背の高い物（壁・本棚）があれば伝わらない（腰の高さの家具の向こうなら伝わる）
+	if (!IsOnlyLowCoverBetween())
+	{
+		Decay();
+		return;
+	}
+	Presence += DeltaSeconds * PresenceRate * (1.f - Dist / PresenceRadius);
+	if (Presence < 1.f)
+	{
+		return;
+	}
+	// 気配に気づいた：「ン？」と、その場所（家具のすき間なら、そばの歩けるマス）を調べに来る
+	Presence = 0.f;
+	++PresenceNoticeCount;
+	FIntPoint Cell = ClampToGrid(G->WorldToCell(Them));
+	FIntPoint Beside;
+	if (G->IsObstacle(Cell) && FindApproachCell(Cell, Them, Beside))
+	{
+		Cell = Beside;
+	}
+	NoiseCell = Cell;
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (Now - LastNoticeSoundTime > NoticeSoundCooldown)
+	{
+		LastNoticeSoundTime = Now;
+		++NoticeSoundCount;
+		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniNotice, GetActorLocation() + FVector(0.f, 0.f, 60.f), 1.f, StepPitch);
+	}
+	if (State == EOniState::Attack)
+	{
+		StateBeforeAttack = EOniState::Investigate;
+		IntentElapsed = 0.f;
+		GoalCell = Cell;
+		CurrentPathMode = EPathMode::BreakIfNeeded;
+		bHasGoal = true;
+		return;
+	}
+	StartInvestigate(Cell);
 }
 
 bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const

@@ -79,7 +79,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// マップそのものを確かめるシナリオ（と再起動をまたぐセーブ）だけは本物のマップを使う
 	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase) || bTitleScenario;
+		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
 		GM->bMapOverride = true;
@@ -2959,7 +2960,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			int32 Coming = 0;
 			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
 			{
-				Coming += GM->GetOnis()[i]->GetIntent() == EOniState::Investigate ? 1 : 0;
+				// 呼ばれた場所へ向かっている（そのままプレイヤーが見えて追いかけ始めていてもよい）
+				const EOniState Intent = GM->GetOnis()[i]->GetIntent();
+				Coming += (Intent == EOniState::Investigate || Intent == EOniState::Chase) ? 1 : 0;
 			}
 			Check(FString::Printf(TEXT("the detector saw the player and called the others (summoned %d, coming %d, summons %d)"), GM->GetLastSummonedCount(), Coming, GS()->SummonsThisRound),
 				GS()->SummonsThisRound >= 1 && GM->GetLastSummonedCount() == 2 && Coming == 2);
@@ -4474,6 +4477,246 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("moving the mouse switches back to keyboard and mouse (gamepad %d, climb key '%s')"), IsUsingGamepad(), *KeyName(EKakurenboAction::Climb)),
 					!IsUsingGamepad() && KeyName(EKakurenboAction::Climb) == TEXT("Space"));
 			});
+		} });
+		// M14：任天堂の配置（設定画面の「コントローラーの配置」）。＋でメニュー、下のボタン（任天堂の B）で戻る
+		Steps.Add({ 0.5f, [=, this]
+		{
+			ToggleSetting(EKakurenboSettingToggle::PadLayout);
+			Check(FString::Printf(TEXT("the settings toggle switches to the Nintendo layout (%d)"), UKakurenboSettings::IsNintendoLayout()), UKakurenboSettings::IsNintendoLayout());
+			PadPress(EKeys::Gamepad_Special_Right); // ＋：メニュー
+			RealDelay(0.3f, [=, this]
+			{
+				Check(FString::Printf(TEXT("nintendo layout: + opens the menu, hints show [A] %s / [B] %s / %s"), *UIKeyLabel(EKakurenboUIKey::Confirm), *UIKeyLabel(EKakurenboUIKey::Cancel),
+					*UIKeyLabel(EKakurenboUIKey::Menu)), GetMenu() == EKakurenboMenu::Pause && UIKeyLabel(EKakurenboUIKey::Menu) == TEXT("[＋]")
+					&& UIKeyLabel(EKakurenboUIKey::Cancel) == TEXT("[B]") && KeyName(EKakurenboAction::Climb) == TEXT("A"));
+				Shot(TEXT("gamepad_nintendo_menu"));
+				PadPress(EKeys::Gamepad_FaceButton_Bottom); // 任天堂の B（下のボタン）：もどる
+				RealDelay(0.3f, [=, this]
+				{
+					Check(FString::Printf(TEXT("nintendo layout: the bottom button (B) closes the menu (menu %d)"), static_cast<int32>(GetMenu())), !IsMenuOpen() && !IsPaused());
+					UKakurenboSettings::SetPadLayout(EKakurenboPadLayout::Xbox);
+				});
+			});
+		} });
+	}
+	// ================================================================ CrouchFind（M14：しゃがむと無敵、にならない。近くではのぞき込まれる・すぐそばでは気配で気づかれる）
+	else if (Scenario.Equals(TEXT("CrouchFind"), ESearchCase::IgnoreCase))
+	{
+		struct FCrouch { TObjectPtr<AStaticMeshActor> Sofa; int32 NoticesBeforeWall = 0; };
+		TSharedRef<FCrouch> C = MakeShared<FCrouch>();
+		const FIntPoint Me(6, 12);
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			GS()->HideTimeRemaining = 600.f;
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			if (Oni)
+			{
+				Oni->Deactivate(); // 見え方だけを調べる（動かない）
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			bTestSneak = true; // しゃがむ
+			// 東側に、ソファくらいの高さ（110cm）の家具を、プレイヤーにくっつけて置く（家具の陰にしゃがむ）
+			UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+			const FVector Floor = Grid()->CellFloorCenter(Me);
+			C->Sofa = GetWorld()->SpawnActor<AStaticMeshActor>(Floor + FVector(85.f, 0.f, 55.f), FRotator::ZeroRotator);
+			C->Sofa->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			C->Sofa->GetStaticMeshComponent()->SetStaticMesh(Cube);
+			C->Sofa->SetActorScale3D(FVector(1.f, 1.f, 1.1f));
+		} });
+		auto PlaceOni = [=, this](float DistanceCm)
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			const FVector Floor = Grid()->CellFloorCenter(Me);
+			Oni->SetActorLocation(Floor + FVector(DistanceCm, 0.f, Oni->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f)); // プレイヤーの方を向く
+			return Oni;
+		};
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the player is crouching (%d)"), GetHider()->bIsCrouched ? 1 : 0), GetHider()->bIsCrouched);
+			const AOniCharacter* Oni = PlaceOni(800.f);
+			Check(TEXT("from 8 m, a crouching player behind low furniture (110 cm) is hidden"), !Oni->CanSeeTarget());
+			const AOniCharacter* Near = PlaceOni(230.f);
+			Check(TEXT("from 2.3 m, the oni peeks over the furniture and sees the crouching player"), Near->CanSeeTarget());
+			Shot(TEXT("crouchfind_01_peek"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 立っている相手は、壁 1 段（160cm）の陰なら近くても見えない（今まで通り）
+			bTestSneak = false;
+			C->Sofa->SetActorHiddenInGame(true);
+			C->Sofa->SetActorEnableCollision(false);
+			PlaceTestWall(Me + FIntPoint(1, 0));
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the player stands up (%d)"), GetHider()->bIsCrouched ? 1 : 0), !GetHider()->bIsCrouched);
+			const AOniCharacter* Oni = PlaceOni(300.f);
+			Check(TEXT("a standing player behind a one-tier wall is still hidden from 3 m"), !Oni->CanSeeTarget());
+			Grid()->DamageBlocksInRadius(Grid()->CellToWorld(Me + FIntPoint(1, 0), 0), 10.f, 1000.0); // 壁をどける
+			// 気配：見えない（目を閉じた）鬼をすぐそば（1.2m・背を向けて）に置き、動かないようにする
+			bTestSneak = true;
+			AOniCharacter* Sense = PlaceOni(120.f);
+			Sense->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 背を向ける
+			Sense->SightRadius = 0.f;
+			Sense->CloseSenseRadius = 0.f;
+			Sense->HearingRadius = 0.f;
+			Sense->StepHearingRadius = 0.f;
+			Sense->Activate(GetHider());
+			Sense->GetCharacterMovement()->DisableMovement();
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("an oni lingering right next to a hidden player notices them (presence notices %d, notice sounds %d)"), Oni->GetPresenceNoticeCount(), Oni->GetNoticeSoundCount()),
+				Oni->GetPresenceNoticeCount() >= 1 && Oni->GetNoticeSoundCount() >= 1);
+			// 壁 1 段の向こうの気配は伝わらない
+			C->NoticesBeforeWall = Oni->GetPresenceNoticeCount();
+			AOniCharacter* Behind = GM->GetOnis()[0];
+			Behind->Deactivate();
+			PlaceTestWall(Me + FIntPoint(1, 0));
+			PlaceOni(200.f);
+			Behind->Activate(GetHider());
+			Behind->GetCharacterMovement()->DisableMovement();
+			C->Sofa->SetActorLocation(FVector(0.f, 0.f, -5000.f));
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("presence does not pass through a wall (presence %.2f, notices %d -> %d)"), Oni->GetPresence(), C->NoticesBeforeWall, Oni->GetPresenceNoticeCount()),
+				Oni->GetPresenceNoticeCount() == C->NoticesBeforeWall && Oni->GetPresence() < 0.05f);
+			bTestSneak = false;
+		} });
+	}
+	// ================================================================ CarefulFind（M14：慎重鬼 2 体が、本物の館（客間）で家具のとなりにしゃがんで隠れたプレイヤーを見つけるまでの時間。
+	//   のぞき込み・気配なし / あり を比べる。約 8 分。探し方を変えたら流して、前と比べる）
+	else if (Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase))
+	{
+		struct FFind { TArray<FIntPoint> Spots; TArray<float> Times; float Start = 0.f; bool bFound = false; };
+		TSharedRef<FFind> F = MakeShared<FFind>();
+		constexpr int32 Variants = 2;
+		constexpr int32 SpotCount = 4;
+		constexpr int32 PollSeconds = 45;
+		static const TCHAR* VariantNames[Variants] = { TEXT("no-peek-presence"), TEXT("peek+presence") };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Careful, EOniType::Careful });
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Rooms");
+			GM->SwitchToMap(TEXT("Rooms"));
+			// 隠れ場所：門から遠い西半分の、家具のとなりの歩けるマス（4 つ。6 マス以上離す）
+			UKakurenboGridSubsystem* G = Grid();
+			const FIntPoint Gate = GM->GetOniGateCells()[0];
+			TArray<TPair<int32, FIntPoint>> Candidates;
+			for (int32 Y = 1; Y < G->GetSizeY() - 1; ++Y)
+			{
+				for (int32 X = 1; X < G->GetSizeX() / 2; ++X)
+				{
+					const FIntPoint P(X, Y);
+					if (!G->IsWalkable(P) || G->IsObstacle(P))
+					{
+						continue;
+					}
+					int32 Furniture = 0;
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const TCHAR Ch = GM->GetArena()->GetLayoutChar(P + D);
+						Furniture += (G->IsObstacle(P + D) && Ch != KakurenboMaps::WallChar) ? 1 : 0;
+					}
+					if (Furniture > 0)
+					{
+						Candidates.Emplace(FMath::Abs(P.X - Gate.X) + FMath::Abs(P.Y - Gate.Y), P);
+					}
+				}
+			}
+			Candidates.Sort([](const TPair<int32, FIntPoint>& A, const TPair<int32, FIntPoint>& B) { return A.Key > B.Key; });
+			for (const TPair<int32, FIntPoint>& Cand : Candidates)
+			{
+				bool bFar = true;
+				for (const FIntPoint& Spot : F->Spots)
+				{
+					bFar &= FMath::Abs(Spot.X - Cand.Value.X) + FMath::Abs(Spot.Y - Cand.Value.Y) >= 6;
+				}
+				if (bFar && F->Spots.Num() < SpotCount)
+				{
+					F->Spots.Add(Cand.Value);
+				}
+			}
+			Check(FString::Printf(TEXT("found %d hiding spots next to furniture"), F->Spots.Num()), F->Spots.Num() == SpotCount);
+			KakuSkipTime(1000.f); // 今のラウンドを終わらせて、試すたびに新しいラウンドで鬼を門から出す
+		} });
+		for (int32 Trial = 0; Trial < Variants * SpotCount; ++Trial)
+		{
+			const int32 Variant = Trial / SpotCount;
+			const int32 SpotIndex = Trial % SpotCount;
+			Steps.Add({ 0.6f, [=, this] { KakuNext(); } }); // → 購入
+			Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+			Steps.Add({ 0.5f, [=, this]
+			{
+				KakuNext(); // → かくれんぼ（鬼は 3 秒後に門から出てくる）
+				F->bFound = false;
+			} });
+			Steps.Add({ 0.3f, [=, this]
+			{
+				GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f;
+				if (UKakurenboOniBlackboard* BB = GetWorld()->GetSubsystem<UKakurenboOniBlackboard>())
+				{
+					BB->Reset(Grid()->GetSizeX(), Grid()->GetSizeY());
+				}
+				if (F->Spots.IsValidIndex(SpotIndex))
+				{
+					TeleportPlayer(Grid()->CellFloorCenter(F->Spots[SpotIndex]));
+				}
+				bTestSneak = true;
+			} });
+			Steps.Add({ 3.3f, [=, this]
+			{
+				for (AOniCharacter* Oni : GM->GetOnis())
+				{
+					if (Variant == 0)
+					{
+						Oni->PeekRadius = 0.f;
+						Oni->PresenceRadius = 0.f;
+					}
+				}
+				F->Start = GetWorld()->GetTimeSeconds();
+			} });
+			for (int32 Poll = 0; Poll < PollSeconds; ++Poll)
+			{
+				Steps.Add({ 1.0f, [=, this]
+				{
+					if (!F->bFound && GS()->Phase != EKakurenboPhase::Hide)
+					{
+						F->bFound = true;
+						F->Times.Add(GetWorld()->GetTimeSeconds() - F->Start);
+					}
+				} });
+			}
+			Steps.Add({ 0.1f, [=, this]
+			{
+				if (!F->bFound)
+				{
+					F->Times.Add(-1.f); // 見つからなかった
+					KakuSkipTime(1000.f);
+				}
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] carefulfind %s spot %d (%d,%d): %s"), VariantNames[Variant], SpotIndex,
+					F->Spots.IsValidIndex(SpotIndex) ? F->Spots[SpotIndex].X : -1, F->Spots.IsValidIndex(SpotIndex) ? F->Spots[SpotIndex].Y : -1,
+					F->Times.Last() < 0.f ? *FString::Printf(TEXT("not found in %d s"), PollSeconds) : *FString::Printf(TEXT("found after %.0f s"), F->Times.Last()));
+				bTestSneak = false;
+			} });
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			FString Summary;
+			int32 FoundFull = 0;
+			for (int32 i = 0; i < F->Times.Num(); ++i)
+			{
+				Summary += FString::Printf(TEXT(" %s#%d=%s"), VariantNames[i / SpotCount], i % SpotCount, F->Times[i] < 0.f ? TEXT("-") : *FString::Printf(TEXT("%.0fs"), F->Times[i]));
+				FoundFull += (i / SpotCount == Variants - 1 && F->Times[i] >= 0.f) ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("careful onis find a crouching player hidden next to furniture (the current search finds %d of %d):%s"), FoundFull, SpotCount, *Summary),
+				F->Times.Num() == Variants * SpotCount && FoundFull >= SpotCount - 1);
 		} });
 	}
 	// ================================================================ CameraWall（M14：壁に当たって寄ったカメラは、壁から離れたらゆっくり戻る。グワングワン揺れない）

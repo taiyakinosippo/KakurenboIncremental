@@ -175,6 +175,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CloseSenseRadius = 150.f;
 
+	/**
+	 * M14：しゃがんでいる相手がこの距離（cm）以内（かつ見ている向き・すぐそば）なら、腰の高さの家具（LowCoverHeight より低い物）の陰でも見える（のぞき込む）。
+	 * 低い家具の陰にしゃがめば遠くからは見えないが、近くまで来られると見つかる（しゃがむと無敵、にならないように）。
+	 * 立っている相手には使わない（壁 1 段で隠れるのは今まで通り）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PeekRadius = 250.f;
+
+	/** 「背の高い物」の高さ（足元から cm）。これより低い家具は、近くの鬼ののぞき込み・気配をさえぎらない（壁 1 段 160cm・本棚はさえぎる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float LowCoverHeight = 150.f;
+
+	/**
+	 * M14：気配。見えていない相手がこの距離（cm）以内にいて、間に背の高い物（壁・本棚）が無いと「あやしさ」がたまり、1 になったら「ン？」と調べに来る。
+	 * たまる速さ ＝ PresenceRate ×（1 − 距離 / PresenceRadius）/ 秒。すぐそばを通る・そばで立ち止まると気づかれる（さっと通り過ぎるだけなら気づかないことが多い）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PresenceRadius = 220.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PresenceRate = 2.5f;
+
 	/** 体（カプセル）同士がこの距離まで近づいたら「ぶつかった」とみなして発見する（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float TouchMargin = 8.f;
@@ -394,6 +416,13 @@ public:
 	/** 音に気づいて「ン？」と鳴らした回数（テスト用） */
 	int32 GetNoticeSoundCount() const { return NoticeSoundCount; }
 
+	/** 気配で気づいた回数・今のあやしさ（0〜1。テスト用） */
+	int32 GetPresenceNoticeCount() const { return PresenceNoticeCount; }
+	float GetPresence() const { return Presence; }
+
+	/** 今、相手が見えるか（テスト用にも使う） */
+	bool CanSeeTarget() const;
+
 	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
 
@@ -461,8 +490,11 @@ private:
 	};
 
 	// 感覚
-	bool CanSeeTarget() const;
 	bool IsTouchingTarget() const;
+	/** 気配（見えていない相手がすぐそばにいる）をためて、たまったら調べに来る */
+	void UpdatePresence(float DeltaSeconds);
+	/** 自分と相手の間に、LowCoverHeight より背の高い物（壁・本棚）が無いか */
+	bool IsOnlyLowCoverBetween() const;
 	void FoundTarget(FName Reason);
 	/** 見えている壁のうち一番近いマス（パワー鬼が壊しに行く） */
 	bool FindVisibleWallCell(FIntPoint& OutCell) const;
@@ -606,6 +638,10 @@ private:
 	/** 音に気づいた「ン？」 */
 	float LastNoticeSoundTime = -100.f;
 	int32 NoticeSoundCount = 0;
+
+	/** 気配（あやしさ） */
+	float Presence = 0.f;
+	int32 PresenceNoticeCount = 0;
 
 	/** 種類ごとの飾りの部品 */
 	UPROPERTY()

@@ -56,6 +56,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   メニューを開いている間は後ろのボタンは登録しない（押せない）
 - **起動するとタイトル画面**（`EKakurenboPhase::Title`。タイトルでは保存しない）。`KakuAutoTest` は最初に `LeaveTitleForTest`（セーブがあればつづきから、無ければはじめから）でタイトルを抜ける。
   `-KakuSkipTitle` でもタイトルを飛ばせる。タイトルそのものを確かめるのは Title シナリオ
+- **コントローラーのボタンも EKeys で直接見ない**：A・B・X・Y は `UKakurenboSettings::PadFace(EKakurenboPadFace::A)` など（ボタン配置 Xbox / 任天堂で場所が変わる）。名前は `KeyLabel`
 - **キーを EKeys で直接見ない**：`IsActionDown` / `WasActionPressed`（キー設定を反映）を使う。新しい操作は `EKakurenboAction` と `UKakurenboSettings::DefaultBinding`・`ActionDisplayName` に足す。
   画面に出すキーの名前は `KeyName`（`[ ]` で囲めば RichText がキーの形で描く）。文は直書きのキー名にしない
 - メニューを開くとゲームを止める（`SetPause`）。**一時停止中はワールドのタイマー（テストの Steps・NextTick）も止まる**ので、メニューのテストは `RealDelay`（実時間）で進める
@@ -100,6 +101,7 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   Perch（M10：家具・壁の上のプレイヤーへ鬼が飛び乗る）、Hearing / Swatches / Crouch（M12：左右の聞こえ方・距離・気づいた音・心臓の音 / 模様・プレイヤー・宝石の見た目 / しゃがんで低い物に隠れる）、
   Title / Hints / CrouchWalk（M13：タイトル・設定・キー設定・一時停止 / はじめての操作のヒント / しゃがんで家具に向かって歩いてもがくがくしない）、
   Climb / Walls / Gamepad / CameraWall / Lineup / TreasureBreak（M14：よじ登る / 3 種類の壁と壁の補強 / コントローラー / 壁ぎわでカメラが揺れない / 全部の家具を壁ぎわに並べて向き・大きさ・すき間を確かめる / 宝物鬼が壁を壊してお宝へ）。
+  CrouchFind / CarefulFind（M14：しゃがみは近くではのぞき込まれ、すぐそばでは気配で気づかれる / 慎重鬼が本物の館でしゃがんだプレイヤーを何秒で見つけるか。旧と新の探し方を比べる。約 8 分）。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`

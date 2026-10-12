@@ -82,21 +82,23 @@ FString AKakurenboPlayerController::UIKeyLabel(EKakurenboUIKey Key) const
 	auto K = [this](EKakurenboAction Action) { return FString::Printf(TEXT("[%s]"), *KeyName(Action)); };
 	if (bUsingGamepad)
 	{
+		// ボタンの名前はボタン配置（Xbox / 任天堂）で変わる（UKakurenboSettings::KeyLabel）
+		auto P = [](const FKey& PadKey) { return FString::Printf(TEXT("[%s]"), *UKakurenboSettings::KeyLabel(PadKey)); };
 		switch (Key)
 		{
-		case EKakurenboUIKey::Confirm:    return TEXT("[A]");
-		case EKakurenboUIKey::Cancel:     return TEXT("[B]");
-		case EKakurenboUIKey::Menu:       return TEXT("[START]");
-		case EKakurenboUIKey::Place:      return TEXT("[A]");
-		case EKakurenboUIKey::PickUp:     return TEXT("[X]");
-		case EKakurenboUIKey::SelectSlot: return TEXT("[LB][RB]");
-		case EKakurenboUIKey::Zoom:       return TEXT("[LT][RT]");
+		case EKakurenboUIKey::Confirm:    return P(UKakurenboSettings::PadFace(EKakurenboPadFace::A));
+		case EKakurenboUIKey::Cancel:     return P(UKakurenboSettings::PadFace(EKakurenboPadFace::B));
+		case EKakurenboUIKey::Menu:       return P(EKeys::Gamepad_Special_Right);
+		case EKakurenboUIKey::Place:      return P(UKakurenboSettings::PadFace(EKakurenboPadFace::A));
+		case EKakurenboUIKey::PickUp:     return P(UKakurenboSettings::PadFace(EKakurenboPadFace::X));
+		case EKakurenboUIKey::SelectSlot: return P(EKeys::Gamepad_LeftShoulder) + P(EKeys::Gamepad_RightShoulder);
+		case EKakurenboUIKey::Zoom:       return P(EKeys::Gamepad_LeftTrigger) + P(EKeys::Gamepad_RightTrigger);
 		case EKakurenboUIKey::Look:       return TEXT("[R スティック]");
 		case EKakurenboUIKey::Move:       return TEXT("[L スティック]");
 		case EKakurenboUIKey::Cursor:     return TEXT("[L スティック]");
 		case EKakurenboUIKey::Rotate:     return TEXT("[R スティック]");
 		case EKakurenboUIKey::Navigate:   return TEXT("[十字キー]");
-		case EKakurenboUIKey::Buy:        return TEXT("[A]");
+		case EKakurenboUIKey::Buy:        return P(UKakurenboSettings::PadFace(EKakurenboPadFace::A));
 		case EKakurenboUIKey::Tilt:       return TEXT("[R スティック↕]");
 		default:                          return FString();
 		}
@@ -210,7 +212,7 @@ bool AKakurenboPlayerController::WasMenuKeyPressed() const
 
 bool AKakurenboPlayerController::WasBackKeyPressed() const
 {
-	return WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right);
+	return WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::B));
 }
 
 bool AKakurenboPlayerController::IsUIFocused(EKakurenboUIAction Action, int32 Index) const
@@ -709,7 +711,7 @@ void AKakurenboPlayerController::HandleTitleInput()
 	{
 		TitleSelection = Button.Index;
 	}
-	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom)
+	if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A))
 		|| WasInputKeyJustPressed(EKeys::Gamepad_Special_Right))
 	{
 		ActivateTitleItem(static_cast<EKakurenboTitleItem>(TitleSelection));
@@ -852,6 +854,9 @@ void AKakurenboPlayerController::ToggleSetting(EKakurenboSettingToggle Toggle)
 		}
 		break;
 	case EKakurenboSettingToggle::Fullscreen: UKakurenboSettings::SetFullscreen(!UKakurenboSettings::IsFullscreen()); break;
+	case EKakurenboSettingToggle::PadLayout:
+		S->SetPadLayout(UKakurenboSettings::IsNintendoLayout() ? EKakurenboPadLayout::Xbox : EKakurenboPadLayout::Nintendo);
+		break;
 	default: break;
 	}
 	S->Apply(this);
@@ -1426,7 +1431,7 @@ void AKakurenboPlayerController::HandleGamepadFocus(float RealDeltaSeconds, bool
 			}
 		}
 	}
-	if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom))
+	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)))
 	{
 		const FKakurenboUIButton Pressed = Buttons[Buttons.IndexOfByPredicate([this](const FKakurenboUIButton& B) { return B.Action == FocusAction && B.Index == FocusIndex; })];
 		ActivateUIButton(Pressed, Pressed.Rect.GetCenter(), false);
@@ -1515,7 +1520,7 @@ void AKakurenboPlayerController::HandleBuildInput()
 			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
 		}
 	}
-	if (WasInputKeyJustPressed(EKeys::RightMouseButton) || (bUsingGamepad && WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Left)))
+	if (WasInputKeyJustPressed(EKeys::RightMouseButton) || (bUsingGamepad && WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::X))))
 	{
 		if (PickUpTarget)
 		{
@@ -1605,7 +1610,7 @@ void AKakurenboPlayerController::HandleGamepadBuild(float DeltaTime)
 		SelectedBuildSlot = (SelectedBuildSlot + 1) % NumSlots;
 	}
 	// A：置く
-	if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom) && bCanPlaceAtTarget)
+	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{

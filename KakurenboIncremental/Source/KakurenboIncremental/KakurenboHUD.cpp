@@ -282,14 +282,14 @@ void AKakurenboHUD::DimScreen(float Alpha)
 float AKakurenboHUD::KeyCap(const FString& Label, float X, float Y, int32 Size, float Alpha)
 {
 	// 濃い紫の小さな板に明るい縁：キーボードのキーに見える形。
-	// コントローラーの A・B・X・Y は、ボタンの色（緑・赤・青・黄）の板にする
+	// コントローラーの A・B・X・Y は、ボタンの色（緑・赤・青・黄）の板にする（Xbox の配置のとき。任天堂のボタンは色が無いので、キーと同じ板）
 	const float Pad = Size * 0.4f;
 	const float W = MeasureText(Label, Size) + Pad * 2.f;
 	const float H = Size * 1.45f;
 	const float Top = Y - Size * 0.12f;
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	FLinearColor Back(0.16f, 0.1f, 0.24f);
-	if (PC && PC->IsUsingGamepad() && Label.Len() == 1)
+	if (PC && PC->IsUsingGamepad() && Label.Len() == 1 && !UKakurenboSettings::IsNintendoLayout())
 	{
 		switch (Label[0])
 		{
@@ -614,7 +614,7 @@ TArray<FString> AKakurenboHUD::GetHelpLines(EKakurenboPhase Phase) const
 	case EKakurenboPhase::Shop:
 		Lines.Add(bPad ? FString::Printf(TEXT("%s 商品を選ぶ　[A] 買う（壁と罠は、次の設置で置く）"), *U(EKakurenboUIKey::Navigate))
 			: FString::Printf(TEXT("クリック・[1]〜[%d] 商品を買う（壁と罠は、次の設置で置く）"), FMath::Min(9, 3 + NumSlots)));
-		Lines.Add(FString::Printf(TEXT("%s コインのお店 ↔ 転生のお店"), bPad ? TEXT("[LB][RB]") : *K(EKakurenboAction::SwitchShop)));
+		Lines.Add(FString::Printf(TEXT("%s コインのお店 ↔ 転生のお店"), bPad ? *U(EKakurenboUIKey::SelectSlot) : *K(EKakurenboAction::SwitchShop)));
 		Lines.Add(FString::Printf(TEXT("%s 壊れた壁・使った罠をまとめて補充"), *K(EKakurenboAction::Refill)));
 		Lines.Add(bPad ? FString::Printf(TEXT("「転生」のボタンを 2 回 転生（ステージ %d から）"), GM ? GM->PrestigeSettings.MinStage : 5)
 			: FString::Printf(TEXT("%s を 2 回 転生（ステージ %d から）"), *K(EKakurenboAction::Prestige), GM ? GM->PrestigeSettings.MinStage : 5));
@@ -760,7 +760,7 @@ void AKakurenboHUD::DrawSettings()
 	}
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const float CanvasW = Canvas->ClipX / UIScale;
-	const float W = 960, H = 830, X = (CanvasW - W) * 0.5f, Y = 120;
+	const float W = 960, H = 900, X = (CanvasW - W) * 0.5f, Y = 96;
 	Panel(X, Y, W, H, FLinearColor(0.06f, 0.02f, 0.11f, 0.96f));
 	Frame(X, Y, W, H, FLinearColor(0.75f, 0.55f, 1.f, 0.6f), 2.f);
 	Text(TEXT("設定"), 0, Y + 24, 36, FLinearColor::White, true);
@@ -797,6 +797,10 @@ void AKakurenboHUD::DrawSettings()
 	RowY += 66;
 	Label(TEXT("画面"));
 	DrawToggle(ControlX, RowY, 260, UKakurenboSettings::IsFullscreen(), static_cast<int32>(EKakurenboSettingToggle::Fullscreen), TEXT("フルスクリーン"), TEXT("ウィンドウ"));
+	RowY += 66;
+	Label(TEXT("コントローラーの配置"));
+	DrawToggle(ControlX, RowY, 260, UKakurenboSettings::IsNintendoLayout(), static_cast<int32>(EKakurenboSettingToggle::PadLayout), TEXT("任天堂"), TEXT("Xbox"));
+	Text(UKakurenboSettings::IsNintendoLayout() ? TEXT("右の A で決定・下の B で戻る") : TEXT("下の A で決定・右の B で戻る"), ControlX + 280, RowY + 10, 18, FLinearColor(0.75f, 0.7f, 0.85f));
 	RowY += 90;
 
 	DrawButton(X + 60, RowY, 400, 60, TEXT("キー設定…"), EKakurenboUIAction::OpenKeys, 0, false, 24);
@@ -916,7 +920,7 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	DrawButton(X + 330, Y + 12, 340, 44, FString::Printf(TEXT("転生のお店（%d pt）"), State->PrestigePoints), EKakurenboUIAction::ShopTab, 1, bPrestigeTab, 22,
 		bPrestigeTab ? FLinearColor::Black : Purple);
 	const bool bPad = PC && PC->IsUsingGamepad();
-	RichText(FString::Printf(TEXT("%s 切り替え"), bPad ? TEXT("[LB][RB]") : *KeyOf(PC, EKakurenboAction::SwitchShop)), X + 690, Y + 24, 16, Gray);
+	RichText(FString::Printf(TEXT("%s 切り替え"), bPad ? *PC->UIKeyLabel(EKakurenboUIKey::SelectSlot) : *KeyOf(PC, EKakurenboAction::SwitchShop)), X + 690, Y + 24, 16, Gray);
 
 	for (int32 i = 0; i < Items.Num(); ++i)
 	{

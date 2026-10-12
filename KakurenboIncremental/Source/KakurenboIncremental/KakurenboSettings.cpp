@@ -29,6 +29,8 @@ void UKakurenboSettings::Initialize(FSubsystemCollectionBase& Collection)
 	Load();
 }
 
+EKakurenboPadLayout UKakurenboSettings::ActivePadLayout = EKakurenboPadLayout::Xbox;
+
 UKakurenboSettings* UKakurenboSettings::Get(const UObject* WorldContext)
 {
 	const UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
@@ -54,6 +56,7 @@ void UKakurenboSettings::Load()
 	GamepadSensitivity = Saved->Version >= 2 ? FMath::Clamp(Saved->GamepadSensitivity, MinGamepadSensitivity, MaxGamepadSensitivity) : 1.f;
 	bInvertMouseY = Saved->bInvertMouseY;
 	bShowHints = Saved->bShowHints;
+	ActivePadLayout = Saved->Version >= 3 && Saved->PadLayout == static_cast<uint8>(EKakurenboPadLayout::Nintendo) ? EKakurenboPadLayout::Nintendo : EKakurenboPadLayout::Xbox;
 	for (int32 i = 0; i < NumActions; ++i)
 	{
 		const FKakurenboKeyBinding* Found = Saved->Bindings.Find(ActionName(static_cast<EKakurenboAction>(i)));
@@ -87,6 +90,7 @@ void UKakurenboSettings::Save()
 	Out->GamepadSensitivity = GamepadSensitivity;
 	Out->bInvertMouseY = bInvertMouseY;
 	Out->bShowHints = bShowHints;
+	Out->PadLayout = static_cast<uint8>(ActivePadLayout);
 	for (int32 i = 0; i < NumActions; ++i)
 	{
 		Out->Bindings.Add(ActionName(static_cast<EKakurenboAction>(i)), Keys.At(i));
@@ -191,15 +195,28 @@ FKey UKakurenboSettings::GamepadKey(EKakurenboAction Action)
 	case EKakurenboAction::Mash:        return EKeys::Gamepad_RightTrigger;     // RT：連打しながら右スティックでカメラも回せる
 	case EKakurenboAction::Sneak:       return EKeys::Gamepad_LeftTrigger;      // LT を押している間しゃがむ
 	case EKakurenboAction::Dash:        return EKeys::Gamepad_RightShoulder;    // RB
-	case EKakurenboAction::Climb:       return EKeys::Gamepad_FaceButton_Bottom; // A
-	case EKakurenboAction::Next:        return EKeys::Gamepad_FaceButton_Top;   // Y
+	case EKakurenboAction::Climb:       return PadFace(EKakurenboPadFace::A);
+	case EKakurenboAction::Next:        return PadFace(EKakurenboPadFace::Y);
 	case EKakurenboAction::SetStart:    return EKeys::Gamepad_LeftThumbstick;   // L スティック押し込み
-	case EKakurenboAction::BackToShop:  return EKeys::Gamepad_FaceButton_Right; // B
+	case EKakurenboAction::BackToShop:  return PadFace(EKakurenboPadFace::B);
 	case EKakurenboAction::ClearAll:    return EKeys::Gamepad_RightThumbstick;  // R スティック押し込み（2 回）
 	case EKakurenboAction::SwitchShop:  return EKeys::Gamepad_LeftShoulder;     // LB（RB でも切り替わる）
-	case EKakurenboAction::Refill:      return EKeys::Gamepad_FaceButton_Left;  // X
+	case EKakurenboAction::Refill:      return PadFace(EKakurenboPadFace::X);
 	case EKakurenboAction::Help:        return EKeys::Gamepad_Special_Left;     // BACK（ビュー）
 	default:                            return EKeys::Invalid;                  // カメラ（右スティック）・転生（ボタンを選んで A）
+	}
+}
+
+FKey UKakurenboSettings::PadFace(EKakurenboPadFace Face)
+{
+	const bool bNintendo = IsNintendoLayout();
+	switch (Face)
+	{
+	case EKakurenboPadFace::A: return bNintendo ? EKeys::Gamepad_FaceButton_Right : EKeys::Gamepad_FaceButton_Bottom;
+	case EKakurenboPadFace::B: return bNintendo ? EKeys::Gamepad_FaceButton_Bottom : EKeys::Gamepad_FaceButton_Right;
+	case EKakurenboPadFace::X: return bNintendo ? EKeys::Gamepad_FaceButton_Top : EKeys::Gamepad_FaceButton_Left;
+	case EKakurenboPadFace::Y: return bNintendo ? EKeys::Gamepad_FaceButton_Left : EKeys::Gamepad_FaceButton_Top;
+	default:                   return EKeys::Invalid;
 	}
 }
 
@@ -335,6 +352,21 @@ FString UKakurenboSettings::KeyLabel(const FKey& Key)
 	{
 		return TEXT("－");
 	}
+	// コントローラーのボタンの名前はボタン配置で変わる（任天堂：右が A・下が B・上が X・左が Y、L / R / ZL / ZR / － / ＋）
+	if (Key.IsGamepadKey())
+	{
+		const bool bN = IsNintendoLayout();
+		if (Key == EKeys::Gamepad_FaceButton_Bottom) { return bN ? TEXT("B") : TEXT("A"); }
+		if (Key == EKeys::Gamepad_FaceButton_Right)  { return bN ? TEXT("A") : TEXT("B"); }
+		if (Key == EKeys::Gamepad_FaceButton_Left)   { return bN ? TEXT("Y") : TEXT("X"); }
+		if (Key == EKeys::Gamepad_FaceButton_Top)    { return bN ? TEXT("X") : TEXT("Y"); }
+		if (Key == EKeys::Gamepad_LeftShoulder)      { return bN ? TEXT("L") : TEXT("LB"); }
+		if (Key == EKeys::Gamepad_RightShoulder)     { return bN ? TEXT("R") : TEXT("RB"); }
+		if (Key == EKeys::Gamepad_LeftTrigger)       { return bN ? TEXT("ZL") : TEXT("LT"); }
+		if (Key == EKeys::Gamepad_RightTrigger)      { return bN ? TEXT("ZR") : TEXT("RT"); }
+		if (Key == EKeys::Gamepad_Special_Left)      { return bN ? TEXT("－") : TEXT("BACK"); }
+		if (Key == EKeys::Gamepad_Special_Right)     { return bN ? TEXT("＋") : TEXT("START"); }
+	}
 	struct FNamed { FKey Key; const TCHAR* Label; };
 	static const FNamed Names[] = {
 		{ EKeys::LeftMouseButton, TEXT("左クリック") },
@@ -357,19 +389,9 @@ FString UKakurenboSettings::KeyLabel(const FKey& Key)
 		{ EKeys::Down, TEXT("↓") },
 		{ EKeys::Left, TEXT("←") },
 		{ EKeys::Right, TEXT("→") },
-		// コントローラー（Xbox の並び）
-		{ EKeys::Gamepad_FaceButton_Bottom, TEXT("A") },
-		{ EKeys::Gamepad_FaceButton_Right, TEXT("B") },
-		{ EKeys::Gamepad_FaceButton_Left, TEXT("X") },
-		{ EKeys::Gamepad_FaceButton_Top, TEXT("Y") },
-		{ EKeys::Gamepad_LeftShoulder, TEXT("LB") },
-		{ EKeys::Gamepad_RightShoulder, TEXT("RB") },
-		{ EKeys::Gamepad_LeftTrigger, TEXT("LT") },
-		{ EKeys::Gamepad_RightTrigger, TEXT("RT") },
+		// コントローラー（A・B・X・Y・肩・BACK / START は上でボタン配置ごとに）
 		{ EKeys::Gamepad_LeftThumbstick, TEXT("L 押し込み") },
 		{ EKeys::Gamepad_RightThumbstick, TEXT("R 押し込み") },
-		{ EKeys::Gamepad_Special_Left, TEXT("BACK") },
-		{ EKeys::Gamepad_Special_Right, TEXT("START") },
 		{ EKeys::Gamepad_DPad_Up, TEXT("十字↑") },
 		{ EKeys::Gamepad_DPad_Down, TEXT("十字↓") },
 		{ EKeys::Gamepad_DPad_Left, TEXT("十字←") },

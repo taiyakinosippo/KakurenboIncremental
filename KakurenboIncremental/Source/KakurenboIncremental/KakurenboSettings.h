@@ -15,6 +15,26 @@
 class APlayerController;
 
 /**
+ * コントローラーのボタン配置（M14）。UE のボタンは場所で決まっている（下・右・左・上）ので、配置によって役割を入れ替える。
+ *   Xbox：下が A（決定）・右が B（戻る）・左が X・上が Y。LB / RB / LT / RT / BACK / START
+ *   任天堂：右が A（決定）・下が B（戻る）・上が X・左が Y。L / R / ZL / ZR / － / ＋
+ */
+enum class EKakurenboPadLayout : uint8
+{
+	Xbox,
+	Nintendo,
+};
+
+/** ボタンに書いてある文字（役割）。A = 決定・B = 戻る */
+enum class EKakurenboPadFace : uint8
+{
+	A,
+	B,
+	X,
+	Y,
+};
+
+/**
  * 操作 → キーの表（UObject ではない普通の構造体。単体テストでそのまま使える）。
  * 同じキーが 2 つの操作に付かないよう、付け替えるときは入れ替える
  */
@@ -50,9 +70,13 @@ class KAKURENBOINCREMENTAL_API UKakurenboSettingsSave : public USaveGame
 	GENERATED_BODY()
 
 public:
-	/** 1: 最初 / 2: コントローラーの感度・「ジャンプ」のキーを「よじ登る」へ */
+	/** 1: 最初 / 2: コントローラーの感度・「ジャンプ」のキーを「よじ登る」へ / 3: コントローラーのボタン配置 */
 	UPROPERTY()
-	int32 Version = 2;
+	int32 Version = 3;
+
+	/** コントローラーのボタン配置（EKakurenboPadLayout。版 3 から） */
+	UPROPERTY()
+	uint8 PadLayout = 0;
 
 	UPROPERTY()
 	float MasterVolume = 0.7f;
@@ -119,6 +143,14 @@ public:
 	/** 画面下のキーの案内と、はじめての操作のヒントを出す */
 	bool bShowHints = true;
 
+	/** コントローラーのボタン配置（変えるときは SetPadLayout） */
+	static EKakurenboPadLayout GetPadLayout() { return ActivePadLayout; }
+	static void SetPadLayout(EKakurenboPadLayout NewLayout) { ActivePadLayout = NewLayout; }
+
+	/** 今のボタン配置で、その文字（役割）のボタンはどれか（Xbox の A = 下、任天堂の A = 右） */
+	static FKey PadFace(EKakurenboPadFace Face);
+	static bool IsNintendoLayout() { return ActivePadLayout == EKakurenboPadLayout::Nintendo; }
+
 	/** 音量・感度を今のワールド（効果音・BGM・プレイヤー）に反映する */
 	void Apply(const UObject* WorldContext) const;
 
@@ -139,7 +171,7 @@ public:
 	bool WasPressed(const APlayerController* PC, EKakurenboAction Action) const;
 
 	/**
-	 * コントローラーのボタン（決まっていて変えられない。Xbox の並び）。パートごとに使う操作が違うので、
+	 * コントローラーのボタン（決まっていて変えられない。ボタン配置（Xbox / 任天堂）で A・B・X・Y の場所が変わる）。パートごとに使う操作が違うので、
 	 * 別のパートの操作と同じボタンでもよい（例: RB はかくれんぼでは煙幕、購入ではお店の切り替え）。無ければ Invalid
 	 */
 	static FKey GamepadKey(EKakurenboAction Action);
@@ -180,6 +212,9 @@ private:
 
 	FKakurenboKeyMap Keys;
 	TSet<FName> SeenTips;
+
+	/** 今のボタン配置（GamepadKey・KeyLabel などの static な関数からも使うので static） */
+	static EKakurenboPadLayout ActivePadLayout;
 
 	/** ファイルに保存するか（-KakuNoSave のときは false） */
 	bool bPersist = true;
