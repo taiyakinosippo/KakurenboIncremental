@@ -4,6 +4,7 @@
 #
 #   KakurenboIncremental/SourceArt/Player/Male_002.fbx（＋ CharacterTexture_*.png）→ /Game/Player
 #   KakurenboIncremental/SourceArt/Gem/Diamond_Shape2.fbx（＋ Diamond_Master2_*.jpeg / png）→ /Game/Gem
+#   KakurenboIncremental/SourceArt/Cat/*.fbx（Fab「Cat long haired」。モデルと歩く・走るアニメーション＋画像）→ /Game/Cat（--cat-only でこれだけ）
 #   KakurenboIncremental/SourceArt/MedievalRoomKit（FBX＋1K の画像）→ /Game/Kakurenbo/Mansion/Medieval（--medieval-only でこれだけ）
 #   KakurenboIncremental/SourceArt/FabProps（Tools/ExtractFabProps.py が取り出した FBX＋1K の画像＋manifest.json）→ /Game/Kakurenbo/Mansion/Props（--props-only でこれだけ）
 #
@@ -123,6 +124,97 @@ def import_gem():
     texture(os.path.join(folder, "Diamond_Master2_Roughness.jpeg"), dest, linear=True)
     texture(os.path.join(folder, "Diamond_Shape2_Diamond_Master2_Normal.png"), dest, normal=True)
     log("gem done")
+
+
+def import_cat():
+    # Fab「Cat long haired」：FBX（モデル＋歩く・走るアニメーション）。ファイル名はパックによって違うので、フォルダの中を全部見る。
+    # 一番大きい FBX をモデルとして取り込み、残りの FBX はそのモデルの骨のアニメーションとして取り込む。
+    # 名前は決めておく（DefaultGame.ini の CatMesh・CatAnimWalk・CatAnimRun）：SK_Cat / A_CatWalk / A_CatRun
+    folder = os.path.join(SOURCE, "Cat")
+    if not os.path.isdir(folder):
+        log("no cat source")
+        return
+    dest = "/Game/Cat"
+    if eal.does_directory_exist(dest):
+        eal.delete_directory(dest)
+    fbxs = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith(".fbx"):
+                fbxs.append(os.path.join(root, f))
+    if not fbxs:
+        log("no cat fbx")
+        return
+    fbxs.sort(key=lambda f: -os.path.getsize(f))
+    main = fbxs[0]
+
+    def options(skeleton=None):
+        opt = unreal.FbxImportUI()
+        opt.import_mesh = skeleton is None
+        opt.import_as_skeletal = True
+        opt.mesh_type_to_import = unreal.FBXImportType.FBXIT_SKELETAL_MESH
+        opt.import_animations = True
+        opt.import_materials = skeleton is None
+        opt.import_textures = skeleton is None
+        if skeleton:
+            opt.skeleton = skeleton
+        opt.automated_import_should_detect_type = False
+        return opt
+
+    task = unreal.AssetImportTask()
+    task.filename = main
+    task.destination_path = dest
+    task.destination_name = "SK_Cat"
+    task.automated = True
+    task.replace_existing = True
+    task.save = True
+    task.options = options()
+    tools.import_asset_tasks([task])
+    imported = list(task.imported_object_paths)
+    log("cat main %s -> %s" % (os.path.basename(main), imported))
+    mesh = None
+    for path in imported:
+        asset = unreal.load_asset(path)
+        if isinstance(asset, unreal.SkeletalMesh):
+            mesh = asset
+    if not mesh:
+        log("cat: no skeletal mesh in " + main)
+        return
+    skeleton = mesh.skeleton
+    for other in fbxs[1:]:
+        t = unreal.AssetImportTask()
+        t.filename = other
+        t.destination_path = dest
+        t.automated = True
+        t.replace_existing = True
+        t.save = True
+        t.options = options(skeleton)
+        tools.import_asset_tasks([t])
+        log("cat anim %s -> %s" % (os.path.basename(other), list(t.imported_object_paths)))
+
+    # アニメーションの名前をそろえる（walk / run が入っている名前。無ければ最初のものを歩く）
+    anims = [a for a in eal.list_assets(dest, recursive=True) if isinstance(unreal.load_asset(a), unreal.AnimSequence)]
+    def find(word):
+        for a in anims:
+            if word in a.split("/")[-1].lower():
+                return a
+        return None
+    walk = find("walk") or (anims[0] if anims else None)
+    run = find("run") or walk
+    for src, name in ((walk, "A_CatWalk"), (run, "A_CatRun")):
+        if src and src.split("/")[-1].split(".")[0] != name and not eal.does_asset_exist(dest + "/" + name):
+            if src == walk and run == walk and name == "A_CatRun":
+                eal.duplicate_asset(dest + "/A_CatWalk", dest + "/" + name)
+            else:
+                eal.rename_asset(src.split(".")[0], dest + "/" + name)
+    # 画像が FBX と同じフォルダにあれば取り込み、マテリアルに付いていなければ色の画像を付ける
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tga")):
+                low = f.lower()
+                texture(os.path.join(root, f), dest, normal="normal" in low or "_n." in low, linear="rough" in low)
+    eal.save_directory(dest)
+    log("cat done: anims %s" % [a.split("/")[-1] for a in eal.list_assets(dest, recursive=True) if isinstance(unreal.load_asset(a), unreal.AnimSequence)])
 
 
 def import_player():
@@ -457,7 +549,7 @@ def import_fab_props():
 
 
 def report():
-    for folder in ("/Game/Gem", "/Game/Player", "/Game/QuietWall"):
+    for folder in ("/Game/Gem", "/Game/Player", "/Game/QuietWall", "/Game/Cat"):
         for path in eal.list_assets(folder, recursive=True):
             asset = unreal.load_asset(path)
             log("asset %s (%s)" % (path, asset.get_class().get_name() if asset else "?"))
@@ -472,8 +564,11 @@ elif "--medieval-only" in sys.argv:
     import_medieval()
 elif "--props-only" in sys.argv:
     import_fab_props()
+elif "--cat-only" in sys.argv:
+    import_cat()
 else:
     import_gem()
+    import_cat()
     import_player()
     import_quiet_wall()
     import_wood()

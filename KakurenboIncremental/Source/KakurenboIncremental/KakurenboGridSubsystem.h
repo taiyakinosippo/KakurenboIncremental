@@ -307,6 +307,18 @@ public:
 	/** ランダムな空きマス（見つからなければ false） */
 	bool FindRandomFreeCell(FIntPoint& OutCell, const FRandomStream* Stream = nullptr) const;
 
+	/**
+	 * 経路のグリッドに、今ある一方通行ののれんを書き込む。AttackDamage > 0 なら、逆向きはのれんを壊して通れる
+	 * （壊すのに必要な攻撃回数 × CostPerAttack のコスト。M15：その先が行き止まりのときだけ壊される）
+	 */
+	void ApplyOneWays(FKakurenboPathGrid& Grid, double AttackDamage = 0.0, float CostPerAttack = 0.f) const;
+
+	/** From から To へ動くと、のれんを逆向きに通ることになるか（なるなら、そののれんのマス） */
+	bool IsWrongWayThroughGate(const FIntPoint& From, const FIntPoint& To, FIntPoint& OutGate) const;
+
+	/** 配置が変わったことにする（鬼の経路を作り直させる。のれんの耐久を変えたときなど） */
+	void NotifyChanged() { MarkChanged(); }
+
 private:
 	int32 ToIndex(const FIntPoint& Cell) const { return Cell.Y * SizeX + Cell.X; }
 	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
@@ -314,8 +326,6 @@ private:
 	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP = 0.0);
 	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir = 0);
 
-	/** 経路のグリッドに、今ある一方通行ののれんを書き込む */
-	void ApplyOneWays(FKakurenboPathGrid& Grid) const;
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);
 	void SyncDesignToBlocks(const FIntPoint& Cell);

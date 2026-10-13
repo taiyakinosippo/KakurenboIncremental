@@ -31,6 +31,7 @@
 #include "Misc/FileHelper.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
+#include "KakurenboOniStudio.h"
 #include "SmokeCloud.h"
 #include "TrapActor.h"
 #include "TreasureActor.h"
@@ -103,11 +104,11 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Def.Uses = Uses;
 		Def.Duration = Duration;
 	};
-	AddGem(TEXT("身代わり人形"), ETrapKind::FakeHider, 3.0, 1.5, 0.f, 0.f, 0.f, 480.f, 0, 0.f, FLinearColor(0.45f, 0.75f, 1.f));
-	AddGem(TEXT("一方通行ののれん"), ETrapKind::OneWay, 2.0, 1.4, 0.f, 0.f, 0.f, 0.f, 3, 0.f, FLinearColor(0.15f, 0.35f, 0.85f));
+	AddGem(TEXT("身代わり人形"), ETrapKind::FakeHider, 3.0, 1.5, 0.f, 0.f, 0.f, 680.f, 0, 0.f, FLinearColor(0.45f, 0.75f, 1.f));
+	AddGem(TEXT("一方通行ののれん"), ETrapKind::OneWay, 2.0, 1.4, 0.f, 0.f, 0.f, 0.f, 0, 0.f, FLinearColor(0.15f, 0.35f, 0.85f));
 	AddGem(TEXT("真っ暗ブロック"), ETrapKind::Darkness, 3.0, 1.5, 0.f, 0.f, 300.f, 0.f, 0, 0.f, FLinearColor(0.12f, 0.08f, 0.18f));
-	AddGem(TEXT("迷い猫"), ETrapKind::Cat, 4.0, 1.6, 5.f, 0.9f, 450.f, 150.f, 0, 3.f, FLinearColor(1.f, 0.6f, 0.25f));
-	AddGem(TEXT("だるまさんがころんだ"), ETrapKind::Daruma, 3.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 6.f, FLinearColor(0.95f, 0.2f, 0.2f));
+	AddGem(TEXT("迷い猫"), ETrapKind::Cat, 4.0, 1.6, 5.f, 0.9f, 450.f, 150.f, 0, 5.f, FLinearColor(1.f, 0.6f, 0.25f));
+	AddGem(TEXT("だるまさんがころんだ"), ETrapKind::Daruma, 3.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 3.f, FLinearColor(0.95f, 0.2f, 0.2f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）。M14：種類は 通常壁・消音壁・クライミング壁 の 3 つ（数ではなく置き方で勝負）
 	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, double CostGrowth, FLinearColor Color, float NoiseDamping, double SoundHP, float ClimbSeconds, bool bLadder)
@@ -139,7 +140,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Row.ValueGrowth = ValueGrowth;
 	};
 	AddPrestigeUpgrade(TEXT("壁の硬さ"), 0, 1.0, 1.5, 1.0, 1.5);      // WallHP: 耐久 ×1.5^Lv
-	AddPrestigeUpgrade(TEXT("お宝の強化"), 0, 1.0, 1.5, 1.0, 1.5);    // Treasure: お宝の価値 ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("お宝の宝石"), 0, 2.0, 1.6, 1.0, 1.0);    // Treasure: お宝 1 個の宝石 1 + Lv（M15：お宝はコインではなく宝石に）
 	AddPrestigeUpgrade(TEXT("煙幕ダッシュ"), 4, 2.0, 1.6, 1.0, 2.0);   // SmokeDuration: Lv1 で解放。煙が残る時間 1 + 2×(Lv-1) 秒
 	AddPrestigeUpgrade(TEXT("煙幕の数"), 3, 2.0, 2.0, 1.0, 1.0);       // SmokeCount: 1 ラウンドに 1 + Lv 回
 	AddPrestigeUpgrade(TEXT("よじ登る"), 1, 2.0, 1.0, 1.0, 1.0);       // Climb: Lv1 で解放
@@ -204,6 +205,13 @@ void AKakurenboGameMode::BeginPlay()
 	TreasureRandom.GenerateNewSeed();
 	LoadBalanceData();
 	LoadOniAppearance();
+
+	// 鬼のチュートリアル・図鑑の写真を撮るスタジオ（舞台のずっと下）
+	OniStudio = GetWorld()->SpawnActor<AKakurenboOniStudio>();
+	if (OniStudio)
+	{
+		OniStudio->Setup(this);
+	}
 
 	// 自動テストなどでセーブを読み書きしたくないときは、起動オプション -KakuNoSave を付ける。
 	// -KakuSaveSlot=名前 を付けると、そのスロットを使う（再起動をまたぐテスト用。-KakuNoSave より優先）
@@ -897,7 +905,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallDesc", "すべての壁の耐久 ×{0} → ×{1}（かけ算。コインの「壁の補強」の上に掛かる・置いてある壁も）"), Fmt(Now), Fmt(Next));
 			break;
 		case EPrestigeUpgrade::Treasure:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝の価値 ×{0} → ×{1}"), Fmt(Now), Fmt(Next));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝 1 個でもらえる宝石 {0} → {1} 個"), GetGemsPerTreasure(Level), GetGemsPerTreasure(Level + 1));
 			break;
 		case EPrestigeUpgrade::SmokeDuration:
 			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeTimeMax", "煙幕が残る時間 {0} 秒"), Fmt(GetSmokeDuration(Level)))
@@ -1070,9 +1078,16 @@ double AKakurenboGameMode::GetClearReward() const
 	return GetStageSettings().ClearReward;
 }
 
-double AKakurenboGameMode::GetTreasureValue() const
+int32 AKakurenboGameMode::GetGemsPerTreasure(int32 Level) const
 {
-	return GetClearReward() * TreasureRewardRatio * GetPrestigeValue(EPrestigeUpgrade::Treasure);
+	// 転生のお店の「お宝の宝石」：足し算（BaseValue + ValueGrowth × レベル）。GemsPerTreasure は Lv0 の数
+	const int32 Index = static_cast<int32>(EPrestigeUpgrade::Treasure);
+	if (!PrestigeUpgrades.IsValidIndex(Index))
+	{
+		return GemsPerTreasure + Level;
+	}
+	const FKakurenboPrestigeUpgradeRow& Row = PrestigeUpgrades[Index];
+	return FMath::Max(1, GemsPerTreasure - 1 + FMath::RoundToInt(Row.BaseValue + Row.ValueGrowth * Level));
 }
 
 float AKakurenboGameMode::GetHideDuration() const
@@ -1304,7 +1319,8 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = NSLOCTEXT("Kakurenbo", "GemFakeDesc", "自分そっくりの人形。鬼に見つかると、大きな音を立てて鬼と反対へまっすぐ逃げる（捕まると消える）");
 			break;
 		case ETrapKind::OneWay:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemOneWayDesc", "鬼は矢印の向きにしか通れないのれん（自分はどちらからも通れる）。鬼が {0} 回通ると壊れる"), Def.Uses);
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemOneWayDesc", "鬼は矢印の向きにしか通れないのれん（自分はどちらからも通れる）。その先が行き止まりのときだけ、鬼が破りに来る（硬さは通常壁の {0} 倍）"),
+				FText::FromString(UKakurenboLibrary::FormatStatNumber(OneWayHPMultiplier)));
 			break;
 		case ETrapKind::Darkness:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarkDesc", "かくれんぼの間、館じゅうが真っ暗（鬼は {0}m 先までしか見えない・自分も見えにくい）。1 回で壊れる"), Fmt(Def.Radius / 100.0));
@@ -1313,7 +1329,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemCatDesc", "近くをうろうろして「にゃーん」と鳴く猫。寄ってきた鬼は猫をなでて {0} 秒動かない（どの鬼も猫には弱い）"), Fmt(Def.Duration));
 			break;
 		case ETrapKind::Daruma:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。{0} 秒、自分が見ている鬼は動けない。止まった鬼にタッチすると門へ帰る"), Fmt(Def.Duration));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。{0} 秒、自分が見ている間だけ鬼が止まる（目をそらすと動く・ぶつかれば見つかる）"), Fmt(Def.Duration));
 			break;
 		default:
 			Item.Description = FText::GetEmpty();
@@ -2119,13 +2135,12 @@ void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
 	{
 		return;
 	}
-	State->AddCoins(Treasure->Value, true);
+	// M15：お宝はコインではなく宝石（宝石のお店で道具と交換する）。ユーザーの希望：「お宝を取ったときはコイン入手なしで」
+	const int32 Gems = GetGemsPerTreasure();
 	State->TreasuresCollectedThisRound++;
-	State->TreasureCoinsThisRound += Treasure->Value;
-	// M15：お宝 1 個で宝石 1 つ（宝石のお店で道具と交換する）
-	State->Gems += GemsPerTreasure;
-	State->GemsThisRound += GemsPerTreasure;
-	UE_LOG(LogKakurenbo, Log, TEXT("Treasure collected (+%s)"), *UKakurenboLibrary::FormatBigNumber(Treasure->Value));
+	State->Gems += Gems;
+	State->GemsThisRound += Gems;
+	UE_LOG(LogKakurenbo, Log, TEXT("Treasure collected (+%d gems)"), Gems);
 
 	// きらきらを飛ばして、音と大きな文字で知らせる
 	const FVector Location = Treasure->GetActorLocation() + FVector(0.f, 0.f, 60.f);
@@ -2143,20 +2158,24 @@ void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
 		F->Ring(Location, 20.f, 160.f, 0.35f, TreasureColor, 6.f);
 	}
 	Sfx2D(this, EKakurenboSfx::Treasure);
-	ShowPopup(FString::Printf(TEXT("お宝 +%s・宝石 +%d"), *UKakurenboLibrary::FormatBigNumber(Treasure->Value), GemsPerTreasure), TreasureColor);
+	ShowPopup(FString::Printf(TEXT("宝石 +%d"), Gems), TreasureColor);
 
-	// M15：そのラウンドのお宝を全部取ったら、ボーナス（宝石と、逃げ切り報酬の半分のコイン）
+	// M15：そのラウンドのお宝を全部取ったら、ボーナスの宝石（AllTreasureBonusCoinRatio を 0 より大きくするとコインも）
 	if (!State->bAllTreasuresThisRound && State->TreasuresThisRound > 0 && State->TreasuresCollectedThisRound >= State->TreasuresThisRound)
 	{
 		State->bAllTreasuresThisRound = true;
 		const double BonusCoins = GetClearReward() * AllTreasureBonusCoinRatio;
-		State->AddCoins(BonusCoins, true);
+		if (BonusCoins > 0.0)
+		{
+			State->AddCoins(BonusCoins, true);
+		}
 		State->TreasureBonusCoinsThisRound = BonusCoins;
 		State->Gems += AllTreasureBonusGems;
 		State->GemsThisRound += AllTreasureBonusGems;
 		Sfx2D(this, EKakurenboSfx::Gem);
 		FlashScreen(FLinearColor(0.4f, 0.9f, 1.f, 0.35f), 0.6f);
-		ShowPopup(FString::Printf(TEXT("お宝コンプリート！ 宝石 +%d・コイン +%s"), AllTreasureBonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins)), FLinearColor(0.5f, 0.95f, 1.f));
+		ShowPopup(BonusCoins > 0.0 ? FString::Printf(TEXT("お宝コンプリート！ 宝石 +%d・コイン +%s"), AllTreasureBonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins))
+			: FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d"), AllTreasureBonusGems), FLinearColor(0.5f, 0.95f, 1.f));
 		UE_LOG(LogKakurenbo, Log, TEXT("All treasures collected: bonus %d gems, %s coins"), AllTreasureBonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins));
 	}
 
@@ -2300,8 +2319,42 @@ void AKakurenboGameMode::HandleOneWayBroken(ATrapActor* Trap)
 		F->Burst(Location, Params);
 	}
 	Sfx3D(this, EKakurenboSfx::BlockBreak, Location, 0.8f, 1.3f);
-	ShowPopup(TEXT("のれんがちぎれた"), Trap->Def.Color);
+	ShowPopup(TEXT("のれんが破られた！"), Trap->Def.Color);
 	Grid->ConsumeTrap(Trap);
+}
+
+double AKakurenboGameMode::GetOneWayMaxHP() const
+{
+	const TArray<FWallTypeDef> Walls = GetEffectiveWallTypes();
+	return (Walls.Num() > 0 ? Walls[0].MaxHP : 3.0) * OneWayHPMultiplier;
+}
+
+void AKakurenboGameMode::HandleGateHit(ATrapActor* Trap, double Damage)
+{
+	if (!Trap || GetPhase() != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	const bool bBroken = Trap->DamageGate(Damage);
+	const FVector Location = Trap->GetActorLocation() + FVector(0.f, 0.f, 150.f);
+	if (UKakurenboFxSubsystem* F = Fx(this))
+	{
+		FKakurenboBurstParams Params;
+		Params.Color = Trap->Def.Color;
+		Params.Count = 5;
+		Params.Size = 10.f;
+		Params.Speed = 240.f;
+		Params.Lifetime = 0.5f;
+		F->Burst(Location, Params);
+	}
+	if (bBroken)
+	{
+		HandleOneWayBroken(Trap); // ここで消える
+	}
+	else
+	{
+		Sfx3D(this, EKakurenboSfx::BlockHit, Location, 0.8f, 1.2f);
+	}
 }
 
 TArray<AHiderCharacter*> AKakurenboGameMode::GetFakeHiders() const
@@ -2388,7 +2441,7 @@ bool AKakurenboGameMode::UseDaruma()
 	AKakurenboGameState* State = GS();
 	const int32 Type = FindTrapTypeOfKind(ETrapKind::Daruma);
 	State->TrapStock[Type]--;
-	DarumaTimeLeft = TrapTypes[Type].Duration > 0.f ? TrapTypes[Type].Duration : 6.f;
+	DarumaTimeLeft = TrapTypes[Type].Duration > 0.f ? TrapTypes[Type].Duration : 3.f;
 	Sfx2D(this, EKakurenboSfx::Daruma, 1.1f);
 	ShowPopup(TEXT("だるまさんが ころんだ！"), TrapTypes[Type].Color);
 	FlashScreen(FLinearColor(1.f, 0.3f, 0.25f, 0.25f), 0.4f);
@@ -2426,44 +2479,6 @@ bool AKakurenboGameMode::IsOniWatchedByPlayer(const AOniCharacter* Oni) const
 	// 自分の頭から鬼の体まで（カメラは置いた壁をすり抜けるので、頭から見る）
 	const FVector Head = PC->GetPawn() ? PC->GetPawn()->GetActorLocation() + FVector(0.f, 0.f, 50.f) : Eye;
 	return !GetWorld()->LineTraceSingleByChannel(Hit, Head, Body, ECC_Visibility, Params);
-}
-
-void AKakurenboGameMode::HandleDarumaTouch(AOniCharacter* Oni)
-{
-	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
-	if (!Oni || !Grid || GetPhase() != EKakurenboPhase::Hide)
-	{
-		return;
-	}
-	// 「タッチ！」：鬼は門へ帰される（少しの間動けない）
-	++DarumaTouchCount;
-	const FVector From = Oni->GetActorLocation();
-	const TArray<FIntPoint> Gates = GetOniGateCells();
-	FIntPoint Home = Gates.Num() > 0 ? Gates[DarumaTouchCount % Gates.Num()] : Grid->WorldToCell(From);
-	for (const FIntPoint& Cell : Gates)
-	{
-		if (Grid->IsWalkable(Cell))
-		{
-			Home = Cell;
-			break;
-		}
-	}
-	Oni->SetActorLocation(Grid->CellFloorCenter(Home) + FVector(0.f, 0.f, Oni->GetSimpleCollisionHalfHeight() + 5.f), false, nullptr, ETeleportType::TeleportPhysics);
-	Oni->Stun(DarumaTouchStunSeconds / FMath::Max(Oni->StunScale, 0.1f));
-	if (UKakurenboFxSubsystem* F = Fx(this))
-	{
-		FKakurenboBurstParams Params;
-		Params.Color = FLinearColor(1.f, 0.4f, 0.35f);
-		Params.Count = 16;
-		Params.Size = 12.f;
-		Params.Speed = 320.f;
-		Params.Lifetime = 0.8f;
-		Params.bSpheres = true;
-		F->Burst(From + FVector(0.f, 0.f, 60.f), Params);
-	}
-	Sfx2D(this, EKakurenboSfx::Poof, 1.f, 1.2f);
-	ShowPopup(TEXT("タッチ！ 鬼が門へ帰った"), FLinearColor(1.f, 0.5f, 0.4f));
-	UE_LOG(LogKakurenbo, Log, TEXT("Daruma touch: %s sent back to the gate"), *Oni->GetName());
 }
 
 void AKakurenboGameMode::HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni)
@@ -2581,7 +2596,7 @@ void AKakurenboGameMode::SpawnTreasures()
 		{
 			continue;
 		}
-		Treasure->Value = GetTreasureValue();
+		Treasure->Value = 0.0; // M15：お宝はコインではなく宝石
 		if (GemMeshes.Num() > 0)
 		{
 			const FLinearColor GemColor = GemColors[TreasureRandom.RandRange(0, UE_ARRAY_COUNT(GemColors) - 1)];
@@ -2740,6 +2755,21 @@ void AKakurenboGameMode::SpawnOnis()
 				A->GetCapsuleComponent()->IgnoreActorWhenMoving(B, true);
 			}
 		}
+	}
+}
+
+void AKakurenboGameMode::ConfigureOniLook(AOniCharacter* Oni, EOniType Type) const
+{
+	if (!Oni)
+	{
+		return;
+	}
+	Oni->ApplyTypeSettings(Type, GetOniTypeRow(Type));
+	if (LoadedOniLook.Mesh)
+	{
+		FKakurenboOniLook Look = LoadedOniLook;
+		Look.Material = LoadedOniMaterials.FindRef(Type);
+		Oni->SetSkeletalAppearance(Look);
 	}
 }
 
@@ -2954,7 +2984,6 @@ void AKakurenboGameMode::StartHidePhase()
 	State->bAllTreasuresThisRound = false;
 	State->TreasureBonusCoinsThisRound = 0.0;
 	DarumaTimeLeft = 0.f;
-	DarumaTouchCount = 0;
 	State->TimeCoinsThisRound = 0.0;
 	State->MashCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
@@ -2966,7 +2995,8 @@ void AKakurenboGameMode::StartHidePhase()
 	ApplyPrestigeToPlayer(); // 煙幕ダッシュ・よじ登る（転生のお店で解放）
 	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
 	{
-		Hider->ResetDash(); // ラウンドの始めに煙幕ダッシュの回数を元に戻す
+		Hider->ResetDash();          // ラウンドの始めに煙幕ダッシュの回数を元に戻す
+		Hider->SetSneaking(false);   // しゃがみも元に戻す（立って始める）
 	}
 
 	// お宝は最初から置いておく（鬼が来る前に取りに行ける）
@@ -2987,6 +3017,18 @@ void AKakurenboGameMode::StartHidePhase()
 		}
 	}
 	SetMansionDark(bDark, DarkRadius);
+	// のれんの耐久（通常壁の 2 倍。補強・硬さを買った後の値）
+	if (UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
+	{
+		for (ATrapActor* Trap : Grid->GetAllTraps())
+		{
+			if (Trap && Trap->GetKind() == ETrapKind::OneWay)
+			{
+				Trap->SetGateHP(GetOneWayMaxHP());
+			}
+		}
+		Grid->NotifyChanged(); // 鬼の経路（のれんを壊すコスト）を作り直させる
+	}
 	SetPhase(EKakurenboPhase::Hide);
 }
 

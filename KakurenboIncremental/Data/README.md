@@ -70,7 +70,7 @@
 
 ## PrestigeUpgrades.csv（転生のお店）
 
-転生ポイントで買う永続強化（転生しても残る）。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP）は
+転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP）は
 プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
 
 | 列 | 意味 |

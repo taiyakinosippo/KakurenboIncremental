@@ -77,8 +77,18 @@ public:
 	int32 GetPetCount() const { return PetCount; }
 	int32 GetMeowCount() const { return MeowCount; }
 
+	/** のれんの耐久（通常壁の 2 倍。GameMode がかくれんぼの始めに決める）。鬼の攻撃で減り、0 で破れる */
+	double GetGateHP() const { return GateHP; }
+	void SetGateHP(double HP) { GateHP = GateMaxHP = FMath::Max(HP, 0.01); UpdateGateLook(); }
+
+	/** のれんに攻撃が当たった（@return 破れたか） */
+	bool DamageGate(double Damage);
+
 	/** 迷い猫：今なでられているか */
 	bool IsBeingPetted() const { return PetTimer > 0.f; }
+
+	/** 迷い猫：なでた鬼の頭の上に乗っているか（乗ったら、そのラウンドはもうなでられない） */
+	bool IsOnOniHead() const { return RideOni.IsValid(); }
 
 protected:
 	virtual void Tick(float DeltaSeconds) override;
@@ -128,11 +138,35 @@ private:
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> CatTail;
 
+	/** 迷い猫のモデル（取り込んであれば。歩く・走るアニメーション） */
+	UPROPERTY()
+	TObjectPtr<class USkeletalMeshComponent> CatModel;
+
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> CatWalkAnim;
+
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> CatRunAnim;
+
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> CatPlayingAnim;
+
+	/** 迷い猫のアニメーション：0 止まっている / 1 歩く / 2 走る */
+	void SetCatMotion(int32 Motion);
+
 	/** 身代わり人形 */
 	UPROPERTY()
 	TObjectPtr<AFakeHiderCharacter> FakeHider;
 
 	int32 Dir = 0;
+
+	/** のれんの耐久と、傷んだ見た目（布を暗く） */
+	double GateHP = 6.0;
+	double GateMaxHP = 6.0;
+	void UpdateGateLook();
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> GateCloths;
 
 	/** 次に音を出すまでの時間（鬼が出てきてから 0.5 秒後に最初の音） */
 	float NoiseTimer = 0.5f;
@@ -158,4 +192,8 @@ private:
 	int32 MeowCount = 0;
 	/** なでた鬼は、しばらく同じ猫には寄ってこない（ワールド時刻） */
 	TMap<TWeakObjectPtr<AOniCharacter>, float> PetCooldownUntil;
+
+	/** なでられた後は、その鬼の頭の上に乗る（ラウンドが終わるまで） */
+	TWeakObjectPtr<AOniCharacter> PettingOni;
+	TWeakObjectPtr<AOniCharacter> RideOni;
 };

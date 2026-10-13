@@ -617,16 +617,34 @@ bool UKakurenboGridSubsystem::RotateTrap(const FIntPoint& Cell)
 	return true;
 }
 
-void UKakurenboGridSubsystem::ApplyOneWays(FKakurenboPathGrid& Grid) const
+void UKakurenboGridSubsystem::ApplyOneWays(FKakurenboPathGrid& Grid, double AttackDamage, float CostPerAttack) const
 {
 	for (int32 Index = 0; Index < Columns.Num(); ++Index)
 	{
 		const ATrapActor* Trap = Columns[Index].Trap;
 		if (Trap && Trap->GetKind() == ETrapKind::OneWay && Grid.ExtraCost[Index] == 0.f)
 		{
-			Grid.SetOneWay(Grid.FromIndex(Index), Columns[Index].TrapDir);
+			const float BreakCost = AttackDamage > 0.0
+				? FMath::Max(1.f, static_cast<float>(FMath::CeilToDouble(Trap->GetGateHP() / AttackDamage))) * CostPerAttack
+				: -1.f;
+			Grid.SetOneWay(Grid.FromIndex(Index), Columns[Index].TrapDir, BreakCost);
 		}
 	}
+}
+
+bool UKakurenboGridSubsystem::IsWrongWayThroughGate(const FIntPoint& From, const FIntPoint& To, FIntPoint& OutGate) const
+{
+	const FIntPoint D = To - From;
+	for (const FIntPoint& Cell : { To, From })
+	{
+		const ATrapActor* Trap = GetTrap(Cell);
+		if (Trap && Trap->GetKind() == ETrapKind::OneWay && D != FKakurenboPathGrid::DirToStep(Columns[ToIndex(Cell)].TrapDir))
+		{
+			OutGate = Cell;
+			return true;
+		}
+	}
+	return false;
 }
 
 bool UKakurenboGridSubsystem::PickUpTrap(const FIntPoint& Cell, int32& OutReturnedType)
@@ -993,7 +1011,7 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, f
 			Grid.SetExtra(FIntPoint(X, Y), FMath::Max(1.f, static_cast<float>(Attacks)) * CostPerAttack);
 		}
 	}
-	ApplyOneWays(Grid);
+	ApplyOneWays(Grid, AttackDamage, CostPerAttack);
 	return Grid;
 }
 

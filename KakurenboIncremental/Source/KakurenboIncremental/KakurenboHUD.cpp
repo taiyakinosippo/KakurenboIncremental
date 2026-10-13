@@ -12,6 +12,8 @@
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboLibrary.h"
+#include "KakurenboOniStudio.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSettings.h"
 #include "OniCharacter.h"
@@ -810,6 +812,7 @@ void AKakurenboHUD::DrawMenu(AKakurenboGameMode* GM)
 	case EKakurenboMenu::Settings: DrawSettings(); break;
 	case EKakurenboMenu::Keys:     DrawKeyConfig(); break;
 	case EKakurenboMenu::Help:     DrawHelp(GM->GetPhase()); break;
+	case EKakurenboMenu::OniIntro: DrawOniIntro(GM); break;
 	case EKakurenboMenu::ConfirmNewGame:
 		DrawConfirm(TEXT("はじめから"), TEXT("セーブを消して、ステージ 1 からはじめます。よろしいですか？"), bPad ? TEXT("はじめから") : TEXT("はじめから [Enter]"),
 			FString::Printf(TEXT("やめる %s"), *PC->UIKeyLabel(EKakurenboUIKey::Cancel)));
@@ -831,13 +834,13 @@ void AKakurenboHUD::DrawMenu(AKakurenboGameMode* GM)
 void AKakurenboHUD::DrawPauseMenu(AKakurenboGameMode* GM)
 {
 	const float CanvasW = Canvas->ClipX / UIScale;
-	const float W = 560, H = 480, X = (CanvasW - W) * 0.5f, Y = 250;
+	const float W = 560, H = 560, X = (CanvasW - W) * 0.5f, Y = 220;
 	Panel(X, Y, W, H, FLinearColor(0.06f, 0.02f, 0.11f, 0.95f));
 	Frame(X, Y, W, H, FLinearColor(0.75f, 0.55f, 1.f, 0.6f), 2.f);
 	Text(GM->GetPhase() == EKakurenboPhase::Hide ? TEXT("ひと休み") : TEXT("メニュー"), 0, Y + 28, 36, FLinearColor::White, true);
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const FString Labels[] = { FString::Printf(TEXT("つづける %s"), PC ? *PC->UIKeyLabel(EKakurenboUIKey::Cancel) : TEXT("")), TEXT("操作説明"),
-		TEXT("設定（音量・感度・キー）"), TEXT("タイトルへ") };
+		TEXT("設定（音量・感度・キー）"), TEXT("鬼の図鑑"), TEXT("タイトルへ") };
 	for (int32 i = 0; i < static_cast<int32>(EKakurenboPauseItem::Count); ++i)
 	{
 		DrawButton(X + 60, Y + 110 + i * 84, W - 120, 64, Labels[i], EKakurenboUIAction::MenuItem, i, false, 24,
@@ -992,6 +995,169 @@ void AKakurenboHUD::DrawConfirm(const FString& Title, const FString& Message, co
 	Text(Message, 0, Y + 96, 22, PaleText, true);
 	DrawButton(X + 60, Y + H - 90, 360, 60, YesLabel, EKakurenboUIAction::ConfirmYes, 0, false, 22, Bad);
 	DrawButton(X + W - 420, Y + H - 90, 360, 60, NoLabel, EKakurenboUIAction::ConfirmNo, 0, false, 22, FLinearColor::White);
+}
+
+// ---------------------------------------------------------------- 鬼のチュートリアル・図鑑（M15）
+
+FString AKakurenboHUD::GetOniCatchphrase(EOniType Type)
+{
+	switch (Type)
+	{
+	case EOniType::Balanced: return TEXT("いちばん普通の鬼。音に寄ってきて、見つけたら追いかけてくる");
+	case EOniType::Scout:    return TEXT("足が速くて耳がいい。館じゅうを大ざっぱに走り回る");
+	case EOniType::Breaker:  return TEXT("自分からは探さない力持ち。見えた壁を壊しに来る");
+	case EOniType::Careful:  return TEXT("仲間と手分けして、広い場所から順にしらみつぶし");
+	case EOniType::Treasure: return TEXT("お宝が大好き。お宝のまわりをぐるぐる見回る");
+	case EOniType::Detector: return TEXT("動かない見張り。見つかると仲間を呼ばれる");
+	default:                 return FString();
+	}
+}
+
+TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenboOniTypeRow& Row)
+{
+	// 数字は OniTypes.csv から（CSV を変えても説明がずれないように）
+	auto M = [](float Cm) { return UKakurenboLibrary::FormatStatNumber(Cm / 100.0); };
+	const FString Sight = FString::Printf(TEXT("%sm・%d 度"), *M(Row.SightRadius), FMath::RoundToInt(Row.SightHalfAngle * 2.f));
+	TArray<FString> Lines;
+	switch (Type)
+	{
+	case EOniType::Balanced:
+		Lines.Add(TEXT("連打・足音のした方へ調べに来る（遠い音ほど場所がずれる）"));
+		Lines.Add(FString::Printf(TEXT("見つけると追いかけてくる（あなたの 2 倍の速さ）。視界 %s"), *Sight));
+		Lines.Add(TEXT("壁はまわりごとまとめて壊す。壁で囲んだ場所も、ときどき壊して調べに来る"));
+		Lines.Add(TEXT("対策：音を出しすぎない。壁・家具の陰に回りこんで見失わせる"));
+		break;
+	case EOniType::Scout:
+		Lines.Add(TEXT("館を区画に分けて、しばらく行っていない所へ走る"));
+		Lines.Add(FString::Printf(TEXT("視界が広い（%s）。連打の音が %s 倍遠くから聞こえる"), *Sight, *UKakurenboLibrary::FormatStatNumber(Row.HearingScale)));
+		Lines.Add(TEXT("おとりは、にせものと見破る。壁を壊す力は弱い"));
+		Lines.Add(FString::Printf(TEXT("対策：トリモチに弱い（%s 倍の時間動けない）。連打は控えめに"), *UKakurenboLibrary::FormatStatNumber(Row.StunScale)));
+		break;
+	case EOniType::Breaker:
+		Lines.Add(TEXT("連打の音は気にしない。代わりに、見えた壁を壊しに行く"));
+		Lines.Add(FString::Printf(TEXT("攻撃は前の %d×%d マス × %d 段をまとめて壊す（ためが長い：%s 秒）"), FMath::Max(1, Row.AttackBoxWidth), FMath::Max(1, Row.AttackBoxDepth),
+			FMath::Max(1, Row.AttackBoxLevels), *UKakurenboLibrary::FormatStatNumber(Row.AttackWindup)));
+		Lines.Add(FString::Printf(TEXT("目は近め（%s）。トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す"), *Sight));
+		Lines.Add(FString::Printf(TEXT("対策：おとりに弱い（%s 倍遠くから寄っていく）。壁は離して置く"), *UKakurenboLibrary::FormatStatNumber(Row.DecoyHearingScale)));
+		break;
+	case EOniType::Careful:
+		Lines.Add(TEXT("見たマスを「調べた」と仲間と分け合い、まだの場所へ行く"));
+		Lines.Add(TEXT("細い道・行き止まり・壁で囲んだ場所は後回し（最後に壊して調べる）"));
+		Lines.Add(TEXT("壁は目の前の 1 個ずつ壊す"));
+		Lines.Add(TEXT("対策：入り組んだ通路と、何重にもした壁が苦手"));
+		break;
+	case EOniType::Treasure:
+		Lines.Add(TEXT("お宝（取られた場所も）へまっすぐ向かって、まわりを回る。じゃまな壁は壊す"));
+		Lines.Add(FString::Printf(TEXT("連打もおとりも聞かない。でも足音にはとても敏感（%s 倍遠くから）"), *UKakurenboLibrary::FormatStatNumber(Row.StepHearingScale)));
+		Lines.Add(TEXT("壁を壊すのは苦手。壁で囲んだ場所は調べない"));
+		Lines.Add(TEXT("対策：隠れたら動かずに連打。お宝はしのび足で取りに行く"));
+		break;
+	case EOniType::Detector:
+		Lines.Add(FString::Printf(TEXT("決まった見張りの場所へ行き、首を回して遠くまで見張る（%s）"), *Sight));
+		Lines.Add(FString::Printf(TEXT("あなたを見つけると、%sm 以内の鬼をみんな呼び寄せる"), *M(Row.SummonRadius)));
+		Lines.Add(TEXT("自分は追いかけない。音も聞かない"));
+		Lines.Add(TEXT("対策：部屋の壁・家具・置いた壁で見張りの視線を切る"));
+		break;
+	default:
+		break;
+	}
+	return Lines;
+}
+
+void AKakurenboHUD::GetOniRatings(const FKakurenboOniTypeRow& Row, int32& OutSpeed, int32& OutSight, int32& OutHearing, int32& OutPower)
+{
+	// 星 1〜5（0 は「しない」）。標準鬼がだいたい 3
+	OutSpeed = FMath::Clamp(FMath::RoundToInt((Row.SpeedScale - 0.55f) / 0.15f), 1, 5);
+	OutSight = FMath::Clamp(FMath::RoundToInt(Row.SightRadius / 300.f), 1, 5);
+	OutHearing = Row.HearingScale <= 0.f ? 0 : FMath::Clamp(FMath::RoundToInt(Row.HearingScale * 3.f), 1, 5);
+	OutPower = FMath::Clamp(FMath::RoundToInt(Row.DamageScale * 2.f + 1.f), 1, 5);
+}
+
+void AKakurenboHUD::DrawOniIntro(AKakurenboGameMode* GM)
+{
+	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
+	if (!PC || !GM || PC->GetOniIntroPages().Num() == 0)
+	{
+		return;
+	}
+	const TArray<EOniType>& Pages = PC->GetOniIntroPages();
+	const int32 Page = FMath::Clamp(PC->GetOniIntroPage(), 0, Pages.Num() - 1);
+	const EOniType Type = Pages[Page];
+	const FKakurenboOniTypeRow Row = GM->GetOniTypeRow(Type);
+	const FLinearColor TypeColor = FLinearColor::LerpUsingHSV(Row.Color, FLinearColor::White, 0.15f);
+
+	const float CanvasW = Canvas->ClipX / UIScale;
+	const float W = 1560, H = 780, X = (CanvasW - W) * 0.5f, Y = 140;
+	Panel(X, Y, W, H, FLinearColor(0.05f, 0.02f, 0.09f, 0.97f));
+	Frame(X, Y, W, H, FLinearColor(TypeColor.R, TypeColor.G, TypeColor.B, 0.8f), 3.f);
+	Text(PC->IsOniBook() ? TEXT("鬼の図鑑") : TEXT("新しい鬼が来る！"), X + 40, Y + 22, 30, PC->IsOniBook() ? PaleText : Bad);
+	if (Pages.Num() > 1)
+	{
+		Text(FString::Printf(TEXT("%d / %d"), Page + 1, Pages.Num()), X + W - 120, Y + 28, 24, Gray);
+	}
+
+	// 写真（スタジオで撮った見本の鬼）。まだ撮れていなければ色の板
+	const float PhotoX = X + 40, PhotoY = Y + 86, PhotoSize = 560;
+	Panel(PhotoX - 6, PhotoY - 6, PhotoSize + 12, PhotoSize + 12, FLinearColor(TypeColor.R, TypeColor.G, TypeColor.B, 0.9f));
+	const AKakurenboOniStudio* Studio = GM->GetOniStudio();
+	UTextureRenderTarget2D* Photo = Studio ? Studio->GetPortrait(Type) : nullptr;
+	if (Photo && Photo->GetResource())
+	{
+		FCanvasTileItem Tile(FVector2D(PhotoX, PhotoY) * UIScale, Photo->GetResource(), FVector2D(PhotoSize, PhotoSize) * UIScale, FLinearColor::White);
+		Tile.BlendMode = SE_BLEND_Opaque;
+		Canvas->DrawItem(Tile);
+	}
+	else
+	{
+		Panel(PhotoX, PhotoY, PhotoSize, PhotoSize, FLinearColor(Row.Color.R * 0.4f, Row.Color.G * 0.4f, Row.Color.B * 0.4f, 1.f));
+		Text(TEXT("？"), PhotoX + PhotoSize * 0.5f - 30, PhotoY + PhotoSize * 0.4f, 90, FLinearColor::White);
+	}
+
+	// 名前・ひとこと
+	const float TX = X + 650, TW = W - 690;
+	TextFit(Row.DisplayName.IsEmpty() ? FString(TEXT("鬼")) : Row.DisplayName.ToString(), TX, Y + 84, 52, TW, TypeColor);
+	TextFit(GetOniCatchphrase(Type), TX, Y + 156, 24, TW, FLinearColor::White);
+
+	// 能力（星）
+	int32 Speed = 0, Sight = 0, Hearing = 0, Power = 0;
+	GetOniRatings(Row, Speed, Sight, Hearing, Power);
+	auto Stars = [](int32 N) { return N <= 0 ? FString(TEXT("―（気にしない）")) : FString::ChrN(N, TEXT('★')) + FString::ChrN(5 - N, TEXT('☆')); };
+	const TPair<const TCHAR*, int32> Ratings[] = { { TEXT("足の速さ"), Speed }, { TEXT("目のよさ"), Sight }, { TEXT("耳（連打の音）"), Hearing }, { TEXT("壁をこわす力"), Power } };
+	for (int32 i = 0; i < UE_ARRAY_COUNT(Ratings); ++i)
+	{
+		const float RY = Y + 214 + (i / 2) * 44;
+		const float RX = TX + (i % 2) * (TW * 0.5f);
+		Text(Ratings[i].Key, RX, RY, 21, Gray);
+		Text(Stars(Ratings[i].Value), RX + 190, RY - 2, 23, Ratings[i].Value <= 0 ? Gray : Gold);
+	}
+
+	// 特徴（最後の行は「対策」なので目立たせる）
+	const TArray<FString> Lines = GetOniFeatureLines(Type, Row);
+	float LY = Y + 324;
+	for (int32 i = 0; i < Lines.Num(); ++i)
+	{
+		const bool bTip = Lines[i].StartsWith(TEXT("対策"));
+		if (bTip)
+		{
+			Panel(TX - 12, LY - 8, TW + 12, 46, FLinearColor(0.15f, 0.35f, 0.15f, 0.45f));
+		}
+		else
+		{
+			Panel(TX - 2, LY + 10, 8, 8, TypeColor);
+		}
+		TextFit(Lines[i], TX + (bTip ? 0 : 18), LY, 22, TW - (bTip ? 0 : 18), bTip ? Good : FLinearColor::White);
+		LY += bTip ? 60 : 52;
+	}
+
+	// ボタン：まえ / つぎ（最後は「わかった」）
+	const bool bLast = Page == Pages.Num() - 1;
+	const float BY = Y + H - 96;
+	if (Page > 0)
+	{
+		DrawButton(TX, BY, 260, 64, TEXT("◀ まえ"), EKakurenboUIAction::OniPage, -1, false, 24);
+	}
+	const FString NextLabel = !bLast ? FString(TEXT("つぎの鬼 ▶")) : PC->IsOniBook() ? FString(TEXT("もどる")) : FString(TEXT("わかった！"));
+	DrawButton(X + W - 420, BY, 380, 64, PC->IsUsingGamepad() ? NextLabel : NextLabel + TEXT(" [Enter]"), EKakurenboUIAction::OniPage, 1, false, 26, Gold);
 }
 
 // ---------------------------------------------------------------- 購入
@@ -1431,7 +1597,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	if (GM->IsDarumaActive())
 	{
 		Text(FString::Printf(TEXT("だるまさんが ころんだ　%d"), FMath::CeilToInt(GM->GetDarumaTimeLeft())), 0, 92, 26, FLinearColor(1.f, 0.5f, 0.45f), true);
-		Text(TEXT("見ている鬼は動けない・止まった鬼にタッチすると門へ帰る"), 0, 128, 17, PaleText, true);
+		Text(TEXT("見ている間だけ鬼が止まる（ぶつかれば見つかる）"), 0, 128, 17, PaleText, true);
 	}
 
 	if (State->HideStartCountdown > 0.f)
@@ -1616,13 +1782,13 @@ void AKakurenboHUD::DrawResult(AKakurenboGameState* State, AKakurenboGameMode* G
 	Text(FString::Printf(TEXT("今回の獲得: %s コイン（連打 %d 回）"), *Big(State->CoinsEarnedThisRound), State->MashCountThisRound), 0, Y + 194, 22, FLinearColor::White, true);
 	// 内訳（時間だけ・連打・お宝・逃げ切り報酬。お金のバランスを見るため）
 	TextFit(FString::Printf(TEXT("内訳：時間 %s ／ 連打 %s ／ お宝 %s ／ 逃げ切り報酬 %s"), *Big(State->TimeCoinsThisRound), *Big(State->MashCoinsThisRound),
-		*Big(State->TreasureCoinsThisRound + State->TreasureBonusCoinsThisRound), *Big(State->LastClearReward)), 0, Y + 222, 16, W - 40.f, Gray, true);
-	TextFit(FString::Printf(TEXT("お宝: %d / %d 個（+%s コイン）"), State->TreasuresCollectedThisRound, State->TreasuresThisRound, *Big(State->TreasureCoinsThisRound)), 0, Y + 246, 22, W - 40.f, Gold, true);
+		*Big(State->TreasureBonusCoinsThisRound), *Big(State->LastClearReward)), 0, Y + 222, 16, W - 40.f, Gray, true);
+	TextFit(FString::Printf(TEXT("お宝: %d / %d 個（宝石 +%d）"), State->TreasuresCollectedThisRound, State->TreasuresThisRound, State->GemsThisRound), 0, Y + 246, 22, W - 40.f, Gold, true);
 	if (State->GemsThisRound > 0)
 	{
 		const FString GemLine = State->bAllTreasuresThisRound
-			? FString::Printf(TEXT("宝石 +%d（コンプリート！ ボーナス 宝石 +%d・コイン +%s）"), State->GemsThisRound, GM->AllTreasureBonusGems, *Big(State->TreasureBonusCoinsThisRound))
-			: FString::Printf(TEXT("宝石 +%d（全部取るとボーナス）"), State->GemsThisRound);
+			? FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d（宝石のお店で道具と交換できる）"), GM->AllTreasureBonusGems)
+			: FString(TEXT("全部取るとボーナスの宝石（宝石のお店で道具と交換できる）"));
 		TextFit(GemLine, 0, Y + 276, 18, W - 40.f, GemTextColor, true);
 	}
 	if (State->LastRoundWallsDestroyed > 0 || State->TrapsTriggeredThisRound > 0)

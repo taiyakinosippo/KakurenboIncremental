@@ -32,6 +32,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `TreasureActor` | お宝（距離で取得。ときどきキラキラと鳴る。GameMode が宝石のメッシュと色を渡す） |
 | `SmokeCloud` | 煙幕（煙幕ダッシュで足元に投げる）。`IsSightBlocked` で煙の中・向こう側の視線をさえぎる（鬼の `CanSeeTarget` が使う）。見た目は半透明の `M_KakuSmoke`（無ければ不透明な球）。煙幕ダッシュは回数制（`DashUsesPerRound`・転生のお店の「煙幕の数」） |
 | `TrapActor` | 罠（トリモチ: 踏んだ鬼を Stun / おとり: 一定間隔で EmitNoise）と**宝石のお店の道具**（M15：身代わり人形・一方通行ののれん（鬼だけ止める箱・向き）・真っ暗ブロック・迷い猫。だるまさんがころんだは置かない）。当たり判定なし、距離で発動。配置と設計図（のれんの向き TrapDir も）はグリッドが持つ。宝石の道具は Traps.csv の bGemItem |
+| `KakurenboOniStudio` | 鬼の写真スタジオ（舞台のずっと下に見本の鬼・背景・明かり・SceneCapture）。チュートリアル・図鑑の写真（RenderTarget）を撮る |
 | `FakeHiderCharacter` | 身代わり人形（AHiderCharacter の子。bIsDecoyDoll）。鬼に追われると反対へまっすぐ逃げ、大きな音を出す。鬼は `GetChaseTarget` で人形も追う |
 | `KakurenboFx` | 仮の演出（破片 `AKakurenboBurstFx`・床の輪 `AKakurenboRingFx`）と窓口の `UKakurenboFxSubsystem`（輪は使い回す） |
 | `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / その場所から。その場所からの音は自前で左右に振り分けた 2ch の波形を 2D で鳴らす：聞く人＝自分の体・向き＝カメラ、壁の向こうはこもる。`GetLastSpatial` でテスト）と BGM（`PlayMusic`）。GameMode の `SoundOverrides` に音アセットがあればそちら（エンジンの 3D の音） |
@@ -63,7 +64,8 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 - **キーを EKeys で直接見ない**：`IsActionDown` / `WasActionPressed`（キー設定を反映）を使う。新しい操作は `EKakurenboAction` と `UKakurenboSettings::DefaultBinding`・`ActionDisplayName` に足す。
   画面に出すキーの名前は `KeyName`（`[ ]` で囲めば RichText がキーの形で描く）。文は直書きのキー名にしない
 - メニューを開くとゲームを止める（`SetPause`）。**一時停止中はワールドのタイマー（テストの Steps・NextTick）も止まる**ので、メニューのテストは `RealDelay`（実時間）で進める
-- 操作のヒント（`QueueTip`）は自動テスト中は出さない（スクリーンショットが変わらないように）。Hints シナリオだけ `bShowTipsInAutoTest`
+- 操作のヒント（`QueueTip`）は自動テスト中は出さない（スクリーンショットが変わらないように）。Hints シナリオだけ `bShowTipsInAutoTest`。
+  鬼のチュートリアル（ゲームが止まる）も自動テスト中は出さない。OniIntro シナリオだけ `bShowOniIntroInAutoTest`
 - 壁・罠の値段は持っている数で上がる（`GetWallCost` / `GetTrapCost`）。テストで値段を決め打ちしない
 - ステージ 1 の鬼は 1 体（Stages.csv）。2 体以上を前提にするテストは `SetStageOniTypes` で決める
 - **アセットは Git（LFS）に入れる**（リポジトリは非公開。一覧は [docs/Assets.md](docs/Assets.md)）。Fab の大きな元のパック（木 `Substance_Materials_Vol1_Wood` 2.8GB・
@@ -108,7 +110,8 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   Climb / Walls / Gamepad / CameraWall / Lineup / TreasureBreak（M14：よじ登る / 3 種類の壁と壁の補強 / コントローラー / 壁ぎわでカメラが揺れない / 全部の家具を壁ぎわに並べて向き・大きさ・すき間を確かめる / 宝物鬼が壁を壊してお宝へ）。
   CrouchFind / CarefulFind（M14：しゃがみは近くではのぞき込まれ、すぐそばでは気配で気づかれる / 慎重鬼が本物の館でしゃがんだプレイヤーを何秒で見つけるか。旧と新の探し方を比べる。約 8 分）、
   GemShop / OneWay / Darkness / Cat / FakeHider / Daruma / PowerBox / BuildRay / Heartbeat / ShelfGap（M15：宝石とまとめ買い / 宝石のお店の道具 5 つ / パワー鬼の前方 2×2×2 /
-  設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）。
+  設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）、
+  OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`

@@ -92,9 +92,10 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 					continue;
 				}
 			}
-			// 一方通行ののれん：決まった向きにまっすぐしか通れない（今いるマスがのれんの上なら、出る向きは問わない＝閉じ込められない）
-			const int32 IntoDir = Grid.GetOneWay(N);
-			if (P == Start ? (IntoDir >= 0 && D != FKakurenboPathGrid::DirToStep(IntoDir)) : !Grid.CanStep(P, D))
+			// 一方通行ののれん：決まった向きにまっすぐしか通れない。壊す経路なら、逆向きはのれんを壊すコストを払って通る
+			// （今いるマスがのれんの上なら、出る向きは問わない＝閉じ込められない）
+			const float GateCost = Grid.OneWayStepCost(P, D, P == Start);
+			if (GateCost < 0.f)
 			{
 				continue;
 			}
@@ -105,7 +106,7 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 				continue;
 			}
 
-			const float Tentative = GScore[Current.Index] + (bDiagonal ? UE_SQRT_2 : 1.f) + Extra;
+			const float Tentative = GScore[Current.Index] + (bDiagonal ? UE_SQRT_2 : 1.f) + Extra + GateCost;
 			if (Tentative < GScore[NIndex])
 			{
 				GScore[NIndex] = Tentative;
@@ -144,7 +145,8 @@ void KakurenboPathfinding::LabelFreeRegions(const FKakurenboPathGrid& Grid, TArr
 	TArray<int32> Stack;
 	for (int32 Index = 0; Index < NumCells; ++Index)
 	{
-		if (OutLabels[Index] != INDEX_NONE || Grid.ExtraCost[Index] != 0.f)
+		// のれん（一方通行）のマスは、向きがあるのでまとまりをつながない（のれんの先の行き止まりは空洞になる）
+		if (OutLabels[Index] != INDEX_NONE || Grid.ExtraCost[Index] != 0.f || Grid.GetOneWay(Grid.FromIndex(Index)) >= 0)
 		{
 			continue;
 		}

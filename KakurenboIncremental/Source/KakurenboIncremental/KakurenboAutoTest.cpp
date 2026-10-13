@@ -32,6 +32,7 @@
 #include "KakurenboHUD.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboOniBlackboard.h"
+#include "KakurenboOniStudio.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
 #include "KakurenboSettings.h"
@@ -1058,7 +1059,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 			Check(FString::Printf(TEXT("new treasures appear at new random places (%d spawned, %d same as last round)"), Cells.Num(), SameCount),
 				Cells.Num() == GM->GetNumTreasures() && SameCount < Cells.Num());
-			Check(FString::Printf(TEXT("treasure value grows with stage (%.1f)"), GM->GetTreasureValue()), GM->GetTreasureValue() > GM->GetStageSettingsFor(1).ClearReward * GM->TreasureRewardRatio);
+			Check(FString::Printf(TEXT("a treasure gives gems, not coins (%d gems)"), GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() >= 1);
 		} });
 	}
 	// ================================================================ Build
@@ -2363,7 +2364,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == 0 && GS()->PrestigePoints == 1);
 				// ほかの強化も確かめる（ポイントを足して、番号で買う）
 				GS()->PrestigePoints += 20;
-				const double TreasureBefore = GM->GetTreasureValue();
+				const int32 TreasureBefore = GM->GetGemsPerTreasure();
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeDuration) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
@@ -2371,8 +2372,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				const int32 PointsAfter = GS()->PrestigePoints;
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
-				Check(FString::Printf(TEXT("treasure upgrade raises the treasure value (%.1f -> %.1f)"), TreasureBefore, GM->GetTreasureValue()),
-					FMath::IsNearlyEqual(GM->GetTreasureValue(), TreasureBefore * GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 1) / GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 0), 0.01));
+				Check(FString::Printf(TEXT("treasure upgrade gives one more gem per treasure (%d -> %d)"), TreasureBefore, GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() == TreasureBefore + 1);
 				Check(FString::Printf(TEXT("smoke dash unlocked with its smoke time and uses (%.1fs, %d per round)"), GM->GetSmokeDuration(), Hider->DashUsesPerRound),
 					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
 					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
@@ -4819,8 +4819,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			const AKakurenboGameState* S = GS();
 			Check(FString::Printf(TEXT("every treasure gives a gem, plus the complete bonus (gems %d -> %d, treasures %d, bonus %d)"), T->GemsBefore, S->Gems, T->Treasures, GM->AllTreasureBonusGems),
-				S->Gems == T->GemsBefore + T->Treasures * GM->GemsPerTreasure + GM->AllTreasureBonusGems && S->bAllTreasuresThisRound);
-			Check(FString::Printf(TEXT("the complete bonus pays coins (%.1f)"), S->TreasureBonusCoinsThisRound), S->TreasureBonusCoinsThisRound > 0.0);
+				S->Gems == T->GemsBefore + T->Treasures * GM->GetGemsPerTreasure() + GM->AllTreasureBonusGems && S->bAllTreasuresThisRound);
+			Check(FString::Printf(TEXT("treasures give no coins (coins %.1f -> %.1f, only time income)"), T->CoinsBefore, S->Coins), S->Coins - T->CoinsBefore < 10.0 && S->TreasureBonusCoinsThisRound == 0.0);
 			Check(TEXT("the complete sound played"), Sound()->GetPlayCount(EKakurenboSfx::Gem) == 1);
 			KakuSkipTime(1000.f);
 		} });
@@ -4937,13 +4937,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			T->Room = FIntPoint(FMath::Clamp(Me.X, 4, G->GetSizeX() - 9), Me.Y + (Me.Y < G->GetSizeY() / 2 ? 6 : -6));
 			T->Gate = T->Room + FIntPoint(1, 0);
 			T->Outside = T->Room + FIntPoint(4, 0);
+			// 部屋の壁はとても硬くする（中から出るには、のれんを壊すしかない＝行き止まり）
 			for (int32 DY = -1; DY <= 1; ++DY)
 			{
 				for (int32 DX = -1; DX <= 1; ++DX)
 				{
 					if ((DX != 0 || DY != 0) && !(DX == 1 && DY == 0))
 					{
-						PlaceTestWall(T->Room + FIntPoint(DX, DY));
+						G->PlaceBlock(T->Room + FIntPoint(DX, DY), 0, 1000.0, FLinearColor::Gray);
 					}
 				}
 			}
@@ -5002,15 +5003,22 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Oni->SetActorLocation(To, true);
 			Check(FString::Printf(TEXT("the gate blocks the oni going the wrong way (stopped %.0f cm short)"), FVector::Dist2D(Oni->GetActorLocation(), To)), FVector::Dist2D(Oni->GetActorLocation(), To) > 60.f);
 			Oni->SetActorLocation(From, false, nullptr, ETeleportType::TeleportPhysics);
-			// 1 回通れば壊れるようにして、もう一度外から入らせる
-			TheGate()->Def.Uses = 2;
-			Oni->SetActorLocation(Grid()->CellFloorCenter(T->Outside) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
-			Oni->DebugGoTo(T->Room);
+			Check(FString::Printf(TEXT("passing does not wear the gate out, and it is twice as hard as a normal wall (HP %.1f, wall %.1f)"), TheGate()->GetGateHP(), GM->GetEffectiveWallTypes()[0].MaxHP),
+				FMath::IsNearlyEqual(TheGate()->GetGateHP(), GM->GetEffectiveWallTypes()[0].MaxHP * 2.0, 0.01));
+			// 中から外へ出たい：ほかに道が無い（行き止まり）ので、のれんを壊して出る
+			Oni->DebugGoTo(T->Outside);
 		} });
-		Steps.Add({ 3.5f, [=, this]
+		Steps.Add({ 2.f, [=, this]
 		{
-			Check(FString::Printf(TEXT("the gate breaks after its uses (live %d, design %d)"), TheGate() ? 1 : 0, Grid()->GetTrapDesign(T->Gate)),
+			const ATrapActor* Gate = TheGate();
+			Check(FString::Printf(TEXT("in a dead end the oni attacks the gate (HP %.1f, state %s)"), Gate ? Gate->GetGateHP() : -1.0, *UEnum::GetValueAsString(GM->GetOnis()[0]->GetOniState())),
+				Gate && Gate->GetGateHP() < GM->GetOneWayMaxHP());
+		} });
+		Steps.Add({ 8.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the gate is broken (live %d, design %d)"), TheGate() ? 1 : 0, Grid()->GetTrapDesign(T->Gate)),
 				!TheGate() && Grid()->GetTrapDesign(T->Gate) == T->Type && GS()->TrapsTriggeredThisRound >= 1);
+			Check(TEXT("the walls are untouched (the gate was the only way)"), Grid()->GetColumnHeight(T->Room + FIntPoint(-1, 0)) == 1 && Grid()->GetColumnHeight(T->Room + FIntPoint(0, 1)) == 1);
 		} });
 	}
 	// ================================================================ Darkness（M15：真っ暗ブロック。館じゅうが暗く、1 ラウンドで壊れる）
@@ -5105,6 +5113,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.1f, [=, this]
 		{
 			Check(TEXT("a petting oni cannot catch the player"), GM->GetOnis()[0]->GetOniState() == EOniState::Stunned || TheCat()->GetPetCount() >= 1);
+		} });
+		Steps.Add({ 5.5f, [=, this]
+		{
+			// なで終わったら、猫はその鬼の頭の上に乗る（もうなでられない）
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("after petting, the cat rides on the oni's head (pets %d)"), TheCat() ? TheCat()->GetPetCount() : -1),
+				TheCat() && TheCat()->IsOnOniHead() && TheCat()->GetGadgetLocation().Z > Oni->GetActorLocation().Z + 50.f && TheCat()->GetPetCount() == 1);
+			LookAtOni();
+			ShotLater(TEXT("cat_02_on_head"));
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			Check(TEXT("the cat cannot be petted again"), TheCat() && TheCat()->GetPetCount() == 1 && TheCat()->IsOnOniHead());
 		} });
 	}
 	// ================================================================ FakeHider（M15：身代わり人形）
@@ -5207,7 +5228,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.2f, [=, this]
 		{
-			Check(FString::Printf(TEXT("pressing G calls daruma-san ga koronda (%.1f s)"), GM->GetDarumaTimeLeft()), GM->IsDarumaActive());
+			Check(FString::Printf(TEXT("pressing G calls daruma-san ga koronda (%.1f s, short)"), GM->GetDarumaTimeLeft()), GM->IsDarumaActive() && GM->GetDarumaTimeLeft() <= 3.f);
 			AOniCharacter* Oni = TheOni();
 			Oni->DebugGoTo(Grid()->WorldToCell(GetPawn()->GetActorLocation()));
 			T->OniAt = Oni->GetActorLocation();
@@ -5235,17 +5256,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			// 止まっている鬼にタッチ → 門へ帰る（見つからない）
+			// 止まっている鬼でも、ぶつかれば見つかる（無敵ではない）
 			AOniCharacter* Oni = TheOni();
 			Check(TEXT("frozen again when looked at"), Oni->IsDarumaFrozen());
-			T->OniAt = Oni->GetActorLocation();
 			TeleportPlayer(Oni->GetActorLocation() - (Oni->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D() * 70.f);
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			const AOniCharacter* Oni = TheOni();
-			Check(FString::Printf(TEXT("touching a frozen oni sends it back to the gate (touches %d, moved %.0f cm, phase %s)"), GM->GetDarumaTouchCount(), FVector::Dist2D(Oni->GetActorLocation(), T->OniAt), *UEnum::GetValueAsString(GS()->Phase)),
-				GM->GetDarumaTouchCount() == 1 && FVector::Dist2D(Oni->GetActorLocation(), T->OniAt) > 300.f && GS()->Phase == EKakurenboPhase::Hide);
+			Check(FString::Printf(TEXT("bumping into a frozen oni still gets you found (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Result && !GS()->bLastRoundCleared);
 		} });
 	}
 	// ================================================================ PowerBox（M15：パワー鬼は前方 2×2×2 の壁に当たる）
@@ -5405,6 +5423,112 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(FString::Printf(TEXT("a near oni (2.6 m) gives a much louder heartbeat (%.2f -> %.2f)"), *FarVolume, GM->GetLastHeartbeatVolume()), GM->GetLastHeartbeatVolume() > *FarVolume * 2.5f);
 		} });
+	}
+	// ================================================================ OniIntro（M15：初めて出てくる鬼のチュートリアル・鬼の図鑑）
+	else if (Scenario.Equals(TEXT("OniIntro"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 最初のラウンドはもう始まっているので、ここから出すようにする（先に付けると最初のラウンドで止まってしまう）
+			bShowOniIntroInAutoTest = true;
+			if (UKakurenboSettings* S = UKakurenboSettings::Get(this))
+			{
+				S->ResetTips(); // まだ誰も紹介していない
+			}
+			SetStageOniTypes({ EOniType::Scout, EOniType::Breaker, EOniType::Detector });
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } }); // → 購入
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ：新しい鬼が 3 種類いるので、チュートリアルが出てゲームが止まる
+			// ここからは止まっているので、実時間で進める
+			RealDelay(0.6f, [=, this]
+			{
+				Check(FString::Printf(TEXT("the oni tutorial opens for the new types (menu %d, pages %d, paused %d)"), static_cast<int32>(GetMenu()), GetOniIntroPages().Num(), IsPaused() ? 1 : 0),
+					GetMenu() == EKakurenboMenu::OniIntro && GetOniIntroPages().Num() == 3 && IsPaused() && !IsOniBook());
+				const AKakurenboOniStudio* Studio = GM->GetOniStudio();
+				Check(TEXT("each oni has a photo"), Studio && Studio->GetPortrait(EOniType::Scout) && Studio->GetPortrait(EOniType::Breaker) && Studio->GetPortrait(EOniType::Detector));
+				Shot(TEXT("oniintro_01_scout"));
+				RealDelay(0.5f, [=, this]
+				{
+					SimulateKey(EKeys::Enter, IE_Pressed);
+					SimulateKey(EKeys::Enter, IE_Released);
+					// キーは次のフレームで効く。フレーム数で待ってから確かめる（撮影の直後は 1 フレームが長く、秒では足りないことがある）
+					TSharedRef<int32> Frames = MakeShared<int32>(0);
+					FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+					{
+						if (++*Frames < 10)
+						{
+							return true;
+						}
+						Check(TEXT("Enter shows the next oni"), GetOniIntroPage() == 1);
+						return false;
+					}));
+					RealDelay(1.0f, [=, this]
+					{
+						Shot(TEXT("oniintro_02_breaker"));
+						RealDelay(0.5f, [=, this]
+						{
+							TurnOniIntroPage(1);
+							RealDelay(0.5f, [=, this]
+							{
+								Shot(TEXT("oniintro_03_detector"));
+								RealDelay(0.5f, [=, this]
+								{
+									Check(TEXT("the last page has the OK button"), ClickUI(EKakurenboUIAction::OniPage, 1));
+									RealDelay(0.3f, [=, this]
+									{
+										Check(FString::Printf(TEXT("OK closes the tutorial and the round goes on (menu %d, paused %d)"), static_cast<int32>(GetMenu()), IsPaused() ? 1 : 0),
+											GetMenu() == EKakurenboMenu::None && !IsPaused());
+									});
+								});
+							});
+						});
+					});
+				});
+			});
+		} });
+		// 次のラウンド：もう紹介したので出ない
+		Steps.Add({ 6.f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(TEXT("onis already introduced are not shown again"), GetMenu() == EKakurenboMenu::None && GS()->Phase == EKakurenboPhase::Hide);
+			// 一時停止メニューの「鬼の図鑑」：今まで紹介した鬼
+			OpenMenu(EKakurenboMenu::Pause);
+			ActivatePauseItem(EKakurenboPauseItem::OniBook);
+			RealDelay(0.5f, [=, this]
+			{
+				Check(FString::Printf(TEXT("the oni book lists the introduced onis (%d)"), GetOniIntroPages().Num()), GetMenu() == EKakurenboMenu::OniIntro && IsOniBook() && GetOniIntroPages().Num() == 3);
+				// 全部の種類の写真を確かめる（図鑑に 6 種類を出して 1 枚ずつ撮る）
+				const UEnum* TypeEnum = StaticEnum<EOniType>();
+				TArray<EOniType> All;
+				for (int32 i = 0; i < TypeEnum->NumEnums() - 1; ++i)
+				{
+					All.Add(static_cast<EOniType>(TypeEnum->GetValueByIndex(i)));
+				}
+				CloseMenu();
+				OpenOniIntro(All, true);
+				for (int32 i = 0; i < All.Num(); ++i)
+				{
+					RealDelay(0.6f + i * 0.7f, [=, this]
+					{
+						Shot(FString::Printf(TEXT("oniintro_book_%d"), i + 1));
+						RealDelay(0.3f, [=, this] { TurnOniIntroPage(1); });
+					});
+				}
+				RealDelay(0.6f + All.Num() * 0.7f + 0.5f, [=, this]
+				{
+					Check(TEXT("the book goes back to the pause menu"), GetMenu() == EKakurenboMenu::Pause);
+					CloseAllMenus();
+				});
+			});
+		} });
+		Steps.Add({ 7.f, [=] {} });
 	}
 	// ================================================================ ShelfGap（M15：家具のすき間。床が見えているのに体が入らないマスを全部の館で数える）
 	else if (Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase))

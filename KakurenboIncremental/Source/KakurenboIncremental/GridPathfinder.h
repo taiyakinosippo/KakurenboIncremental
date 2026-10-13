@@ -25,22 +25,31 @@ struct KAKURENBOINCREMENTAL_API FKakurenboPathGrid
 	 */
 	TArray<int8> OneWayDir;
 
+	/**
+	 * 一方通行のマスを逆向きに通るとき（のれんを壊して通る）の追加コスト。負なら逆向きには通れない（歩くだけの経路）。
+	 * M15：のれんは「その先が完全に行き止まり」のとき（壊す経路を使うとき）だけ壊される
+	 */
+	TArray<float> OneWayBreakCost;
+
 	void Init(int32 InSizeX, int32 InSizeY)
 	{
 		SizeX = InSizeX;
 		SizeY = InSizeY;
 		ExtraCost.Init(0.f, SizeX * SizeY);
 		OneWayDir.Reset();
+		OneWayBreakCost.Reset();
 	}
 
-	/** マスを一方通行にする（Dir: 0 +X / 1 +Y / 2 -X / 3 -Y） */
-	void SetOneWay(const FIntPoint& P, int32 Dir)
+	/** マスを一方通行にする（Dir: 0 +X / 1 +Y / 2 -X / 3 -Y。BreakCost：逆向きに壊して通るコスト。負なら通れない） */
+	void SetOneWay(const FIntPoint& P, int32 Dir, float BreakCost = -1.f)
 	{
 		if (OneWayDir.Num() != SizeX * SizeY)
 		{
 			OneWayDir.Init(-1, SizeX * SizeY);
+			OneWayBreakCost.Init(-1.f, SizeX * SizeY);
 		}
 		OneWayDir[ToIndex(P)] = static_cast<int8>(Dir);
+		OneWayBreakCost[ToIndex(P)] = BreakCost;
 	}
 
 	/** 一方通行の向き（普通のマスなら -1） */
@@ -53,13 +62,40 @@ struct KAKURENBOINCREMENTAL_API FKakurenboPathGrid
 		return Steps[((Dir % 4) + 4) % 4];
 	}
 
-	/** P から P + D へ動けるか（一方通行のマスの決まりだけを見る） */
-	bool CanStep(const FIntPoint& P, const FIntPoint& D) const
+	/**
+	 * P から P + D へ動くときの、一方通行のマスの追加コスト。0 なら向きどおり（そのまま通れる）、正なら逆向き（のれんを壊して通る）、負なら通れない。
+	 * のれんへは縦横でまっすぐ出入りする（斜めは通れない）。bIgnoreFrom なら P ののれんは見ない（今いるマスからは出られる）
+	 */
+	float OneWayStepCost(const FIntPoint& P, const FIntPoint& D, bool bIgnoreFrom = false) const
 	{
-		const int32 From = GetOneWay(P);
+		const int32 From = bIgnoreFrom ? -1 : GetOneWay(P);
 		const int32 To = GetOneWay(P + D);
-		return (From < 0 || D == DirToStep(From)) && (To < 0 || D == DirToStep(To));
+		if (From < 0 && To < 0)
+		{
+			return 0.f;
+		}
+		if (D.X != 0 && D.Y != 0)
+		{
+			return -1.f;
+		}
+		float Cost = 0.f;
+		for (const TPair<int32, FIntPoint>& Gate : { TPair<int32, FIntPoint>(From, P), TPair<int32, FIntPoint>(To, P + D) })
+		{
+			if (Gate.Key >= 0 && D != DirToStep(Gate.Key))
+			{
+				const float Break = OneWayBreakCost.IsValidIndex(ToIndex(Gate.Value)) ? OneWayBreakCost[ToIndex(Gate.Value)] : -1.f;
+				if (Break < 0.f)
+				{
+					return -1.f;
+				}
+				Cost += FMath::Max(Break, 0.01f);
+			}
+		}
+		return Cost;
 	}
+
+	/** P から P + D へ、向きどおりに通れるか */
+	bool CanStep(const FIntPoint& P, const FIntPoint& D) const { return OneWayStepCost(P, D) == 0.f; }
 
 	bool IsInside(const FIntPoint& P) const { return P.X >= 0 && P.Y >= 0 && P.X < SizeX && P.Y < SizeY; }
 	int32 ToIndex(const FIntPoint& P) const { return P.Y * SizeX + P.X; }

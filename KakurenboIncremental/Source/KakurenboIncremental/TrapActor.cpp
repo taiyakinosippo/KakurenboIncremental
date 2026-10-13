@@ -2,7 +2,10 @@
 
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Animation/AnimSequence.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "FakeHiderCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -141,7 +144,7 @@ void ATrapActor::BuildOneWayLook()
 	// のれん：上から 3 枚垂れた布（鬼の通れる向きに少しなびく）
 	for (int32 i = 0; i < 3; ++i)
 	{
-		AddPart(CubeMesh, FVector(4.f, -30.f + i * 30.f, 165.f), FVector(0.02f, 0.27f, 0.7f), Def.Color, nullptr, FRotator(-8.f, 0.f, 0.f));
+		GateCloths.Add(AddPart(CubeMesh, FVector(4.f, -30.f + i * 30.f, 165.f), FVector(0.02f, 0.27f, 0.7f), Def.Color, nullptr, FRotator(-8.f, 0.f, 0.f)));
 	}
 	// 床の矢印（白っぽい板の矢じり）
 	const FLinearColor ArrowColor = FMath::Lerp(Def.Color, FLinearColor::White, 0.55f);
@@ -191,10 +194,35 @@ void ATrapActor::BuildDarknessLook()
 
 void ATrapActor::BuildCatLook()
 {
-	// 基本の形で作った小さな猫（体・頭・耳・しっぽ）。CatRoot ごと歩く
 	CatRoot = NewObject<USceneComponent>(this);
 	CatRoot->SetupAttachment(RootComponent);
 	CatRoot->RegisterComponent();
+	MeowTimer = FMath::FRandRange(0.5f, 2.f);
+
+	// 取り込んだ猫のモデルがあれば、それを使う（Fab の「Cat long haired」。歩く・走るアニメーション付き）
+	const AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
+	if (USkeletalMesh* Model = GM ? UKakurenboLibrary::LoadIfExists(GM->CatMesh) : nullptr)
+	{
+		CatModel = NewObject<USkeletalMeshComponent>(this);
+		CatModel->SetupAttachment(CatRoot);
+		CatModel->SetSkeletalMesh(Model);
+		CatModel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		CatModel->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		// 長さを CatLength に合わせ、足を床に置く（モデルの横の長い方を体の長さとみなす）
+		const FBox Bounds = Model->GetBounds().GetBox();
+		const float Long = FMath::Max(Bounds.GetSize().X, Bounds.GetSize().Y);
+		const float Scale = GM->CatLength / FMath::Max(Long, 1.f);
+		CatModel->SetRelativeScale3D(FVector(Scale));
+		CatModel->SetRelativeRotation(FRotator(0.f, GM->CatMeshYaw, 0.f));
+		CatModel->SetRelativeLocation(FVector(0.f, 0.f, -Bounds.Min.Z * Scale));
+		CatModel->RegisterComponent();
+		CatWalkAnim = UKakurenboLibrary::LoadIfExists(GM->CatAnimWalk);
+		CatRunAnim = UKakurenboLibrary::LoadIfExists(GM->CatAnimRun);
+		SetCatMotion(0);
+		return;
+	}
+
+	// 無ければ、基本の形で作った小さな猫（体・頭・耳・しっぽ）。CatRoot ごと歩く
 	AddPart(CubeMesh, FVector(0.f, 0.f, 20.f), FVector(0.48f, 0.24f, 0.24f), CatFurColor, CatRoot);
 	AddPart(SphereMesh, FVector(28.f, 0.f, 38.f), FVector(0.26f, 0.26f, 0.24f), CatFurColor, CatRoot);
 	AddPart(SphereMesh, FVector(36.f, 0.f, 33.f), FVector(0.1f, 0.12f, 0.08f), CatWhiteColor, CatRoot);
@@ -208,7 +236,30 @@ void ATrapActor::BuildCatLook()
 		}
 	}
 	CatTail = AddPart(CylinderMesh, FVector(-30.f, 0.f, 34.f), FVector(0.05f, 0.05f, 0.34f), CatFurColor, CatRoot, FRotator(-30.f, 0.f, 0.f));
-	MeowTimer = FMath::FRandRange(0.5f, 2.f);
+}
+
+void ATrapActor::SetCatMotion(int32 Motion)
+{
+	if (!CatModel)
+	{
+		return;
+	}
+	// 走る（なで終わって鬼の頭へ飛び乗る前など）→ 走るアニメーション、歩く → 歩く、止まっている → 歩くアニメーションの最初の格好で止める
+	UAnimSequence* Wanted = (Motion == 2 && CatRunAnim) ? CatRunAnim.Get() : CatWalkAnim ? CatWalkAnim.Get() : CatRunAnim.Get();
+	if (!Wanted)
+	{
+		return;
+	}
+	if (Wanted != CatPlayingAnim)
+	{
+		CatPlayingAnim = Wanted;
+		CatModel->PlayAnimation(Wanted, true);
+	}
+	CatModel->SetPlayRate(Motion == 0 ? 0.f : 1.f);
+	if (Motion == 0)
+	{
+		CatModel->SetPosition(0.f, false);
+	}
 }
 
 void ATrapActor::SpawnFakeHider()
@@ -249,6 +300,28 @@ void ATrapActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	PassingOnis.Reset();
 	Super::EndPlay(EndPlayReason);
+}
+
+bool ATrapActor::DamageGate(double Damage)
+{
+	GateHP = FMath::Max(0.0, GateHP - Damage);
+	UpdateGateLook();
+	return GateHP <= 0.0;
+}
+
+void ATrapActor::UpdateGateLook()
+{
+	// 傷むほど布が暗く短くなる
+	const float Ratio = static_cast<float>(FMath::Clamp(GateHP / FMath::Max(GateMaxHP, 0.01), 0.0, 1.0));
+	for (int32 i = 0; i < GateCloths.Num(); ++i)
+	{
+		if (UStaticMeshComponent* Cloth = GateCloths[i])
+		{
+			UKakurenboLibrary::ApplyColor(Cloth, Def.Color * (0.35f + 0.65f * Ratio));
+			Cloth->SetRelativeScale3D(FVector(0.02f, 0.27f, 0.7f * (0.45f + 0.55f * Ratio)));
+			Cloth->SetRelativeLocation(FVector(4.f, -30.f + i * 30.f, 200.f - 35.f * (0.45f + 0.55f * Ratio)));
+		}
+	}
 }
 
 FVector ATrapActor::GetGadgetLocation() const
@@ -475,17 +548,38 @@ void ATrapActor::TickCat(float DeltaSeconds)
 	}
 	if (!IsArmed())
 	{
-		// かくれんぼ以外：置いた場所で座っている
+		// かくれんぼ以外：置いた場所で座っている（鬼の頭から下りる）
+		SetCatMotion(0);
 		CatRoot->SetWorldLocation(GetActorLocation());
+		CatRoot->SetWorldScale3D(FVector::OneVector);
 		CatPath.Reset();
 		PetTimer = 0.f;
+		PettingOni.Reset();
+		RideOni.Reset();
 		return;
 	}
 
-	// なでられている間は動かない（ゴロゴロ）
+	// M15：なでてくれた鬼の頭の上に乗っている（ユーザーの希望。もうなでられない・鳴かない）
+	if (AOniCharacter* Rider = RideOni.Get())
+	{
+		const float Top = Rider->GetSimpleCollisionHalfHeight() + 8.f;
+		CatRoot->SetWorldLocation(Rider->GetActorLocation() + FVector(0.f, 0.f, Top));
+		CatRoot->SetWorldRotation(FRotator(0.f, Rider->GetActorRotation().Yaw, 0.f));
+		CatRoot->SetWorldScale3D(FVector(0.8f));
+		SetCatMotion(0);
+		return;
+	}
+
+	// なでられている間は動かない（ゴロゴロ）。なで終わったら、その鬼の頭の上にぴょんと乗る
 	if (PetTimer > 0.f)
 	{
+		SetCatMotion(0); // なでられている間はじっとしている
 		PetTimer -= DeltaSeconds;
+		if (PetTimer <= 0.f && PettingOni.IsValid())
+		{
+			RideOni = PettingOni;
+			UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Meow, GetGadgetLocation() + FVector(0.f, 0.f, 120.f), 0.8f, 1.4f);
+		}
 		return;
 	}
 
@@ -507,6 +601,7 @@ void ATrapActor::TickCat(float DeltaSeconds)
 		Oni->Pet(Seconds);
 		PetCooldownUntil.Add(Oni, Now + Seconds + CatPetCooldownSeconds);
 		PetTimer = Seconds;
+		PettingOni = Oni;
 		++PetCount;
 		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Meow, CatAt + FVector(0.f, 0.f, 40.f), 0.9f, 1.25f);
 		return;
@@ -523,6 +618,7 @@ void ATrapActor::TickCat(float DeltaSeconds)
 	}
 
 	// うろうろ歩く（家の近くをとことこ）
+	SetCatMotion(CatPath.Num() > 0 && CatPathIndex < CatPath.Num() ? 1 : 0);
 	if (CatPath.Num() == 0 || CatPathIndex >= CatPath.Num())
 	{
 		CatWait -= DeltaSeconds;

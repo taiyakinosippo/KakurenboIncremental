@@ -12,6 +12,7 @@
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
+#include "KakurenboOniStudio.h"
 #include "KakurenboSettings.h"
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -384,6 +385,8 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	bViewInitialized = true;
 	ViewPhase = Phase;
 	Tips.Reset(); // 前のパートのヒントは消す
+	// しゃがみ（切り替え）はプレイのたびに元に戻す（ユーザーの希望）。パートが変わったら立つ
+	bSneakToggled = false;
 	HideTipClock = 0.f;
 	FocusAction = EKakurenboUIAction::None; // コントローラー：新しいパートの最初のボタンを選ぶ
 	bGamepadCursorValid = false;
@@ -407,6 +410,7 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 			SetControlRotation(FRotator(-20.f, bFirstTime ? GetControlRotation().Yaw : Hider->GetOverheadYaw(), 0.f));
 		}
 		Hider->SetViewMode(EHiderViewMode::ThirdPerson);
+		ShowNewOniIntro(); // 初めて出てくる鬼がいれば、チュートリアル（ゲームは止まる）
 		return;
 	}
 
@@ -443,10 +447,6 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 	if (Phase == EKakurenboPhase::Shop)
 	{
 		ShopTab = EKakurenboShopTab::Coin; // 購入パートはコインのお店から
-	}
-	if (Phase == EKakurenboPhase::Hide)
-	{
-		bSneakToggled = false; // かくれんぼは立って始める
 	}
 	ClearBuildTarget();
 }
@@ -574,6 +574,92 @@ bool AKakurenboPlayerController::IsWaitingForKey(EKakurenboAction& OutAction, bo
 	return true;
 }
 
+FName AKakurenboPlayerController::OniIntroTipId(EOniType Type)
+{
+	return FName(*FString::Printf(TEXT("Oni_%s"), *StaticEnum<EOniType>()->GetNameStringByValue(static_cast<int64>(Type))));
+}
+
+TArray<EOniType> AKakurenboPlayerController::GetIntroducedOniTypes() const
+{
+	TArray<EOniType> Types;
+	const UKakurenboSettings* S = Settings();
+	const UEnum* TypeEnum = StaticEnum<EOniType>();
+	for (int32 i = 0; i < TypeEnum->NumEnums() - 1; ++i)
+	{
+		const EOniType Type = static_cast<EOniType>(TypeEnum->GetValueByIndex(i));
+		if (S && S->HasSeenTip(OniIntroTipId(Type)))
+		{
+			Types.Add(Type);
+		}
+	}
+	if (Types.Num() == 0)
+	{
+		Types.Add(EOniType::Balanced); // まだ紹介していなくても、標準鬼は見られる
+	}
+	return Types;
+}
+
+void AKakurenboPlayerController::ShowNewOniIntro()
+{
+	const AKakurenboGameMode* GM = GetKakurenboGameMode();
+	UKakurenboSettings* S = Settings();
+	if (!GM || !S || !S->bShowHints || (bIgnoreRealInputForAutoTest && !bShowOniIntroInAutoTest) || GM->GetPhase() != EKakurenboPhase::Hide)
+	{
+		return; // 自動テスト中は出さない（ゲームが止まるので）。ヒントを切っていても出さない
+	}
+	TArray<EOniType> NewTypes;
+	for (const EOniType Type : GM->GetStageSettings().OniTypes)
+	{
+		if (!NewTypes.Contains(Type) && !S->HasSeenTip(OniIntroTipId(Type)))
+		{
+			NewTypes.Add(Type);
+		}
+	}
+	if (NewTypes.Num() == 0)
+	{
+		return;
+	}
+	for (const EOniType Type : NewTypes)
+	{
+		S->MarkTipSeen(OniIntroTipId(Type));
+	}
+	OpenOniIntro(NewTypes, false);
+}
+
+void AKakurenboPlayerController::OpenOniIntro(const TArray<EOniType>& Types, bool bBook)
+{
+	if (Types.Num() == 0)
+	{
+		return;
+	}
+	OniIntroPages = Types;
+	OniIntroPage = 0;
+	bOniBook = bBook;
+	if (const AKakurenboGameMode* GM = GetKakurenboGameMode(); GM && GM->GetOniStudio())
+	{
+		GM->GetOniStudio()->CaptureAll(); // 写真を撮り直す（テクスチャが読み込まれた後のきれいな写真）
+	}
+	OpenMenu(EKakurenboMenu::OniIntro);
+	UKakurenboSoundSubsystem::Play2D(this, bBook ? EKakurenboSfx::Place : EKakurenboSfx::Alert, bBook ? 0.4f : 0.7f, bBook ? 1.5f : 0.9f);
+}
+
+void AKakurenboPlayerController::TurnOniIntroPage(int32 Delta)
+{
+	if (GetMenu() != EKakurenboMenu::OniIntro)
+	{
+		return;
+	}
+	const int32 Next = OniIntroPage + Delta;
+	if (Next >= OniIntroPages.Num())
+	{
+		CloseMenu(); // 最後のページ：閉じてかくれんぼへ（図鑑なら一時停止メニューへ）
+		return;
+	}
+	OniIntroPage = FMath::Clamp(Next, 0, OniIntroPages.Num() - 1);
+	FocusAction = EKakurenboUIAction::None;
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.35f, 1.7f);
+}
+
 bool AKakurenboPlayerController::IsTitleItemEnabled(EKakurenboTitleItem Item) const
 {
 	const AKakurenboGameMode* GM = GetKakurenboGameMode();
@@ -664,6 +750,18 @@ void AKakurenboPlayerController::HandleMenuInput()
 	else if (WasBackKeyPressed() || (Menu == EKakurenboMenu::Help && WasActionPressed(EKakurenboAction::Help)))
 	{
 		CloseMenu();
+	}
+	else if (Menu == EKakurenboMenu::OniIntro)
+	{
+		// 鬼のチュートリアル：Enter・Space・→ でつぎ（最後は閉じる）、← でまえ
+		if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Right) || WasInputKeyJustPressed(EKeys::D))
+		{
+			TurnOniIntroPage(1);
+		}
+		else if (WasInputKeyJustPressed(EKeys::Left) || WasInputKeyJustPressed(EKeys::A))
+		{
+			TurnOniIntroPage(-1);
+		}
 	}
 	else if ((Menu == EKakurenboMenu::ConfirmNewGame || Menu == EKakurenboMenu::ConfirmTitle) && WasInputKeyJustPressed(EKeys::Enter))
 	{
@@ -777,6 +875,9 @@ void AKakurenboPlayerController::ActivatePauseItem(EKakurenboPauseItem Item)
 		break;
 	case EKakurenboPauseItem::Settings:
 		OpenMenu(EKakurenboMenu::Settings);
+		break;
+	case EKakurenboPauseItem::OniBook:
+		OpenOniIntro(GetIntroducedOniTypes(), true);
 		break;
 	case EKakurenboPauseItem::Title:
 		if (GM && GM->GetPhase() == EKakurenboPhase::Hide)
@@ -1353,6 +1454,7 @@ void AKakurenboPlayerController::ActivateUIButton(const FKakurenboUIButton& Butt
 		break;
 	}
 	case EKakurenboUIAction::ConfirmNo: CloseMenu(); break;
+	case EKakurenboUIAction::OniPage:   TurnOniIntroPage(Button.Index < 0 ? -1 : 1); break;
 	default: break;
 	}
 }
@@ -1374,6 +1476,7 @@ int32 AKakurenboPlayerController::EnsureFocus(const TArray<FKakurenboUIButton>& 
 	case EKakurenboMenu::Help:           Preferred.Add({ EKakurenboUIAction::Back, 0 }); break;
 	case EKakurenboMenu::ConfirmNewGame:
 	case EKakurenboMenu::ConfirmTitle:   Preferred.Add({ EKakurenboUIAction::ConfirmNo, 0 }); break;
+	case EKakurenboMenu::OniIntro:       Preferred.Add({ EKakurenboUIAction::OniPage, 1 }); break;
 	default:
 		Preferred.Add({ EKakurenboUIAction::ShopItem, 0 });
 		Preferred.Add({ EKakurenboUIAction::NextPhase, 0 });

@@ -462,6 +462,12 @@ public:
 	/** 捕まえたのが身代わり人形だった（見回してから、うろうろに戻る） */
 	void ReactToFake();
 
+	/**
+	 * 写真用（鬼のチュートリアル）：動かない見本にして、ポーズ（0 待機 / 1 走る / 2 攻撃 / 3 見つけた）の Time（0〜1）の格好で止める。
+	 * 懐中電灯は消す
+	 */
+	void SetPortraitPose(int32 Pose, float Time);
+
 	/** だるまさんがころんだで止まっているか */
 	bool IsDarumaFrozen() const { return bDarumaFrozen; }
 
@@ -616,6 +622,11 @@ private:
 	TWeakObjectPtr<AHiderCharacter> ChaseTarget;
 
 	bool bPettingCat = false;
+
+	/** 写真用のポーズ（SetPortraitPose） */
+	bool bPortrait = false;
+	int32 PortraitPose = 0;
+	float PortraitTime = 0.f;
 	bool bDarumaFrozen = false;
 
 	EOniState State = EOniState::Wander;

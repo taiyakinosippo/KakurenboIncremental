@@ -224,11 +224,7 @@ public:
 
 	// ===== お宝 =====
 
-	/** お宝 1 個の価値（そのステージの逃げ切り報酬に対する割合） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
-	double TreasureRewardRatio = 0.3;
-
-	/** M15：お宝 1 個でもらえる宝石の数 */
+	/** M15：お宝 1 個でもらえる宝石の数（Lv0。お宝ではコインはもらえない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	int32 GemsPerTreasure = 1;
 
@@ -237,7 +233,7 @@ public:
 	int32 AllTreasureBonusGems = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
-	double AllTreasureBonusCoinRatio = 0.5;
+	double AllTreasureBonusCoinRatio = 0.0;
 
 	/** お宝はプレイヤー・他のお宝からこのマス数以上離して置く */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
@@ -300,6 +296,25 @@ public:
 	/** 空中（ジャンプ中・落ちている） */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Player|Look")
 	TSoftObjectPtr<UAnimationAsset> PlayerAnimFall;
+
+	/**
+	 * 迷い猫の見た目（Fab の「Cat long haired」を Tools/ImportSourceArt.ps1 で取り込んだもの。M15）。無ければ基本の形で作った猫。
+	 * 歩くアニメーション（Walk）・走るアニメーション（Run）。CatLength は鼻からしっぽの付け根までの長さ（cm）、CatMeshYaw はモデルの向きの補正
+	 */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
+	TSoftObjectPtr<USkeletalMesh> CatMesh;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
+	TSoftObjectPtr<UAnimSequence> CatAnimWalk;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
+	TSoftObjectPtr<UAnimSequence> CatAnimRun;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
+	float CatLength = 70.f;
+
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
+	float CatMeshYaw = 0.f;
 
 	/** お宝（宝石）のメッシュ。何種類か書くと、お宝ごとに違う形になる */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Treasure|Look")
@@ -412,10 +427,10 @@ public:
 
 	/** 心臓の音の大きさ：一番遠いとき / すぐそば（DangerFullDistance 以内）のとき */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
-	float HeartbeatQuietVolume = 0.25f;
+	float HeartbeatQuietVolume = 0.15f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
-	float HeartbeatLoudVolume = 2.2f;
+	float HeartbeatLoudVolume = 1.2f; // M15：2.2 だと大きすぎた（ユーザーの指摘）
 
 	/** 今の危なさ（0〜1）・一番近い鬼の近さ（0〜1）・鳴らした心臓の音の数と最後の大きさ（テスト用） */
 	float GetCurrentDanger() const { return CurrentDanger; }
@@ -703,8 +718,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetClearReward() const;
 
-	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
-	double GetTreasureValue() const;
+	/** お宝 1 個でもらえる宝石の数（転生のお店の「お宝の宝石」で増える。Level を省くと今のレベル） */
+	int32 GetGemsPerTreasure(int32 Level) const;
+	int32 GetGemsPerTreasure() const { return GetGemsPerTreasure(GetPrestigeLevel(EPrestigeUpgrade::Treasure)); }
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetHideDuration() const;
@@ -741,6 +757,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetNumTreasures() const;
+
+	/** 鬼の種類の数値と見た目（モデル・色違い）を鬼に設定する（FinishSpawning の前に呼ぶ。写真スタジオも使う） */
+	void ConfigureOniLook(AOniCharacter* Oni, EOniType Type) const;
+
+	/** M15：鬼の写真スタジオ（チュートリアル・図鑑の写真） */
+	class AKakurenboOniStudio* GetOniStudio() const { return OniStudio; }
 
 	/** 今いる鬼（かくれんぼ中・リザルト中のみ） */
 	const TArray<TObjectPtr<AOniCharacter>>& GetOnis() const { return Onis; }
@@ -890,9 +912,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarumaViewDistance = 3000.f;
 
-	/** タッチされて門へ帰った鬼が動けない秒数 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
-	float DarumaTouchStunSeconds = 2.f;
 
 	/** 身代わり人形が逃げながら出す大きな音（連打 = 1） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
@@ -908,8 +927,18 @@ public:
 	/** 身代わり人形が鬼に捕まった（ポンと消える。鬼は「にせもの！」でしばらく見回す）。人形はここで消える */
 	void HandleFakeHiderCaught(ATrapActor* Trap, AOniCharacter* Oni);
 
-	/** のれんが鬼に通られすぎて壊れた。ここで消える */
+	/** のれんが壊れた（鬼に壊された・通られすぎた）。ここで消える */
 	void HandleOneWayBroken(ATrapActor* Trap);
+
+	/** 鬼の攻撃がのれんに当たった（耐久が 0 になったら破れる） */
+	void HandleGateHit(ATrapActor* Trap, double Damage);
+
+	/** のれんの耐久 ＝ 通常壁の耐久（補強・硬さを含む）× これ（M15：ユーザーの希望で 2 倍） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	double OneWayHPMultiplier = 2.0;
+
+	/** 今ののれんの耐久 */
+	double GetOneWayMaxHP() const;
 
 	/** 今のラウンドで、館全体が真っ暗か（真っ暗ブロックを置いている） */
 	bool IsMansionDark() const { return bMansionDark; }
@@ -935,11 +964,7 @@ public:
 	/** だるまさんがころんだの間、その鬼をプレイヤーが見ているか（見られている鬼は動けない） */
 	bool IsOniWatchedByPlayer(const AOniCharacter* Oni) const;
 
-	/** だるまさんがころんだで止まっている鬼にタッチした：鬼は門へ帰される */
-	void HandleDarumaTouch(AOniCharacter* Oni);
 
-	/** だるまさんがころんだで鬼を門へ帰した回数（このラウンド。テスト用） */
-	int32 GetDarumaTouchCount() const { return DarumaTouchCount; }
 
 	/** パワー鬼が、抜け出した直後にトリモチを踏んで壊した。罠はここで消える */
 	void HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni);
@@ -1104,6 +1129,9 @@ protected:
 	TObjectPtr<AKakurenboArena> Arena;
 
 	UPROPERTY()
+	TObjectPtr<class AKakurenboOniStudio> OniStudio;
+
+	UPROPERTY()
 	TArray<TObjectPtr<AOniCharacter>> Onis;
 
 	UPROPERTY()
@@ -1136,7 +1164,6 @@ protected:
 
 	/** だるまさんがころんだ */
 	float DarumaTimeLeft = 0.f;
-	int32 DarumaTouchCount = 0;
 	void TickDaruma(float DeltaSeconds);
 
 	/** そのラウンドの道具（真っ暗ブロック）を、ラウンドの終わりに使い切る */

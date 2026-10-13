@@ -24,6 +24,7 @@
 #include "KakurenboSoundSubsystem.h"
 #include "PlaceableBlock.h"
 #include "SmokeCloud.h"
+#include "TrapActor.h"
 #include "TreasureActor.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -123,11 +124,42 @@ void AOniCharacter::SetBodySquash(const FVector& Ratio)
 	}
 }
 
+void AOniCharacter::SetPortraitPose(int32 Pose, float Time)
+{
+	bPortrait = true;
+	PortraitPose = Pose;
+	PortraitTime = Time;
+	Flashlight->SetVisibility(false);
+	SetStunStarsVisible(false);
+	PlayingAnim = nullptr;
+}
+
 void AOniCharacter::UpdateMeshAnimation()
 {
 	if (!Look.Mesh || Look.AnimClass)
 	{
 		return; // 円柱のまま、またはアニメーション BP に任せる
+	}
+	if (bPortrait)
+	{
+		// 写真用：決めたポーズの途中で止める（そのポーズのアニメーションが無ければ待機）
+		UAnimSequence* Wanted = Look.Idle.Get();
+		switch (PortraitPose)
+		{
+		case 1:  Wanted = Look.Run ? Look.Run.Get() : Wanted; break;
+		case 2:  Wanted = Look.Attack ? Look.Attack.Get() : Wanted; break;
+		case 3:  Wanted = Look.Win ? Look.Win.Get() : Wanted; break;
+		default: break;
+		}
+		USkeletalMeshComponent* MeshComp = GetMesh();
+		if (Wanted && Wanted != PlayingAnim)
+		{
+			PlayingAnim = Wanted;
+			MeshComp->PlayAnimation(Wanted, true);
+			MeshComp->SetPosition(Wanted->GetPlayLength() * PortraitTime, false);
+		}
+		MeshComp->SetPlayRate(0.f);
+		return;
 	}
 	// 今の様子に合ったアニメーションを選ぶ（無いものは待機で代用）
 	UAnimSequence* Desired = Look.Idle;
@@ -631,7 +663,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	}
 	StunImmunityTimer = FMath::Max(0.f, StunImmunityTimer - DeltaSeconds);
 
-	// だるまさんがころんだ：プレイヤーに見られている間は動けない。止まっている鬼にタッチされたら門へ帰される
+	// だるまさんがころんだ：プレイヤーに見られている間だけ動けない。止まっていても、ぶつかれば見つかる（M15：無敵にならないように）
 	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
 	if (GM && GM->IsDarumaActive() && GM->IsOniWatchedByPlayer(this))
 	{
@@ -645,7 +677,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		{
 			bDarumaFrozen = false;
 			GetMesh()->bPauseAnims = false;
-			GM->HandleDarumaTouch(this);
+			FoundTarget(TEXT("touch"));
 		}
 		return;
 	}
@@ -2064,11 +2096,22 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds)
 	const float Dist2D = FVector::Dist2D(Loc, NextCenter);
 
 	// 次のマスに壁がある（他に道が無かった）→ 目の前まで来たら壊す
+	FIntPoint Gate;
+	const FIntPoint Here = PathIndex > 0 ? Path[PathIndex - 1] : GetCurrentCell();
 	if (G->GetColumnHeight(Next) > 0)
 	{
 		if (Dist2D <= G->GetCellSize() * 1.1f)
 		{
 			BeginAttack(Next);
+			return EFollowResult::Attacking;
+		}
+	}
+	// M15：のれんを逆向きに通る経路（その先が行き止まりで、壊すしかない）→ のれんの前まで来たら壊す
+	else if (G->IsWrongWayThroughGate(Here, Next, Gate))
+	{
+		if (FVector::Dist2D(Loc, G->CellFloorCenter(Gate)) <= G->GetCellSize() * 1.1f)
+		{
+			BeginAttack(Gate);
 			return EFollowResult::Attacking;
 		}
 	}
@@ -2195,7 +2238,16 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 		bAttackFired = true;
 		int32 Destroyed = 0;
 		UKakurenboFxSubsystem* Fx = GetWorld()->GetSubsystem<UKakurenboFxSubsystem>();
-		if (bSingleTargetAttack)
+		ATrapActor* GateTrap = G->GetTrap(AttackCell);
+		if (GateTrap && GateTrap->GetKind() == ETrapKind::OneWay)
+		{
+			// のれんを壊す（どの鬼も、のれんだけに当たる）
+			if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
+			{
+				GM->HandleGateHit(GateTrap, AttackDamage);
+			}
+		}
+		else if (bSingleTargetAttack)
 		{
 			// 目の前の壁 1 個だけ（壁の破片と音はグリッドからの通知で GameMode が出す）
 			Destroyed = G->DamageBottomBlock(AttackCell, AttackDamage);
@@ -2237,7 +2289,8 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 
 	if (AttackTimer >= AttackWindup + AttackRecovery)
 	{
-		if (G->GetColumnHeight(AttackCell) > 0)
+		const ATrapActor* GateLeft = G->GetTrap(AttackCell);
+		if (G->GetColumnHeight(AttackCell) > 0 || (GateLeft && GateLeft->GetKind() == ETrapKind::OneWay))
 		{
 			// まだ残っている → もう一度
 			AttackTimer = 0.f;

@@ -40,6 +40,7 @@ enum class EKakurenboUIAction : uint8
 	Back,       // もどる（Esc と同じ）
 	ConfirmYes, // 確認の「はい」
 	ConfirmNo,  // 確認の「いいえ」
+	OniPage,    // 鬼のチュートリアル・図鑑のページ（Index -1: まえ / +1: つぎ・閉じる）
 };
 
 /** 購入パートで開いているお店（番号はタブのボタンの Index。並びは コイン → 宝石 → 転生） */
@@ -68,6 +69,7 @@ enum class EKakurenboMenu : uint8
 	Help,           // 操作説明（F1）
 	ConfirmNewGame, // タイトル：セーブを消してはじめから？
 	ConfirmTitle,   // かくれんぼの途中でタイトルへ戻る？
+	OniIntro,       // M15：新しい鬼のチュートリアル（初めて出てくるとき）・鬼の図鑑（一時停止メニューから）
 };
 
 /** タイトルのメニュー */
@@ -86,6 +88,7 @@ enum class EKakurenboPauseItem : uint8
 	Resume,
 	Help,
 	Settings,
+	OniBook,    // 鬼の図鑑（今まで出てきた鬼）
 	Title,
 	Count
 };
@@ -195,6 +198,18 @@ protected:
 	void DrawKeyConfig();
 	void DrawHelp(EKakurenboPhase Phase);
 	void DrawConfirm(const FString& Title, const FString& Message, const FString& YesLabel, const FString& NoLabel);
+	/** 鬼のチュートリアル・図鑑（写真と能力） */
+	void DrawOniIntro(AKakurenboGameMode* GM);
+
+public:
+	/** 鬼の種類ごとの、ひとことと特徴の行（チュートリアル・図鑑。[ ] はキーの形） */
+	static FString GetOniCatchphrase(EOniType Type);
+	static TArray<FString> GetOniFeatureLines(EOniType Type, const FKakurenboOniTypeRow& Row);
+
+	/** 能力の星（1〜5。0 なら「しない」）：足の速さ・目・耳（連打の音）・壁を壊す力 */
+	static void GetOniRatings(const FKakurenboOniTypeRow& Row, int32& OutSpeed, int32& OutSight, int32& OutHearing, int32& OutPower);
+
+protected:
 	/** 画面下の操作のヒント（はじめてのときだけ） */
 	void DrawTip();
 

@@ -149,6 +149,11 @@ bool FKakurenboPathOneWayTest::RunTest(const FString& Parameters)
 	Grid.SetOneWay(FIntPoint(2, 2), 2);
 	TestTrue(TEXT("reversed: east to west"), KakurenboPathfinding::FindPath(Grid, FIntPoint(4, 2), FIntPoint(0, 2), Path));
 	TestFalse(TEXT("reversed: west to east blocked"), KakurenboPathfinding::FindPath(Grid, FIntPoint(0, 2), FIntPoint(4, 2), Path));
+	// 壊す経路：逆向きは、のれんを壊すコストを払えば通れる（M15：その先が行き止まりのとき）
+	Grid.SetOneWay(FIntPoint(2, 2), 2, 8.f);
+	float Cost = 0.f;
+	TestTrue(TEXT("breaking the gate lets the oni through the wrong way"), KakurenboPathfinding::FindPath(Grid, FIntPoint(0, 2), FIntPoint(4, 2), Path, &Cost));
+	TestTrue(FString::Printf(TEXT("and it costs the break (%.1f)"), Cost), Cost >= 4.f + 8.f);
 	return true;
 }
 

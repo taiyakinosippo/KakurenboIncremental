@@ -165,6 +165,29 @@ public:
 	void CloseMenu();
 	void CloseAllMenus();
 
+	/**
+	 * M15：鬼のチュートリアルを開く（ゲームは止まる）。bBook なら一時停止メニューからの図鑑（もどると一時停止メニュー）。
+	 * 写真はスタジオで撮り直す
+	 */
+	void OpenOniIntro(const TArray<EOniType>& Types, bool bBook);
+
+	/** チュートリアル・図鑑のページ（鬼の種類）と、今のページ */
+	const TArray<EOniType>& GetOniIntroPages() const { return OniIntroPages; }
+	int32 GetOniIntroPage() const { return OniIntroPage; }
+	bool IsOniBook() const { return bOniBook; }
+
+	/** ページを進める・戻す（最後のページで進めると閉じる） */
+	void TurnOniIntroPage(int32 Delta);
+
+	/** 今のステージの鬼のうち、まだ紹介していない種類があればチュートリアルを出す（かくれんぼの始め） */
+	void ShowNewOniIntro();
+
+	/** 今まで紹介した鬼の種類（図鑑に出す） */
+	TArray<EOniType> GetIntroducedOniTypes() const;
+
+	/** 鬼の種類の紹介を見たことにする名前（ヒントと同じく設定に保存。「ヒントをもう一度見る」で消える） */
+	static FName OniIntroTipId(EOniType Type);
+
 	/** タイトルのメニューで、キーボードで選んでいる項目 */
 	int32 GetTitleSelection() const { return TitleSelection; }
 
@@ -457,6 +480,14 @@ private:
 
 	/** 自動テスト中も操作のヒントを出す（ふだんのテストでは、スクリーンショットが変わらないよう出さない） */
 	bool bShowTipsInAutoTest = false;
+
+	/** 自動テスト中も鬼のチュートリアルを出す（ふだんのテストでは止まってしまうので出さない） */
+	bool bShowOniIntroInAutoTest = false;
+
+	/** 鬼のチュートリアル・図鑑 */
+	TArray<EOniType> OniIntroPages;
+	int32 OniIntroPage = 0;
+	bool bOniBook = false;
 
 	/** 設置パートのカメラの高さを最後に合わせた館の大きさ */
 	FIntPoint LastTopDownFitSize = FIntPoint::ZeroValue;

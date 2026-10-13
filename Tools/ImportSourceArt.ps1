@@ -23,7 +23,7 @@ if (-not (Test-Path (Join-Path $Mannequins "Meshes\SKM_Manny_Simple.uasset"))) {
 }
 
 # Git LFS の lockable 指定で、取ってきた .uasset は読み取り専用になっている。このスクリプトが作り直すフォルダだけ書き込めるようにする
-foreach ($Folder in "Kakurenbo", "Player", "Gem", "QuietWall") {
+foreach ($Folder in "Kakurenbo", "Player", "Gem", "QuietWall", "Cat") {
     $Path = Join-Path $Root "KakurenboIncremental\Content\$Folder"
     if (Test-Path $Path) {
         Get-ChildItem $Path -Recurse -File | Where-Object { $_.IsReadOnly } | ForEach-Object { $_.IsReadOnly = $false }
