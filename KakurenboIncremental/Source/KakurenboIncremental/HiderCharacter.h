@@ -297,6 +297,9 @@ public:
 	/** 鬼の視線チェックで狙う点（頭・体・足） */
 	void GetSightTargetPoints(TArray<FVector>& OutPoints) const;
 
+	/** 身代わり人形（AFakeHiderCharacter）か。人形の足音はプレイヤーの足音として鬼に聞かせない */
+	bool bIsDecoyDoll = false;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;

@@ -122,6 +122,36 @@ bool FKakurenboPathCornerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboPathOneWayTest, "Kakurenbo.Path.OneWay", TestFlags)
+bool FKakurenboPathOneWayTest::RunTest(const FString& Parameters)
+{
+	// M15：一方通行ののれん。縦 1 列の壁に 1 マスだけ穴があり、そこにのれん（+X 向き）
+	//   x=2 の列が壁、(2,2) がのれん。左（x<2）から右へは通れるが、右から左へは通れない
+	FKakurenboPathGrid Grid;
+	Grid.Init(5, 5);
+	for (int32 Y = 0; Y < 5; ++Y)
+	{
+		Grid.SetExtra(FIntPoint(2, Y), -1.f);
+	}
+	Grid.SetExtra(FIntPoint(2, 2), 0.f);
+	Grid.SetOneWay(FIntPoint(2, 2), 0);
+
+	TArray<FIntPoint> Path;
+	TestTrue(TEXT("west to east goes through the gate"), KakurenboPathfinding::FindPath(Grid, FIntPoint(0, 2), FIntPoint(4, 2), Path));
+	TestTrue(TEXT("the path uses the gate"), Path.Contains(FIntPoint(2, 2)));
+	TestFalse(TEXT("east to west is blocked"), KakurenboPathfinding::FindPath(Grid, FIntPoint(4, 2), FIntPoint(0, 2), Path));
+	// 斜めからは入れない（(1,1) → (2,2) は不可。縦横でまっすぐ入る）
+	TestTrue(TEXT("found from a corner"), KakurenboPathfinding::FindPath(Grid, FIntPoint(1, 1), FIntPoint(3, 2), Path));
+	TestTrue(TEXT("enters the gate straight"), Path.Num() >= 2 && Path[0] == FIntPoint(1, 2) && Path[1] == FIntPoint(2, 2));
+	// のれんの上から始めたら、どの向きにも出られる（閉じ込められない）
+	TestTrue(TEXT("can leave from the gate"), KakurenboPathfinding::FindPath(Grid, FIntPoint(2, 2), FIntPoint(0, 2), Path));
+	// 向きを -X にすると逆になる
+	Grid.SetOneWay(FIntPoint(2, 2), 2);
+	TestTrue(TEXT("reversed: east to west"), KakurenboPathfinding::FindPath(Grid, FIntPoint(4, 2), FIntPoint(0, 2), Path));
+	TestFalse(TEXT("reversed: west to east blocked"), KakurenboPathfinding::FindPath(Grid, FIntPoint(0, 2), FIntPoint(4, 2), Path));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboPathWallGoalTest, "Kakurenbo.Path.WallAsGoal", TestFlags)
 bool FKakurenboPathWallGoalTest::RunTest(const FString& Parameters)
 {
@@ -357,6 +387,27 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Treasure && Treasure->HearingScale == 0.f && Treasure->DecoyHearingScale == 0.f && Treasure->StepHearingScale >= 2.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f);
 		TestTrue(TEXT("detector: summons others from far"), Detector && Detector->SummonRadius >= 1500.f && Detector->SightRadius > 1000.f);
 		TestTrue(TEXT("enum has Treasure and Detector"), StaticEnum<EOniType>()->GetValueByNameString(TEXT("Treasure")) != INDEX_NONE && StaticEnum<EOniType>()->GetValueByNameString(TEXT("Detector")) != INDEX_NONE);
+		// M15：パワー鬼は前方 2×2×2 の壁に当たる代わりに、溜めが長く・目が近い
+		TestTrue(TEXT("power oni: 2x2x2 forward attack, slow windup, short sight"),
+			Breaker && Breaker->AttackBoxWidth == 2 && Breaker->AttackBoxDepth == 2 && Breaker->AttackBoxLevels == 2 && Breaker->AttackWindup >= 1.5f
+			&& Scout && Breaker->SightRadius < 700.f);
+	}
+	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
+	{
+		// M15：宝石のお店の道具が 5 つ（身代わり人形・のれん・真っ暗ブロック・迷い猫・だるまさんがころんだ）。コインの罠は 2 つのまま
+		TArray<FKakurenboTrapRow*> Rows;
+		Traps->GetAllRows<FKakurenboTrapRow>(TEXT("Test"), Rows);
+		int32 GemItems = 0;
+		TSet<ETrapKind> Kinds;
+		for (const FKakurenboTrapRow* Row : Rows)
+		{
+			GemItems += Row->bGemItem ? 1 : 0;
+			Kinds.Add(Row->Kind);
+		}
+		TestEqual(TEXT("five gem items"), GemItems, 5);
+		TestEqual(TEXT("two coin traps"), Rows.Num() - GemItems, 2);
+		TestTrue(TEXT("every gem item kind is used"), Kinds.Contains(ETrapKind::FakeHider) && Kinds.Contains(ETrapKind::OneWay) && Kinds.Contains(ETrapKind::Darkness)
+			&& Kinds.Contains(ETrapKind::Cat) && Kinds.Contains(ETrapKind::Daruma));
 	}
 	TArray<FName> MapNames;
 	if (UDataTable* Maps = Load(FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))

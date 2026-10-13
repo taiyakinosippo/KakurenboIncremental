@@ -357,6 +357,10 @@ void AHiderCharacter::UpdateWalkSpeed()
 void AHiderCharacter::NotifyStep()
 {
 	++StepCount;
+	if (bIsDecoyDoll)
+	{
+		return; // 身代わり人形の音は人形が自分で出す
+	}
 	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
 	{
 		const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());

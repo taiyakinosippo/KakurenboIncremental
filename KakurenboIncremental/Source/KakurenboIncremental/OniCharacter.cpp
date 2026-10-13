@@ -14,6 +14,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GridPathfinder.h"
+#include "FakeHiderCharacter.h"
 #include "HiderCharacter.h"
 #include "KakurenboFx.h"
 #include "KakurenboGameMode.h"
@@ -205,6 +206,9 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	bSingleTargetAttack = Row.bSingleTargetAttack;
 	AttackRadius = Row.AttackRadius;
 	AttackWindup = Row.AttackWindup;
+	AttackBoxWidth = Row.AttackBoxWidth;
+	AttackBoxDepth = Row.AttackBoxDepth;
+	AttackBoxLevels = Row.AttackBoxLevels;
 	PocketInspectChance = Row.PocketInspectChance;
 	StunScale = Row.StunScale;
 	bDisarmTraps = Row.bDisarmTraps;
@@ -532,9 +536,9 @@ void AOniCharacter::StartChase()
 	ChaseRepathTimer = 0.f;
 	ChaseStartTime = GetWorld()->GetTimeSeconds();
 	bHasGoal = false;
-	if (Target)
+	if (GetChaseTarget())
 	{
-		LastKnownTargetLocation = Target->GetActorLocation();
+		LastKnownTargetLocation = GetChaseTarget()->GetActorLocation();
 	}
 	// 見つかったことを音で知らせる。その鬼の場所から鳴らすので、画面を見なくてもどっちから来るかわかる
 	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Alert, GetActorLocation() + FVector(0.f, 0.f, 60.f), 1.1f);
@@ -627,11 +631,48 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	}
 	StunImmunityTimer = FMath::Max(0.f, StunImmunityTimer - DeltaSeconds);
 
+	// だるまさんがころんだ：プレイヤーに見られている間は動けない。止まっている鬼にタッチされたら門へ帰される
+	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
+	if (GM && GM->IsDarumaActive() && GM->IsOniWatchedByPlayer(this))
+	{
+		if (!bDarumaFrozen)
+		{
+			bDarumaFrozen = true;
+			GetMesh()->bPauseAnims = true; // 走っている途中の格好のままピタッと止まる
+		}
+		GetCharacterMovement()->StopMovementImmediately();
+		if (IsTouchingTarget())
+		{
+			bDarumaFrozen = false;
+			GetMesh()->bPauseAnims = false;
+			GM->HandleDarumaTouch(this);
+		}
+		return;
+	}
+	if (bDarumaFrozen)
+	{
+		bDarumaFrozen = false;
+		GetMesh()->bPauseAnims = false;
+	}
+
 	// ぶつかったら（体が触れたら）発見。一瞬の接触も逃さないよう毎フレーム調べる
 	if (IsTouchingTarget())
 	{
 		FoundTarget(TEXT("touch"));
 		return;
+	}
+	// 身代わり人形に触れた：捕まえたら「にせもの！」（人形は消える）
+	if (GM)
+	{
+		for (AHiderCharacter* Fake : GM->GetFakeHiders())
+		{
+			const AFakeHiderCharacter* Doll = Cast<AFakeHiderCharacter>(Fake);
+			if (Doll && Doll->OwnerTrap.IsValid() && IsTouching(Doll))
+			{
+				GM->HandleFakeHiderCaught(Doll->OwnerTrap.Get(), this);
+				return;
+			}
+		}
 	}
 
 	// 台へ飛び乗っている最中は、跳び終わるまでほかのことをしない
@@ -652,10 +693,26 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	{
 		SenseTimer = 0.f;
 		UpdateMemory();
-		bTargetInSight = CanSeeTarget();
-		if (bTargetInSight && Target)
+		// 見えた相手を追う。プレイヤーが見えなければ、身代わり人形（一番近いもの）が見えるか
+		AHiderCharacter* Seen = CanSeeTarget() ? Target.Get() : nullptr;
+		if (!Seen && GM)
 		{
-			LastKnownTargetLocation = Target->GetActorLocation();
+			float BestDistSq = TNumericLimits<float>::Max();
+			for (AHiderCharacter* Fake : GM->GetFakeHiders())
+			{
+				const float DistSq = FVector::DistSquared(Fake->GetActorLocation(), GetActorLocation());
+				if (DistSq < BestDistSq && CanSeeHider(Fake))
+				{
+					BestDistSq = DistSq;
+					Seen = Fake;
+				}
+			}
+		}
+		bTargetInSight = Seen != nullptr;
+		if (Seen)
+		{
+			ChaseTarget = Seen;
+			LastKnownTargetLocation = Seen->GetActorLocation();
 		}
 		if (GetIntent() == EOniState::Chase)
 		{
@@ -898,9 +955,9 @@ void AOniCharacter::TickGuard(float DeltaSeconds)
 	}
 
 	// 着いたら動かない。プレイヤーが見えていればそちらを向き、いなければゆっくり首を回して見張る
-	if (bTargetInSight && Target)
+	if (bTargetInSight && GetChaseTarget())
 	{
-		FaceTowards(Target->GetActorLocation(), DeltaSeconds, 240.f);
+		FaceTowards(GetChaseTarget()->GetActorLocation(), DeltaSeconds, 240.f);
 		GuardLookYaw = GetActorRotation().Yaw;
 	}
 	else
@@ -912,7 +969,7 @@ void AOniCharacter::TickGuard(float DeltaSeconds)
 
 void AOniCharacter::HandleGuardSighting()
 {
-	if (SummonTimer > 0.f || !Target)
+	if (SummonTimer > 0.f || !GetChaseTarget())
 	{
 		return;
 	}
@@ -920,7 +977,7 @@ void AOniCharacter::HandleGuardSighting()
 	LastSummonTime = GetWorld()->GetTimeSeconds();
 	ChaseStartTime = LastSummonTime; // HUD の「！」
 	UE_LOG(LogTemp, Log, TEXT("Detector %s spotted the hider and calls others within %.0f cm"), *GetName(), SummonRadius);
-	OnSummon.Broadcast(this, Target->GetActorLocation());
+	OnSummon.Broadcast(this, GetChaseTarget()->GetActorLocation());
 }
 
 void AOniCharacter::Summon(const FVector& Location)
@@ -992,7 +1049,8 @@ void AOniCharacter::TickInspect(float DeltaSeconds)
 
 void AOniCharacter::TickChase(float DeltaSeconds)
 {
-	if (!Target)
+	const AHiderCharacter* Chased = GetChaseTarget();
+	if (!Chased)
 	{
 		ReturnToWander(false);
 		return;
@@ -1000,7 +1058,7 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 
 	// 見えている間は相手の今の位置、見えなくなったら最後に見えた場所へ向かう。
 	// 相手は動くので、経路はこまめに作り直す
-	const FVector ChaseLocation = bTargetInSight ? Target->GetActorLocation() : LastKnownTargetLocation;
+	const FVector ChaseLocation = bTargetInSight ? Chased->GetActorLocation() : LastKnownTargetLocation;
 	const FIntPoint TargetCell = ClampToGrid(Grid()->WorldToCell(ChaseLocation));
 
 	// 台（家具・積んだ壁）の上にいる相手には、そばまで歩いて行って飛び乗る。
@@ -1068,7 +1126,7 @@ void AOniCharacter::TickChase(float DeltaSeconds)
 bool AOniCharacter::IsTargetOnPlatform(float& OutHeight) const
 {
 	OutHeight = 0.f;
-	const ACharacter* TargetChar = Target;
+	const ACharacter* TargetChar = GetChaseTarget();
 	if (!TargetChar || !TargetChar->GetCharacterMovement() || !TargetChar->GetCharacterMovement()->IsMovingOnGround())
 	{
 		return false; // ジャンプ中（空中）は台に乗っているとはみなさない
@@ -1118,12 +1176,13 @@ bool AOniCharacter::TryStartLeap()
 {
 	UKakurenboGridSubsystem* G = Grid();
 	UCharacterMovementComponent* Move = GetCharacterMovement();
-	if (!Target || !G || LeapCooldown > 0.f || !Move->IsMovingOnGround())
+	const AHiderCharacter* Chased = GetChaseTarget();
+	if (!Chased || !G || LeapCooldown > 0.f || !Move->IsMovingOnGround())
 	{
 		return false;
 	}
 	const FVector Me = GetActorLocation();
-	const FVector Goal = Target->GetActorLocation();
+	const FVector Goal = Chased->GetActorLocation();
 	if (FVector::Dist2D(Me, Goal) > 320.f)
 	{
 		return false;
@@ -1143,7 +1202,7 @@ bool AOniCharacter::TryStartLeap()
 	const float FeetZ = Me.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	const FVector AheadCenter = G->CellFloorCenter(Ahead);
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniLeap), false, this);
-	Params.AddIgnoredActor(Target);
+	Params.AddIgnoredActor(Chased);
 	FHitResult Hit;
 	const FVector From(AheadCenter.X, AheadCenter.Y, FeetZ + LeapMaxHeight + 100.f);
 	const FVector To(AheadCenter.X, AheadCenter.Y, FeetZ - 10.f);
@@ -1181,9 +1240,9 @@ void AOniCharacter::TickLeap(float DeltaSeconds)
 
 	// 台の上面より上に出たら、相手の方へ進む
 	const float FeetZ = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	if (Target && FeetZ >= LeapTopZ + 5.f)
+	if (GetChaseTarget() && FeetZ >= LeapTopZ + 5.f)
 	{
-		const FVector Dir = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		const FVector Dir = (GetChaseTarget()->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
 		Move->Velocity.X = Dir.X * LeapForwardSpeed;
 		Move->Velocity.Y = Dir.Y * LeapForwardSpeed;
 	}
@@ -1212,6 +1271,7 @@ void AOniCharacter::TickStunned(float DeltaSeconds)
 	{
 		SetStunStarsVisible(false);
 		StunImmunityTimer = StunImmunitySeconds;
+		bPettingCat = false;
 		ReturnToWander(false);
 	}
 }
@@ -1571,15 +1631,20 @@ void AOniCharacter::FoundTarget(FName Reason)
 
 bool AOniCharacter::IsTouchingTarget() const
 {
-	if (!Target)
+	return IsTouching(Target);
+}
+
+bool AOniCharacter::IsTouching(const ACharacter* Who) const
+{
+	if (!Who)
 	{
 		return false;
 	}
 	// 2 つのカプセル（縦長の円柱とみなす）が、横方向にも縦方向にも重なりかけているか
 	const UCapsuleComponent* Mine = GetCapsuleComponent();
-	const UCapsuleComponent* Theirs = Target->GetCapsuleComponent();
+	const UCapsuleComponent* Theirs = Who->GetCapsuleComponent();
 	const FVector A = GetActorLocation();
-	const FVector B = Target->GetActorLocation();
+	const FVector B = Who->GetActorLocation();
 	const float HorizontalLimit = Mine->GetScaledCapsuleRadius() + Theirs->GetScaledCapsuleRadius() + TouchMargin;
 	const float VerticalLimit = Mine->GetScaledCapsuleHalfHeight() + Theirs->GetScaledCapsuleHalfHeight() + TouchMargin;
 	return FVector::DistSquared2D(A, B) <= FMath::Square(HorizontalLimit) && FMath::Abs(A.Z - B.Z) <= VerticalLimit;
@@ -1587,31 +1652,76 @@ bool AOniCharacter::IsTouchingTarget() const
 
 bool AOniCharacter::CanSeeTarget() const
 {
-	if (!Target)
+	return CanSeeHider(Target);
+}
+
+float AOniCharacter::GetEffectiveSightRadius() const
+{
+	// 真っ暗ブロック：館じゅうが暗いと、すぐ近くしか見えない
+	const AKakurenboGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<AKakurenboGameMode>() : nullptr;
+	return (GM && GM->IsMansionDark()) ? FMath::Min(SightRadius, GM->GetDarkSightRadius()) : SightRadius;
+}
+
+AHiderCharacter* AOniCharacter::GetChaseTarget() const
+{
+	return ChaseTarget.IsValid() ? ChaseTarget.Get() : Target.Get();
+}
+
+bool AOniCharacter::IsChasingPlayer() const
+{
+	return GetIntent() == EOniState::Chase && GetChaseTarget() == Target;
+}
+
+void AOniCharacter::Pet(float Seconds)
+{
+	// 迷い猫をなでる：しばらくその場で動かない（星は出さない）。この間はプレイヤーに触れても捕まえない
+	if (!bActive || State == EOniState::Stunned)
+	{
+		return;
+	}
+	Stun(Seconds / FMath::Max(StunScale, 0.1f));
+	SetStunStarsVisible(false);
+	bPettingCat = true;
+}
+
+void AOniCharacter::ReactToFake()
+{
+	// 捕まえたのは身代わり人形だった：その場で見回してから、うろうろに戻る
+	ChaseTarget = nullptr;
+	bTargetInSight = false;
+	ReturnToWander(false);
+	BeginLookAround();
+	IdleTimer = 1.2f;
+}
+
+bool AOniCharacter::CanSeeHider(const AHiderCharacter* Who) const
+{
+	if (!Who)
 	{
 		return false;
 	}
+	const float Sight = GetEffectiveSightRadius();
 
 	const FVector Eye = GetActorLocation() + FVector(0.f, 0.f, EyeHeight);
 	const FVector Forward2D = GetActorForwardVector().GetSafeNormal2D();
 	const float CosHalfAngle = FMath::Cos(FMath::DegreesToRadians(SightHalfAngle));
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniSight), false, this);
-	Params.AddIgnoredActor(Target);
+	Params.AddIgnoredActor(Who);
 	// しゃがんでいる相手が近いときは、腰の高さの家具の陰でも見える（のぞき込む）
-	const bool bCrouchedTarget = Target->bIsCrouched;
+	const bool bCrouchedTarget = Who->bIsCrouched;
 	bool bPeekChecked = false;
 	bool bPeekClear = false;
 
 	TArray<FVector> Points;
-	Target->GetSightTargetPoints(Points);
+	Who->GetSightTargetPoints(Points);
 	for (const FVector& P : Points)
 	{
 		const FVector ToP = P - Eye;
 		const bool bClose = ToP.Size2D() <= CloseSenseRadius;
 		if (!bClose)
 		{
-			if (ToP.Size() > SightRadius)
+			if (ToP.Size() > Sight)
 			{
 				continue;
 			}
@@ -1636,7 +1746,7 @@ bool AOniCharacter::CanSeeTarget() const
 			if (!bPeekChecked)
 			{
 				bPeekChecked = true;
-				bPeekClear = IsOnlyLowCoverBetween();
+				bPeekClear = IsOnlyLowCoverBetween(Who);
 			}
 			if (bPeekClear)
 			{
@@ -1647,21 +1757,21 @@ bool AOniCharacter::CanSeeTarget() const
 	return false;
 }
 
-bool AOniCharacter::IsOnlyLowCoverBetween() const
+bool AOniCharacter::IsOnlyLowCoverBetween(const AHiderCharacter* Who) const
 {
-	if (!Target)
+	if (!Who)
 	{
 		return false;
 	}
 	// 足元から LowCoverHeight の高さで、自分と相手を結ぶ（腰の高さの家具の上は通り、壁 1 段・本棚には当たる）。煙幕もさえぎる
 	const FVector Me = GetActorLocation();
-	const FVector Them = Target->GetActorLocation();
+	const FVector Them = Who->GetActorLocation();
 	const float MyFeet = Me.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	const float TheirFeet = Them.Z - Target->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float TheirFeet = Them.Z - Who->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	const FVector From(Me.X, Me.Y, MyFeet + LowCoverHeight);
 	const FVector To(Them.X, Them.Y, TheirFeet + LowCoverHeight);
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniLowCover), false, this);
-	Params.AddIgnoredActor(Target);
+	Params.AddIgnoredActor(Who);
 	return !ASmokeCloud::IsSightBlocked(GetWorld(), From, To) && !GetWorld()->LineTraceTestByChannel(From, To, ECC_Visibility, Params);
 }
 
@@ -1683,7 +1793,7 @@ void AOniCharacter::UpdatePresence(float DeltaSeconds)
 		return;
 	}
 	// 間に背の高い物（壁・本棚）があれば伝わらない（腰の高さの家具の向こうなら伝わる）
-	if (!IsOnlyLowCoverBetween())
+	if (!IsOnlyLowCoverBetween(Target))
 	{
 		Decay();
 		return;
@@ -1747,7 +1857,7 @@ bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const
 			const FVector BlockCenter = G->CellToWorld(Cell, 0);
 			const FVector ToBlock = BlockCenter - Eye;
 			const float DistSq = ToBlock.SizeSquared2D();
-			if (DistSq > FMath::Square(SightRadius) || DistSq >= BestDistSq)
+			if (DistSq > FMath::Square(GetEffectiveSightRadius()) || DistSq >= BestDistSq)
 			{
 				continue;
 			}
@@ -1775,8 +1885,10 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 {
 	UKakurenboGridSubsystem* G = Grid();
 	// 音の種類ごとに別の距離で聞く（スピード鬼はおとりにだまされない・パワー鬼はおとりだけに寄っていく・宝物鬼は足音に敏感）
+	// 迷い猫の鳴き声は、どの鬼にも同じ距離で聞こえる（猫はかわいいので、音を気にしない鬼も寄ってくる）
 	const float Radius = Kind == EKakurenboNoise::Decoy ? DecoyHearingRadius
 		: Kind == EKakurenboNoise::Step ? StepHearingRadius
+		: Kind == EKakurenboNoise::Cat ? BaseHearingRadius
 		: HearingRadius;
 	if (!bActive || !G || Radius <= 0.f || State == EOniState::Stunned || OniType == EOniType::Detector)
 	{
@@ -1815,7 +1927,7 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	NoiseCell = Cell;
 
 	// プレイヤーの音に気づいた：「ン？」とその鬼の場所から鳴らす（どっちの鬼に気づかれたか、音でわかる）
-	if (Kind != EKakurenboNoise::Decoy && GetIntent() != EOniState::Investigate)
+	if (Kind != EKakurenboNoise::Decoy && Kind != EKakurenboNoise::Cat && GetIntent() != EOniState::Investigate)
 	{
 		const float Now = GetWorld()->GetTimeSeconds();
 		if (Now - LastNoticeSoundTime > NoticeSoundCooldown)
@@ -2016,6 +2128,51 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 	}
 }
 
+TArray<FIntPoint> AOniCharacter::GetAttackBoxCells() const
+{
+	TArray<FIntPoint> Cells;
+	const UKakurenboGridSubsystem* G = Grid();
+	if (!G)
+	{
+		return Cells;
+	}
+	// 前 = 自分から攻撃する壁への向き（縦横のどちらか近い方）。横 = それに直角
+	const FVector ToWall = G->CellFloorCenter(AttackCell) - GetActorLocation();
+	const FIntPoint Forward = FMath::Abs(ToWall.X) >= FMath::Abs(ToWall.Y) ? FIntPoint(ToWall.X >= 0.f ? 1 : -1, 0) : FIntPoint(0, ToWall.Y >= 0.f ? 1 : -1);
+	FIntPoint Side(-Forward.Y, Forward.X);
+	// 横に 2 マス以上のときは、自分の体が寄っている側（真ん中なら壁の多い側）へ広げる
+	const FVector SideWorld(Side.X, Side.Y, 0.f);
+	const float Offset = FVector::DotProduct(GetActorLocation() - G->CellFloorCenter(AttackCell), SideWorld);
+	auto CountWalls = [&](const FIntPoint& Dir)
+	{
+		int32 Count = 0;
+		for (int32 W = 1; W < AttackBoxWidth; ++W)
+		{
+			for (int32 D = 0; D < AttackBoxDepth; ++D)
+			{
+				Count += G->GetColumnHeight(AttackCell + Dir * W + Forward * D) > 0 ? 1 : 0;
+			}
+		}
+		return Count;
+	};
+	if (Offset < -5.f || (FMath::Abs(Offset) <= 5.f && CountWalls(FIntPoint(-Side.X, -Side.Y)) > CountWalls(Side)))
+	{
+		Side = FIntPoint(-Side.X, -Side.Y);
+	}
+	for (int32 W = 0; W < FMath::Max(1, AttackBoxWidth); ++W)
+	{
+		for (int32 D = 0; D < FMath::Max(1, AttackBoxDepth); ++D)
+		{
+			const FIntPoint Cell = AttackCell + Side * W + Forward * D;
+			if (G->IsInside(Cell))
+			{
+				Cells.Add(Cell);
+			}
+		}
+	}
+	return Cells;
+}
+
 void AOniCharacter::ResetBodyScale()
 {
 	SetBodySquash(FVector::OneVector);
@@ -2045,6 +2202,22 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 			if (Fx)
 			{
 				Fx->Ring(G->CellFloorCenter(AttackCell), 20.f, G->GetCellSize() * 0.6f, 0.2f, FLinearColor(1.f, 0.35f, 0.15f), 8.f);
+			}
+		}
+		else if (AttackBoxWidth > 0 && AttackBoxDepth > 0 && AttackBoxLevels > 0)
+		{
+			// 前方の箱（パワー鬼）：目の前の壁から 横 × 奥 × 段 の壁にまとめて当たる
+			const TArray<FIntPoint> Cells = GetAttackBoxCells();
+			Destroyed = G->DamageBlocksInCells(Cells, AttackBoxLevels, AttackDamage);
+			if (Fx)
+			{
+				FVector Center = FVector::ZeroVector;
+				for (const FIntPoint& Cell : Cells)
+				{
+					Center += G->CellFloorCenter(Cell);
+				}
+				Center /= FMath::Max(1, Cells.Num());
+				Fx->Ring(Center, 30.f, G->GetCellSize() * 0.75f * FMath::Max(AttackBoxWidth, AttackBoxDepth), 0.3f, FLinearColor(1.f, 0.35f, 0.15f), 14.f);
 			}
 		}
 		else

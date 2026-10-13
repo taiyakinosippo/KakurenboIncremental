@@ -205,6 +205,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float HearingRadius = 1200.f;
 
+	/** 種類の倍率を掛ける前の聞こえる距離（cm）。迷い猫の鳴き声はどの鬼もこの距離で聞く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float BaseHearingRadius = 1200.f;
+
 	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（スピード鬼：音に敏感で、にせものとわかる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float DecoyHearingRadius = 1200.f;
@@ -355,6 +359,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	float AttackWindup = 0.8f;
 
+	/** 前方の箱の攻撃（パワー鬼）：横・奥（マス）・段の数。0 なら使わない（AttackRadius の範囲攻撃） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxWidth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxDepth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxLevels = 0;
+
+	/** 前方の箱の攻撃が当たるマス（今攻撃している壁から。テスト・表示用） */
+	TArray<FIntPoint> GetAttackBoxCells() const;
+
+	/** 今攻撃している（しようとしている）壁のマス */
+	FIntPoint GetAttackCell() const { return AttackCell; }
+
 	/** 攻撃後の硬直（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	float AttackRecovery = 0.4f;
@@ -422,6 +442,28 @@ public:
 
 	/** 今、相手が見えるか（テスト用にも使う） */
 	bool CanSeeTarget() const;
+
+	/** その相手（プレイヤー・身代わり人形）が見えるか */
+	bool CanSeeHider(const AHiderCharacter* Who) const;
+
+	/** 今の見える距離（真っ暗ブロックで館が暗いと短い） */
+	float GetEffectiveSightRadius() const;
+
+	/** 追いかけている相手（身代わり人形のこともある。無ければプレイヤー） */
+	AHiderCharacter* GetChaseTarget() const;
+
+	/** プレイヤーを追いかけているか（身代わり人形ではなく） */
+	bool IsChasingPlayer() const;
+
+	/** 迷い猫をなでる（Seconds 秒、その場で動かない。捕まえることもできない） */
+	void Pet(float Seconds);
+	bool IsPettingCat() const { return bPettingCat && State == EOniState::Stunned; }
+
+	/** 捕まえたのが身代わり人形だった（見回してから、うろうろに戻る） */
+	void ReactToFake();
+
+	/** だるまさんがころんだで止まっているか */
+	bool IsDarumaFrozen() const { return bDarumaFrozen; }
 
 	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
@@ -491,10 +533,11 @@ private:
 
 	// 感覚
 	bool IsTouchingTarget() const;
+	bool IsTouching(const ACharacter* Who) const;
 	/** 気配（見えていない相手がすぐそばにいる）をためて、たまったら調べに来る */
 	void UpdatePresence(float DeltaSeconds);
 	/** 自分と相手の間に、LowCoverHeight より背の高い物（壁・本棚）が無いか */
-	bool IsOnlyLowCoverBetween() const;
+	bool IsOnlyLowCoverBetween(const AHiderCharacter* Who) const;
 	void FoundTarget(FName Reason);
 	/** 見えている壁のうち一番近いマス（パワー鬼が壊しに行く） */
 	bool FindVisibleWallCell(FIntPoint& OutCell) const;
@@ -568,6 +611,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<AHiderCharacter> Target;
+
+	/** 追いかけている相手（見えた相手。身代わり人形のこともある） */
+	TWeakObjectPtr<AHiderCharacter> ChaseTarget;
+
+	bool bPettingCat = false;
+	bool bDarumaFrozen = false;
 
 	EOniState State = EOniState::Wander;
 	EOniState StateBeforeAttack = EOniState::Wander;

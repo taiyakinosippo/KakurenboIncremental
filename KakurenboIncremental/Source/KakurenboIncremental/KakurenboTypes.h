@@ -34,7 +34,7 @@ enum class EKakurenboAction : uint8
 	MoveLeft    UMETA(DisplayName = "MoveLeft"),
 	MoveRight   UMETA(DisplayName = "MoveRight"),
 	Mash        UMETA(DisplayName = "Mash"),        // 連打（かくれんぼ）
-	Sneak       UMETA(DisplayName = "Sneak"),       // しゃがむ（押している間）
+	Sneak       UMETA(DisplayName = "Sneak"),       // しゃがむ（設定で 1 回押して切り替え / 押している間）
 	Dash        UMETA(DisplayName = "Dash"),        // 煙幕ダッシュ
 	Climb       UMETA(DisplayName = "Climb"),       // よじ登る（前の壁・家具の上へ。M14 でジャンプから変えた）
 	CameraLeft  UMETA(DisplayName = "CameraLeft"),  // 俯瞰・真上のカメラを回す
@@ -49,6 +49,7 @@ enum class EKakurenboAction : uint8
 	Refill      UMETA(DisplayName = "Refill"),      // 購入パート：まとめて補充
 	Prestige    UMETA(DisplayName = "Prestige"),    // 購入パート：転生（2 回押す）
 	Help        UMETA(DisplayName = "Help"),        // 操作説明を開く
+	UseItem     UMETA(DisplayName = "UseItem"),     // かくれんぼ：だるまさんがころんだ（宝石のお店の道具）を使う
 	Count       UMETA(Hidden)
 };
 
@@ -106,6 +107,7 @@ enum class EKakurenboNoise : uint8
 	Dash  UMETA(DisplayName = "Dash"),  // ダッシュ
 	Step  UMETA(DisplayName = "Step"),  // 足音・ジャンプ（足音として聞く）
 	Decoy UMETA(DisplayName = "Decoy"), // おとり
+	Cat   UMETA(DisplayName = "Cat"),   // 迷い猫の鳴き声（猫はかわいいので、音を気にしない鬼も寄ってくる。探知鬼は動かない）
 };
 
 /** 罠の種類（Data/Traps.csv の Kind 列） */
@@ -114,6 +116,12 @@ enum class ETrapKind : uint8
 {
 	Sticky UMETA(DisplayName = "Sticky"), // トリモチ：踏んだ鬼をしばらく動けなくする（1 回使うと消える）
 	Decoy  UMETA(DisplayName = "Decoy"),  // おとり：一定の間隔で音を出して鬼を呼び寄せる（鬼が触れると壊れる）
+	// ---- 宝石のお店（宝石で買う。Traps.csv の bGemItem = True の行） ----
+	FakeHider UMETA(DisplayName = "FakeHider"), // 身代わり人形（偽プレイヤー）：鬼に見つかると、鬼と反対の方へまっすぐ逃げる。捕まると消える
+	OneWay    UMETA(DisplayName = "OneWay"),    // 一方通行ののれん：鬼は矢印の向きにしか通れない（プレイヤーはどちらからも通れる）。Uses 回通られると壊れる
+	Darkness  UMETA(DisplayName = "Darkness"),  // 真っ暗ブロック：まわり（Radius）が真っ暗になり、鬼はすぐ近くしか見えない。自分も見えにくい
+	Cat       UMETA(DisplayName = "Cat"),       // 迷い猫：近くをうろうろして鳴く。寄ってきた鬼は猫をなでてしばらく動かない（どの鬼も猫には弱い）
+	Daruma    UMETA(DisplayName = "Daruma"),    // だるまさんがころんだ：かくれんぼ中に使う（置かない）。しばらくの間、自分が見ている鬼は動けない。止まった鬼にタッチすると門へ帰る
 };
 
 /** 転生のお店で買える永続強化（Data/PrestigeUpgrades.csv の行名と同じ名前） */
@@ -160,6 +168,10 @@ enum class EKakurenboSfx : uint8
 	Smoke         UMETA(DisplayName = "Smoke"),         // 煙幕を投げた（ボフッ）
 	Heartbeat     UMETA(DisplayName = "Heartbeat"),     // 鬼が近い・向かってくる（ドクン。近いほど速く大きく）
 	OniNotice     UMETA(DisplayName = "OniNotice"),     // 鬼が音に気づいた（「ン？」。その鬼の場所から聞こえる）
+	Meow          UMETA(DisplayName = "Meow"),          // 迷い猫の鳴き声（にゃーん）
+	Daruma        UMETA(DisplayName = "Daruma"),        // だるまさんがころんだ（かけ声のメロディ）
+	Poof          UMETA(DisplayName = "Poof"),          // 身代わり人形が捕まって消えた・のれんが壊れた・タッチで鬼が門へ帰った（ポン）
+	Gem           UMETA(DisplayName = "Gem"),           // 宝石を全部集めた（ボーナス）
 	Count         UMETA(Hidden)
 };
 
@@ -211,6 +223,17 @@ struct FShopItemView
 	/** まだ買えない（転生のお店で解放するもの。クライミング壁は「よじ登る」を解放してから） */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	bool bLocked = false;
+
+	/** 宝石のお店の商品か（価格の単位が宝石） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bGemItem = false;
+
+	/** まとめ買い（×10・最大）のとき：買える数と合計の価格（1 個ずつのときは 1 と Cost） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	int32 BulkCount = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	double BulkCost = 0.0;
 };
 
 /**
@@ -488,6 +511,19 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float AttackWindup = 0.8f;
 
+	/**
+	 * 前方の箱の攻撃（パワー鬼。M15）：目の前の壁から、横 AttackBoxWidth × 奥 AttackBoxDepth マス × 下から AttackBoxLevels 段の壁に当たる。
+	 * 0 なら使わない（AttackRadius の範囲攻撃・bSingleTargetAttack の 1 個だけ）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxWidth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxDepth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxLevels = 0;
+
 	/** うろうろ中、壁に囲まれた空洞があればそこを調べに行く確率（0〜1） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float PocketInspectChance = 0.5f;
@@ -517,7 +553,7 @@ struct FKakurenboTrapRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	FText DisplayName;
 
-	/** 罠の働き（Sticky = トリモチ / Decoy = おとり） */
+	/** 罠の働き（Sticky = トリモチ / Decoy = おとり / 宝石のお店の道具: FakeHider・OneWay・Darkness・Cat・Daruma） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	ETrapKind Kind = ETrapKind::Sticky;
 
@@ -544,6 +580,26 @@ struct FKakurenboTrapRow : public FTableRowBase
 	/** 鬼の体の中心がこの距離（cm）まで来たら発動する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	float TriggerRadius = 45.f;
+
+	/** 宝石で買う道具（宝石のお店に並ぶ。価格の単位が宝石）。False ならコインで買う罠（コインのお店） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	bool bGemItem = false;
+
+	/** 道具の働く範囲（cm）。真っ暗ブロック：暗くなる半径 / 迷い猫：うろうろする半径 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Radius = 0.f;
+
+	/** 道具の速さ（cm/秒）。身代わり人形：逃げる速さ（プレイヤーの歩きは 420）/ 迷い猫：歩く速さ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Speed = 0.f;
+
+	/** 回数。一方通行ののれん：鬼が通れる回数（尽きると壊れる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	int32 Uses = 0;
+
+	/** 秒数。迷い猫：鬼が猫をなでて動かない時間 / だるまさんがころんだ：鬼が止まる時間 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Duration = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	FLinearColor Color = FLinearColor(1.f, 0.9f, 0.2f);

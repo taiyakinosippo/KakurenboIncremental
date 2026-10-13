@@ -174,12 +174,56 @@ namespace KakurenboSynth
 			};
 
 		case EKakurenboSfx::Heartbeat:
-			// 「ドクン」（2 つ目は少し小さい）。低すぎると聞こえないので少し高めの成分も
+			// 「ドクン」（2 つ目は少し小さい）。M15：低い音だけだとノートパソコンのスピーカーで聞こえないので、
+			// 胸を打つ中くらいの高さの「ドッ」と、短いこすれる音（はじまりがわかる）を足した
 			return {
-				Tone(0.00f, 0.12f, 70.f, 45.f, EWave::Sine, 0.75f, 1.6f),
-				Tone(0.00f, 0.06f, 150.f, 90.f, EWave::Triangle, 0.40f, 2.f),
-				Tone(0.20f, 0.12f, 62.f, 40.f, EWave::Sine, 0.55f, 1.6f),
-				Tone(0.20f, 0.06f, 135.f, 80.f, EWave::Triangle, 0.28f, 2.f),
+				Tone(0.00f, 0.13f, 70.f, 45.f, EWave::Sine, 0.75f, 1.6f),
+				Tone(0.00f, 0.08f, 190.f, 110.f, EWave::Triangle, 0.55f, 2.f),
+				Tone(0.00f, 0.05f, 330.f, 200.f, EWave::Sine, 0.25f, 2.5f),
+				Noise(0.00f, 0.03f, 0.22f, 0.18f, 2.f),
+				Tone(0.21f, 0.12f, 62.f, 40.f, EWave::Sine, 0.55f, 1.6f),
+				Tone(0.21f, 0.07f, 170.f, 100.f, EWave::Triangle, 0.40f, 2.f),
+				Tone(0.21f, 0.04f, 300.f, 180.f, EWave::Sine, 0.18f, 2.5f),
+			};
+
+		case EKakurenboSfx::Meow:
+			// 「にゃーん」（上がって下がる鼻にかかった声）
+			return {
+				Vibrato(Tone(0.00f, 0.50f, 520.f, 760.f, EWave::Saw, 0.16f, 0.5f), 0.025f, 7.f),
+				Vibrato(Tone(0.00f, 0.50f, 1040.f, 1300.f, EWave::Triangle, 0.14f, 0.6f), 0.03f, 7.f),
+				Tone(0.30f, 0.35f, 760.f, 480.f, EWave::Triangle, 0.16f, 1.2f),
+			};
+
+		case EKakurenboSfx::Daruma:
+			// 「だ・る・ま・さん・が・こ・ろん・だ」のかけ声（8 音の短いメロディ）
+			return {
+				Tone(0.00f, 0.12f, 659.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.13f, 0.12f, 659.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.26f, 0.12f, 784.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.39f, 0.12f, 784.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.52f, 0.12f, 880.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.65f, 0.12f, 784.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.78f, 0.12f, 659.f, 0.f, EWave::Square, 0.18f, 0.6f),
+				Tone(0.91f, 0.30f, 523.f, 0.f, EWave::Square, 0.22f, 1.f),
+				Tone(0.91f, 0.30f, 1046.f, 0.f, EWave::Sine, 0.12f, 1.f),
+			};
+
+		case EKakurenboSfx::Poof:
+			// 「ポンッ」（煙になって消える）
+			return {
+				Tone(0.00f, 0.10f, 900.f, 300.f, EWave::Sine, 0.45f, 1.5f),
+				Noise(0.00f, 0.25f, 0.30f, 0.45f, 1.4f),
+			};
+
+		case EKakurenboSfx::Gem:
+			// 宝石コンプリート（キラキラ上がっていく 5 音）
+			return {
+				Tone(0.00f, 0.10f, C6, 0.f, EWave::Triangle, 0.30f, 1.2f),
+				Tone(0.07f, 0.10f, E6, 0.f, EWave::Triangle, 0.30f, 1.2f),
+				Tone(0.14f, 0.10f, G6, 0.f, EWave::Triangle, 0.30f, 1.2f),
+				Tone(0.21f, 0.10f, C7, 0.f, EWave::Triangle, 0.30f, 1.2f),
+				Vibrato(Tone(0.28f, 0.55f, 2637.f, 0.f, EWave::Sine, 0.22f, 1.f), 0.015f, 10.f),
+				Tone(0.28f, 0.55f, C6, 0.f, EWave::Square, 0.08f, 1.f),
 			};
 
 		case EKakurenboSfx::OniNotice:

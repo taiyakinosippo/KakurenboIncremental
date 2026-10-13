@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerInput.h"
 #include "HiderCharacter.h"
 #include "KakurenboGameMode.h"
+#include "KakurenboArena.h"
 #include "KakurenboGameState.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
@@ -441,7 +442,11 @@ void AKakurenboPlayerController::ApplyViewForPhase(EKakurenboPhase Phase)
 
 	if (Phase == EKakurenboPhase::Shop)
 	{
-		bPrestigeShopTab = false; // 購入パートはコインのお店から
+		ShopTab = EKakurenboShopTab::Coin; // 購入パートはコインのお店から
+	}
+	if (Phase == EKakurenboPhase::Hide)
+	{
+		bSneakToggled = false; // かくれんぼは立って始める
 	}
 	ClearBuildTarget();
 }
@@ -857,6 +862,10 @@ void AKakurenboPlayerController::ToggleSetting(EKakurenboSettingToggle Toggle)
 	case EKakurenboSettingToggle::PadLayout:
 		S->SetPadLayout(UKakurenboSettings::IsNintendoLayout() ? EKakurenboPadLayout::Xbox : EKakurenboPadLayout::Nintendo);
 		break;
+	case EKakurenboSettingToggle::CrouchToggle:
+		S->bCrouchToggle = !S->bCrouchToggle;
+		bSneakToggled = false;
+		break;
 	default: break;
 	}
 	S->Apply(this);
@@ -922,8 +931,10 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		}
 		if (HideTipClock > 14.f)
 		{
-			QueueTip(TEXT("Sneak"), FString::Printf(TEXT("%s を押している間しゃがむ。足音が小さくなり、低い家具にも隠れられる"), *K(EKakurenboAction::Sneak)));
-			QueueTip(TEXT("Treasure"), TEXT("キラキラと鳴る方に、お宝がある"));
+			const UKakurenboSettings* S = Settings();
+			QueueTip(TEXT("Sneak"), FString::Printf(TEXT("%s で%s。足音が小さくなり、低い家具にも隠れられる"), *K(EKakurenboAction::Sneak),
+				(!S || S->bCrouchToggle) ? TEXT("しゃがむ（もう 1 回で立つ）") : TEXT("押している間しゃがむ")));
+			QueueTip(TEXT("Treasure"), TEXT("キラキラと鳴る方に、お宝（宝石）がある。全部取るとボーナス"));
 		}
 		if (GM->IsClimbUnlocked())
 		{
@@ -954,6 +965,10 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		if (GM->CanPrestige())
 		{
 			QueueTip(TEXT("Prestige"), TEXT("転生できるようになった。転生ポイントで、ずっと残る強化が買える"));
+		}
+		if (const AKakurenboGameState* GemState = GetWorld()->GetGameState<AKakurenboGameState>(); GemState && GemState->Gems >= 2)
+		{
+			QueueTip(TEXT("GemShop"), FString::Printf(TEXT("宝石がたまった！ %s 「宝石のお店」で、ふしぎな道具と交換できる"), *K(EKakurenboAction::SwitchShop)));
 		}
 		break;
 	case EKakurenboPhase::Build:
@@ -1169,10 +1184,14 @@ int32 AKakurenboPlayerController::GetPressedNumberKey() const
 
 void AKakurenboPlayerController::HandleShopInput()
 {
-	// お店の切り替え（Tab・LB。コントローラーは RB でも）
-	if (WasActionPressed(EKakurenboAction::SwitchShop) || WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
+	// お店の切り替え（Tab・LB で次へ。コントローラーは RB で前へ）
+	if (WasActionPressed(EKakurenboAction::SwitchShop))
 	{
-		bPrestigeShopTab = !bPrestigeShopTab;
+		CycleShopTab(+1);
+	}
+	if (WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
+	{
+		CycleShopTab(-1);
 	}
 	if (const int32 Number = GetPressedNumberKey())
 	{
@@ -1275,7 +1294,8 @@ void AKakurenboPlayerController::ActivateUIButton(const FKakurenboUIButton& Butt
 	const FVector2D Cursor = Point;
 	switch (Button.Action)
 	{
-	case EKakurenboUIAction::ShopTab:   bPrestigeShopTab = (Button.Index == 1); break;
+	case EKakurenboUIAction::ShopTab:   ShopTab = static_cast<EKakurenboShopTab>(FMath::Clamp(Button.Index, 0, 2)); break;
+	case EKakurenboUIAction::BuyAmount: BuyAmount = static_cast<EKakurenboBuyAmount>(FMath::Clamp(Button.Index, 0, 2)); break;
 	case EKakurenboUIAction::ShopItem:  BuyItem(Button.Index + 1); break;
 	case EKakurenboUIAction::Prestige:  RequestPrestige(); break;
 	case EKakurenboUIAction::NextPhase: GM->AdvancePhase(); break;
@@ -1443,6 +1463,18 @@ bool AKakurenboPlayerController::IsPrestigeConfirmPending() const
 	return GetWorld() && GetWorld()->GetTimeSeconds() < PrestigeConfirmUntil;
 }
 
+void AKakurenboPlayerController::CycleShopTab(int32 Delta)
+{
+	// 画面の並び（コイン → 宝石 → 転生）の順に回る
+	static const EKakurenboShopTab Order[] = { EKakurenboShopTab::Coin, EKakurenboShopTab::Gem, EKakurenboShopTab::Prestige };
+	int32 Index = 0;
+	for (int32 i = 0; i < UE_ARRAY_COUNT(Order); ++i)
+	{
+		Index = Order[i] == ShopTab ? i : Index;
+	}
+	ShopTab = Order[(Index + Delta + UE_ARRAY_COUNT(Order) * 4) % UE_ARRAY_COUNT(Order)];
+}
+
 bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
@@ -1450,10 +1482,62 @@ bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 	{
 		return false;
 	}
-	return bPrestigeShopTab ? GM->TryBuyPrestigeUpgrade(ItemNumber - 1) : GM->TryBuyShopItem(ItemNumber - 1);
+	switch (ShopTab)
+	{
+	case EKakurenboShopTab::Prestige: return GM->TryBuyPrestigeUpgrade(ItemNumber - 1);
+	case EKakurenboShopTab::Gem:      return GM->TryBuyGemShopItem(ItemNumber - 1, GetBuyCount()) > 0;
+	default:                          return GM->TryBuyShopItem(ItemNumber - 1, GetBuyCount()) > 0;
+	}
 }
 
 // ---------------------------------------------------------------- 設置パート
+
+TArray<int32> AKakurenboPlayerController::GetBuildSlots() const
+{
+	// 壁 → コインの罠 → 宝石の道具（持っているもの・設計図にあるものだけ。だるまさんがころんだは置かないので出さない）
+	TArray<int32> Slots;
+	const AKakurenboGameMode* GM = GetKakurenboGameMode();
+	const AKakurenboGameState* State = GetWorld()->GetGameState<AKakurenboGameState>();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	if (!GM)
+	{
+		return Slots;
+	}
+	const int32 NumWalls = GM->WallTypes.Num();
+	for (int32 i = 0; i < NumWalls; ++i)
+	{
+		Slots.Add(i);
+	}
+	for (int32 t = 0; t < GM->TrapTypes.Num(); ++t)
+	{
+		if (!GM->IsPlaceableTrap(t))
+		{
+			continue;
+		}
+		if (GM->IsGemTrap(t))
+		{
+			const int32 Stock = (State && State->TrapStock.IsValidIndex(t)) ? State->TrapStock[t] : 0;
+			const int32 Missing = Grid ? Grid->GetMissingTrapCount(t) : 0;
+			if (Stock + GM->GetOwnedTrapCount(t) + Missing <= 0 && SelectedBuildSlot != NumWalls + t)
+			{
+				continue;
+			}
+		}
+		Slots.Add(NumWalls + t);
+	}
+	return Slots;
+}
+
+void AKakurenboPlayerController::SelectBuildSlotByOffset(int32 Delta)
+{
+	const TArray<int32> Slots = GetBuildSlots();
+	if (Slots.Num() == 0)
+	{
+		return;
+	}
+	const int32 Current = FMath::Max(0, Slots.IndexOfByKey(SelectedBuildSlot));
+	SelectedBuildSlot = Slots[(Current + Delta + Slots.Num() * 4) % Slots.Num()];
+}
 
 bool AKakurenboPlayerController::IsTrapSlotSelected() const
 {
@@ -1476,12 +1560,12 @@ void AKakurenboPlayerController::HandleBuildInput()
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
 
-	// 置く物を選ぶ（壁の種類 → 罠の種類の順に番号が付く）
-	const int32 NumSlots = GM->WallTypes.Num() + GM->TrapTypes.Num();
+	// 置く物を選ぶ（下の欄の順：壁 → 罠 → 宝石の道具。数字キーは欄の番号）
+	const TArray<int32> Slots = GetBuildSlots();
 	const int32 Number = GetPressedNumberKey();
-	if (Number >= 1 && Number <= NumSlots)
+	if (Number >= 1 && Number <= Slots.Num())
 	{
-		SelectedBuildSlot = Number - 1;
+		SelectedBuildSlot = Slots[Number - 1];
 	}
 
 	if (bUsingGamepad)
@@ -1508,8 +1592,13 @@ void AKakurenboPlayerController::HandleBuildInput()
 		}
 	}
 
-	// 左クリック：画面下の欄やボタンの上ならそれを押す。そうでなければ置く
-	if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
+	// 左クリック：画面下の欄やボタンの上ならそれを押す。一方通行ののれんを指していれば向きを変える。そうでなければ置く
+	if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build
+		&& bHasTrapPickUpTarget && IsOneWayAt(TrapPickUpCell))
+	{
+		GM->RotateTrap(TrapPickUpCell);
+	}
+	else if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{
@@ -1600,17 +1689,20 @@ void AKakurenboPlayerController::HandleGamepadBuild(float DeltaTime)
 	UpdateBuildTargetAtCell(Grid->WorldToCell(GamepadCursor));
 
 	// LB・RB：置く物（壁の種類 → 罠の種類の順にぐるっと回る）
-	const int32 NumSlots = GM->WallTypes.Num() + GM->TrapTypes.Num();
-	if (NumSlots > 0 && WasInputKeyJustPressed(EKeys::Gamepad_LeftShoulder))
+	if (WasInputKeyJustPressed(EKeys::Gamepad_LeftShoulder))
 	{
-		SelectedBuildSlot = (SelectedBuildSlot + NumSlots - 1) % NumSlots;
+		SelectBuildSlotByOffset(-1);
 	}
-	if (NumSlots > 0 && WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
+	if (WasInputKeyJustPressed(EKeys::Gamepad_RightShoulder))
 	{
-		SelectedBuildSlot = (SelectedBuildSlot + 1) % NumSlots;
+		SelectBuildSlotByOffset(+1);
 	}
-	// A：置く
-	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bCanPlaceAtTarget)
+	// A：置く（のれんの上なら向きを変える）
+	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bHasTrapPickUpTarget && IsOneWayAt(TrapPickUpCell))
+	{
+		GM->RotateTrap(TrapPickUpCell);
+	}
+	else if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{
@@ -1645,6 +1737,13 @@ void AKakurenboPlayerController::UpdateBuildTargetAtCell(const FIntPoint& Cell)
 		bHasTrapPickUpTarget = true;
 		TrapPickUpCell = Cell;
 	}
+}
+
+bool AKakurenboPlayerController::IsOneWayAt(const FIntPoint& Cell) const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	const ATrapActor* Trap = Grid ? Grid->GetTrap(Cell) : nullptr;
+	return Trap && Trap->GetKind() == ETrapKind::OneWay;
 }
 
 bool AKakurenboPlayerController::SetStartCell(const FIntPoint& Cell)
@@ -1688,9 +1787,30 @@ void AKakurenboPlayerController::UpdateBuildTargetAt(const FVector2D& ScreenPosi
 	{
 		return;
 	}
+	// 見えていない物（設置パートでは隠している外周・部屋の壁の高い部分、出入り口の上の壁など）にはレイを当てない。
+	// 隠しているだけで当たり判定は残っているので、そのまま飛ばすと斜めのレイが見えない壁に当たり、手前の別のマスを指してしまう
+	// （「ブロックが置けない」の原因だった）。当たった物が見えていなければ、それを無視してもう一度飛ばす
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(BuildTrace), false, GetPawn());
 	FHitResult Hit;
-	if (!GetWorld()->LineTraceSingleByChannel(Hit, RayOrigin, RayOrigin + RayDirection * 20000.f, ECC_Visibility, Params))
+	bool bHit = false;
+	for (int32 Attempt = 0; Attempt < 12; ++Attempt)
+	{
+		if (!GetWorld()->LineTraceSingleByChannel(Hit, RayOrigin, RayOrigin + RayDirection * 20000.f, ECC_Visibility, Params))
+		{
+			break;
+		}
+		const UPrimitiveComponent* HitComp = Hit.GetComponent();
+		// 家具の当たり判定の箱は隠してあるが、見えている家具のメッシュと同じ形なので当ててよい（タグで見分ける）
+		const bool bHiddenThing = HitComp && (HitComp->bHiddenInGame || !HitComp->IsVisible() || (Hit.GetActor() && Hit.GetActor()->IsHidden()))
+			&& !HitComp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag);
+		if (!bHiddenThing)
+		{
+			bHit = true;
+			break;
+		}
+		Params.AddIgnoredComponent(HitComp);
+	}
+	if (!bHit)
 	{
 		return;
 	}
@@ -1807,15 +1927,35 @@ void AKakurenboPlayerController::HandleHideInput()
 	HandleCharacterMovement();
 	HandleZoom();
 
-	// Ctrl（または C）を押している間はしのび足（しゃがむ・ゆっくり・足音が小さい）
+	// しゃがむ（しのび足：ゆっくり・足音が小さい）。M15：設定で「1 回押して切り替え」（初期設定）と「押している間」を選べる
 	if (AHiderCharacter* Hider = GetHider())
 	{
-		Hider->SetSneaking(bTestSneak || IsActionDown(EKakurenboAction::Sneak));
+		const UKakurenboSettings* S = Settings();
+		if (S && S->bCrouchToggle)
+		{
+			if (WasActionPressed(EKakurenboAction::Sneak))
+			{
+				bSneakToggled = !bSneakToggled;
+			}
+			Hider->SetSneaking(bTestSneak || bSneakToggled);
+		}
+		else
+		{
+			Hider->SetSneaking(bTestSneak || IsActionDown(EKakurenboAction::Sneak));
+		}
 	}
 
 	if (WasActionPressed(EKakurenboAction::Mash))
 	{
 		DoMash();
+	}
+	// だるまさんがころんだ（宝石のお店の道具。持っていれば）
+	if (WasActionPressed(EKakurenboAction::UseItem))
+	{
+		if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+		{
+			GM->UseDaruma();
+		}
 	}
 	if (WasActionPressed(EKakurenboAction::Dash))
 	{
@@ -1919,6 +2059,30 @@ void AKakurenboPlayerController::KakuPlaceTrap(int32 X, int32 Y, int32 TrapType)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("KakuPlaceTrap (%d,%d) type %d failed: %s"), X, Y, TrapType, *Reason.ToString());
 		}
+	}
+}
+
+void AKakurenboPlayerController::KakuAddGems(int32 Amount)
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->DebugAddGems(Amount);
+	}
+}
+
+void AKakurenboPlayerController::KakuBuyGem(int32 ItemNumber)
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->TryBuyGemShopItem(ItemNumber - 1);
+	}
+}
+
+void AKakurenboPlayerController::KakuDaruma()
+{
+	if (AKakurenboGameMode* GM = GetKakurenboGameMode())
+	{
+		GM->UseDaruma();
 	}
 }
 

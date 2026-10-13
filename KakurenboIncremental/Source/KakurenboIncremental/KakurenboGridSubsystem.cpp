@@ -268,6 +268,44 @@ int32 UKakurenboGridSubsystem::DamageBlocksInRadius(const FVector& Center, float
 	return Destroyed;
 }
 
+int32 UKakurenboGridSubsystem::DamageBlocksInCells(const TArray<FIntPoint>& Cells, int32 MaxLevels, double Damage)
+{
+	int32 Destroyed = 0;
+	for (const FIntPoint& Cell : Cells)
+	{
+		if (!IsInside(Cell))
+		{
+			continue;
+		}
+		TArray<TObjectPtr<APlaceableBlock>>& Blocks = Columns[ToIndex(Cell)].Blocks;
+		// 当たった段を先に全部調べてから、上から順に消す（消すと上の段が落ちてくるため）
+		TArray<int32> BrokenLevels;
+		for (int32 Level = 0; Level < FMath::Min(Blocks.Num(), MaxLevels); ++Level)
+		{
+			if (!Blocks[Level])
+			{
+				continue;
+			}
+			const bool bBroken = Blocks[Level]->ApplyBlockDamage(Damage);
+			OnBlockHit.Broadcast(CellToWorld(Cell, Level), Blocks[Level]->GetBaseColor(), bBroken);
+			if (bBroken)
+			{
+				BrokenLevels.Add(Level);
+			}
+		}
+		for (int32 i = BrokenLevels.Num() - 1; i >= 0; --i)
+		{
+			RemoveAtLevel(Cell, BrokenLevels[i]);
+			++Destroyed;
+		}
+	}
+	if (Destroyed > 0)
+	{
+		MarkChanged();
+	}
+	return Destroyed;
+}
+
 int32 UKakurenboGridSubsystem::DamageBottomBlock(const FIntPoint& Cell, double Damage)
 {
 	if (!IsInside(Cell))
@@ -522,33 +560,73 @@ bool UKakurenboGridSubsystem::CanPlaceTrap(const FIntPoint& Cell, FText* OutReas
 	return true;
 }
 
-ATrapActor* UKakurenboGridSubsystem::SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def)
+ATrapActor* UKakurenboGridSubsystem::SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir)
 {
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	ATrapActor* Trap = GetWorld()->SpawnActor<ATrapActor>(ATrapActor::StaticClass(), CellFloorCenter(Cell), FRotator::ZeroRotator, Params);
 	if (Trap)
 	{
-		Trap->InitTrap(TrapTypeIndex, Def);
 		Trap->Cell = Cell;
+		Trap->SetDir(Dir);
+		Trap->InitTrap(TrapTypeIndex, Def);
 	}
 	return Trap;
 }
 
-ATrapActor* UKakurenboGridSubsystem::PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def)
+ATrapActor* UKakurenboGridSubsystem::PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir)
 {
 	if (!CanPlaceTrap(Cell))
 	{
 		return nullptr;
 	}
-	ATrapActor* Trap = SpawnTrapActor(Cell, TrapTypeIndex, Def);
+	ATrapActor* Trap = SpawnTrapActor(Cell, TrapTypeIndex, Def, Dir);
 	if (Trap)
 	{
 		FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
 		Column.Trap = Trap;
 		Column.TrapDesign = TrapTypeIndex;
+		Column.TrapDir = Dir;
+		if (Def.Kind == ETrapKind::OneWay)
+		{
+			MarkChanged(); // 鬼の経路が変わる
+		}
 	}
 	return Trap;
+}
+
+int32 UKakurenboGridSubsystem::GetTrapDir(const FIntPoint& Cell) const
+{
+	return IsInside(Cell) ? Columns[ToIndex(Cell)].TrapDir : 0;
+}
+
+bool UKakurenboGridSubsystem::RotateTrap(const FIntPoint& Cell)
+{
+	if (!IsInside(Cell))
+	{
+		return false;
+	}
+	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
+	if (!Column.Trap || Column.Trap->GetKind() != ETrapKind::OneWay)
+	{
+		return false;
+	}
+	Column.TrapDir = (Column.TrapDir + 1) % 4;
+	Column.Trap->SetDir(Column.TrapDir);
+	MarkChanged();
+	return true;
+}
+
+void UKakurenboGridSubsystem::ApplyOneWays(FKakurenboPathGrid& Grid) const
+{
+	for (int32 Index = 0; Index < Columns.Num(); ++Index)
+	{
+		const ATrapActor* Trap = Columns[Index].Trap;
+		if (Trap && Trap->GetKind() == ETrapKind::OneWay && Grid.ExtraCost[Index] == 0.f)
+		{
+			Grid.SetOneWay(Grid.FromIndex(Index), Columns[Index].TrapDir);
+		}
+	}
 }
 
 bool UKakurenboGridSubsystem::PickUpTrap(const FIntPoint& Cell, int32& OutReturnedType)
@@ -579,7 +657,12 @@ void UKakurenboGridSubsystem::ConsumeTrap(ATrapActor* Trap)
 	{
 		Columns[ToIndex(Trap->Cell)].Trap = nullptr; // 設計図は残す（あとで置き直せるように）
 	}
+	const bool bChangesPaths = Trap->GetKind() == ETrapKind::OneWay;
 	Trap->Destroy();
+	if (bChangesPaths)
+	{
+		MarkChanged(); // のれんが無くなったので、鬼の経路を作り直させる
+	}
 }
 
 int32 UKakurenboGridSubsystem::GetLiveTrapCount(int32 TrapTypeIndex) const
@@ -643,7 +726,7 @@ void UKakurenboGridSubsystem::RefillTrapsFromDesign(TArray<int32>& InOutStock, c
 			continue;
 		}
 		const FIntPoint Cell(Index % SizeX, Index / SizeX);
-		if (ATrapActor* Trap = SpawnTrapActor(Cell, Type, TrapTypes[Type]))
+		if (ATrapActor* Trap = SpawnTrapActor(Cell, Type, TrapTypes[Type], Column.TrapDir))
 		{
 			Column.Trap = Trap;
 			--InOutStock[Type];
@@ -833,6 +916,7 @@ void UKakurenboGridSubsystem::ExportLayout(TArray<FKakurenboSavedColumn>& OutCol
 			}
 		}
 		Saved.TrapDesign = Column.TrapDesign;
+		Saved.TrapDir = Column.TrapDir;
 		Saved.bTrapLive = Column.Trap != nullptr;
 	}
 }
@@ -853,9 +937,10 @@ void UKakurenboGridSubsystem::ImportLayout(const TArray<FKakurenboSavedColumn>& 
 		if (TrapTypes.IsValidIndex(Saved.TrapDesign))
 		{
 			Column.TrapDesign = Saved.TrapDesign;
+			Column.TrapDir = Saved.TrapDir;
 			if (Saved.bTrapLive)
 			{
-				Column.Trap = SpawnTrapActor(Saved.Cell, Saved.TrapDesign, TrapTypes[Saved.TrapDesign]);
+				Column.Trap = SpawnTrapActor(Saved.Cell, Saved.TrapDesign, TrapTypes[Saved.TrapDesign], Saved.TrapDir);
 			}
 		}
 		for (const int32 Type : Saved.Live)
@@ -908,6 +993,7 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildPathGrid(double AttackDamage, f
 			Grid.SetExtra(FIntPoint(X, Y), FMath::Max(1.f, static_cast<float>(Attacks)) * CostPerAttack);
 		}
 	}
+	ApplyOneWays(Grid);
 	return Grid;
 }
 
@@ -922,6 +1008,7 @@ FKakurenboPathGrid UKakurenboGridSubsystem::BuildWalkGrid() const
 			Grid.ExtraCost[Index] = -1.f; // 壁・家具は通れない
 		}
 	}
+	ApplyOneWays(Grid);
 	return Grid;
 }
 

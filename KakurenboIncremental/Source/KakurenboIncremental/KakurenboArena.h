@@ -35,6 +35,19 @@ class KAKURENBOINCREMENTAL_API AKakurenboArena : public AActor
 public:
 	AKakurenboArena();
 
+	/** M15：背の高い家具（この高さ cm 以上）の前のすき間は、体が入る幅（FurnitureWalkInGap）か無しにする。奥行きはこれより薄くしない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float TallFurnitureHeight = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float FurnitureWalkInGap = 78.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float MinShelfDepth = 20.f;
+
+	/** 家具の当たり判定の箱に付けるタグ（箱は隠してあるが、見えている家具と同じ形。設置パートのレイはこれには当てる） */
+	static const FName FurnitureCollisionTag;
+
 	/** グリッドのマス数（X 方向） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
 	int32 GridSizeX = 24;

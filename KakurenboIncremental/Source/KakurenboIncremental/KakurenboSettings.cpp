@@ -56,6 +56,7 @@ void UKakurenboSettings::Load()
 	GamepadSensitivity = Saved->Version >= 2 ? FMath::Clamp(Saved->GamepadSensitivity, MinGamepadSensitivity, MaxGamepadSensitivity) : 1.f;
 	bInvertMouseY = Saved->bInvertMouseY;
 	bShowHints = Saved->bShowHints;
+	bCrouchToggle = Saved->Version >= 4 ? Saved->bCrouchToggle : true;
 	ActivePadLayout = Saved->Version >= 3 && Saved->PadLayout == static_cast<uint8>(EKakurenboPadLayout::Nintendo) ? EKakurenboPadLayout::Nintendo : EKakurenboPadLayout::Xbox;
 	for (int32 i = 0; i < NumActions; ++i)
 	{
@@ -90,6 +91,7 @@ void UKakurenboSettings::Save()
 	Out->GamepadSensitivity = GamepadSensitivity;
 	Out->bInvertMouseY = bInvertMouseY;
 	Out->bShowHints = bShowHints;
+	Out->bCrouchToggle = bCrouchToggle;
 	Out->PadLayout = static_cast<uint8>(ActivePadLayout);
 	for (int32 i = 0; i < NumActions; ++i)
 	{
@@ -179,6 +181,7 @@ FKakurenboKeyBinding UKakurenboSettings::DefaultBinding(EKakurenboAction Action)
 	case EKakurenboAction::Refill:      return Make(EKeys::R);
 	case EKakurenboAction::Prestige:    return Make(EKeys::P);
 	case EKakurenboAction::Help:        return Make(EKeys::F1, EKeys::H);
+	case EKakurenboAction::UseItem:     return Make(EKeys::G);
 	default:                            return Make(EKeys::Invalid);
 	}
 }
@@ -203,6 +206,7 @@ FKey UKakurenboSettings::GamepadKey(EKakurenboAction Action)
 	case EKakurenboAction::SwitchShop:  return EKeys::Gamepad_LeftShoulder;     // LB（RB でも切り替わる）
 	case EKakurenboAction::Refill:      return PadFace(EKakurenboPadFace::X);
 	case EKakurenboAction::Help:        return EKeys::Gamepad_Special_Left;     // BACK（ビュー）
+	case EKakurenboAction::UseItem:     return PadFace(EKakurenboPadFace::Y);   // かくれんぼ中だけ（Y の「次へ」はかくれんぼ中には使わない）
 	default:                            return EKeys::Invalid;                  // カメラ（右スティック）・転生（ボタンを選んで A）
 	}
 }
@@ -436,6 +440,7 @@ FText UKakurenboSettings::ActionDisplayName(EKakurenboAction Action)
 	case EKakurenboAction::Refill:      return NSLOCTEXT("Kakurenbo", "ActRefill", "購入：まとめて補充");
 	case EKakurenboAction::Prestige:    return NSLOCTEXT("Kakurenbo", "ActPrestige", "購入：転生");
 	case EKakurenboAction::Help:        return NSLOCTEXT("Kakurenbo", "ActHelp", "操作説明");
+	case EKakurenboAction::UseItem:     return NSLOCTEXT("Kakurenbo", "ActUseItem", "だるまさんがころんだ");
 	default:                            return FText::GetEmpty();
 	}
 }

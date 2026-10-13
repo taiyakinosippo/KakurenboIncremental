@@ -9,6 +9,7 @@
 
 class UMaterialInterface;
 class UPointLightComponent;
+class UMaterialInstanceDynamic;
 class UStaticMesh;
 class UStaticMeshComponent;
 
@@ -47,6 +48,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
 	TObjectPtr<UPointLightComponent> Glow;
 
+	/**
+	 * M15：館の色（暖かい明かり・木の床）に宝石が埋もれて見えにくかったので、
+	 * 足元に光る輪・宝石のまわりを回る白い光の粒・宝石そのものの明滅（自分で光る強さ）を足した
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
+	TObjectPtr<UStaticMeshComponent> GroundGlow;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Treasure")
+	TArray<TObjectPtr<UStaticMeshComponent>> Twinkles;
+
+	/** 宝石が自分で光る強さ（明滅の弱いとき・強いとき） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float GemGlowMin = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	float GemGlowMax = 3.5f;
+
 	/** 取得したときにもらえるコイン（GameMode が出現時に設定する） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	double Value = 0.0;
@@ -74,6 +92,12 @@ protected:
 
 private:
 	FVector BaseSpinLocation = FVector::ZeroVector;
+	/** 宝石・足元の輪の光の強さを変えるためのマテリアル */
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> GemMID;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> GroundMID;
 	bool bGemLook = false;
 	float Time = 0.f;
 	float SparkleTimer = 0.f;

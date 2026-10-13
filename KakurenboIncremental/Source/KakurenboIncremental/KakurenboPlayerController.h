@@ -130,9 +130,19 @@ public:
 	/** 設置パートの「全部回収」も 2 回押して決める（1 回目から 3 秒以内） */
 	bool IsClearAllConfirmPending() const { return ClearAllConfirmUntil > 0.f && GetWorld() && GetWorld()->GetTimeSeconds() < ClearAllConfirmUntil; }
 
-	/** 購入パートで「転生のお店」を開いているか（false なら「コインのお店」） */
-	UPROPERTY(BlueprintReadOnly, Category = "Shop")
-	bool bPrestigeShopTab = false;
+	/** 購入パートで開いているお店（コイン・宝石・転生） */
+	EKakurenboShopTab ShopTab = EKakurenboShopTab::Coin;
+	bool IsPrestigeShopTab() const { return ShopTab == EKakurenboShopTab::Prestige; }
+	bool IsGemShopTab() const { return ShopTab == EKakurenboShopTab::Gem; }
+
+	/** お店を切り替える（Delta = +1 で コイン → 宝石 → 転生 → コイン…） */
+	void CycleShopTab(int32 Delta);
+
+	/** M15：まとめ買い（商品をクリックしたときに 1 個・10 個・買えるだけ） */
+	EKakurenboBuyAmount BuyAmount = EKakurenboBuyAmount::One;
+
+	/** まとめ買いの数（買えるだけは 9999 までにしておく） */
+	int32 GetBuyCount() const { return BuyAmount == EKakurenboBuyAmount::Ten ? 10 : BuyAmount == EKakurenboBuyAmount::Max ? 9999 : 1; }
 
 	/** UI を指すカーソルの位置（ピクセル。自動テスト中はテスト用の位置） */
 	bool GetUICursorPosition(FVector2D& OutPosition) const;
@@ -187,6 +197,15 @@ public:
 
 	/** 罠を選んでいるか */
 	bool IsTrapSlotSelected() const;
+
+	/** 下の欄に並べる置く物（SelectedBuildSlot と同じ番号の並び。宝石の道具は持っているものだけ） */
+	TArray<int32> GetBuildSlots() const;
+
+	/** 置く物を欄の並びで前後に選ぶ（LB・RB） */
+	void SelectBuildSlotByOffset(int32 Delta);
+
+	/** そのマスに一方通行ののれんがあるか（左クリック・A で向きを変える） */
+	bool IsOneWayAt(const FIntPoint& Cell) const;
 
 	/** 選んでいる壁の種類（罠を選んでいたら INDEX_NONE） */
 	int32 GetSelectedWallType() const;
@@ -286,6 +305,18 @@ public:
 	/** 設置パートから購入パートへ戻る（B キーと同じ） */
 	UFUNCTION(Exec)
 	void KakuShop();
+
+	/** 宝石を増やす。例: KakuAddGems 20 */
+	UFUNCTION(Exec)
+	void KakuAddGems(int32 Amount);
+
+	/** 宝石のお店で買う（1 始まり。開いているお店に関係なく） */
+	UFUNCTION(Exec)
+	void KakuBuyGem(int32 ItemNumber);
+
+	/** だるまさんがころんだを使う（G キーと同じ） */
+	UFUNCTION(Exec)
+	void KakuDaruma();
 
 	/** BGM の音量（0〜1）。例: KakuMusicVolume 0.2 */
 	UFUNCTION(Exec)
@@ -420,6 +451,9 @@ private:
 
 	/** 自動テスト用：Ctrl を押しているのと同じ（しのび足） */
 	bool bTestSneak = false;
+
+	/** しゃがむを「1 回押して切り替え」にしているときの、今しゃがんでいるか（かくれんぼの始めに立つ） */
+	bool bSneakToggled = false;
 
 	/** 自動テスト中も操作のヒントを出す（ふだんのテストでは、スクリーンショットが変わらないよう出さない） */
 	bool bShowTipsInAutoTest = false;

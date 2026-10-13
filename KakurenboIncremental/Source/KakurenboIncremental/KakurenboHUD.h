@@ -17,7 +17,8 @@ struct FSlateFontInfo;
 enum class EKakurenboUIAction : uint8
 {
 	None,
-	ShopTab,   // お店の切り替え（Index 0: コインのお店 / 1: 転生のお店）
+	ShopTab,   // お店の切り替え（Index は EKakurenboShopTab：0 コインのお店 / 1 転生のお店 / 2 宝石のお店）
+	BuyAmount, // まとめ買いの数（Index は EKakurenboBuyAmount：0 ×1 / 1 ×10 / 2 買えるだけ）
 	ShopItem,  // 商品（Index は 0 始まりの番号）
 	Prestige,  // 転生する
 	NextPhase, // 次のパートへ（Enter と同じ）
@@ -39,6 +40,22 @@ enum class EKakurenboUIAction : uint8
 	Back,       // もどる（Esc と同じ）
 	ConfirmYes, // 確認の「はい」
 	ConfirmNo,  // 確認の「いいえ」
+};
+
+/** 購入パートで開いているお店（番号はタブのボタンの Index。並びは コイン → 宝石 → 転生） */
+enum class EKakurenboShopTab : uint8
+{
+	Coin = 0,     // コインのお店（強化・壁・罠）
+	Prestige = 1, // 転生のお店（転生ポイントで永続強化）
+	Gem = 2,      // 宝石のお店（お宝の宝石で、ふしぎな道具）
+};
+
+/** まとめ買い（M15）：商品をクリックしたときに買う数 */
+enum class EKakurenboBuyAmount : uint8
+{
+	One = 0,
+	Ten = 1,
+	Max = 2, // 買えるだけ
 };
 
 /** 開いているメニュー（重ねて開ける。Esc・もどるで 1 つ前に戻る） */
@@ -110,6 +127,7 @@ enum class EKakurenboSettingToggle : uint8
 	Hints,
 	Fullscreen,
 	PadLayout,  // コントローラーのボタン配置（Xbox / 任天堂）
+	CrouchToggle, // しゃがむ：1 回押して切り替え / 押している間
 	Count
 };
 
@@ -219,6 +237,21 @@ protected:
 
 	/** 文の幅（1080p 基準） */
 	float MeasureText(const FString& Str, int32 Size);
+
+	/** [ ] をキーの形で描く文の幅（1080p 基準） */
+	float MeasureRich(const FString& Str, int32 Size);
+
+	/**
+	 * M15：幅 MaxW（1080p 基準）に収まるように描く。入らなければ文字を小さくし（Size の 6 割まで）、それでも入らなければ後ろを「…」にする。
+	 * 枠からはみ出す・隣の文字とかぶるのを防ぐ
+	 */
+	void TextFit(const FString& Str, float X, float Y, int32 Size, float MaxW, const FLinearColor& Color = FLinearColor::White, bool bCenterX = false);
+
+	/** RichText の幅を MaxW に収める（文字を小さくする。Size の 6 割まで） */
+	float RichTextFit(const FString& Str, float X, float Y, int32 Size, float MaxW, const FLinearColor& Color = FLinearColor::White, bool bCenterX = false, float Alpha = 1.f);
+
+	/** その幅に収まる文字の大きさ */
+	int32 FitSize(const FString& Str, int32 Size, float MaxW, bool bRich);
 
 	/** キーの形（キーキャップ）を描く。幅を返す（1080p 基準） */
 	float KeyCap(const FString& Label, float X, float Y, int32 Size, float Alpha = 1.f);

@@ -20,14 +20,14 @@ namespace
 	bool IsCueSfx(EKakurenboSfx Sfx)
 	{
 		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
-			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert;
+			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert || Sfx == EKakurenboSfx::Meow;
 	}
 
 	/** 重なってもよい音（間隔を空けない） */
 	bool AllowsOverlap(EKakurenboSfx Sfx)
 	{
 		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
-			|| Sfx == EKakurenboSfx::OniNotice;
+			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Meow;
 	}
 
 	/**
@@ -43,6 +43,7 @@ namespace
 		case EKakurenboSfx::OniNotice:       OutFullCm = 600.f;  OutMaxCm = 4000.f; break;
 		case EKakurenboSfx::Alert:           OutFullCm = 800.f;  OutMaxCm = 6000.f; break;
 		case EKakurenboSfx::Summon:          OutFullCm = 1000.f; OutMaxCm = 6000.f; break;
+		case EKakurenboSfx::Meow:            OutFullCm = 300.f;  OutMaxCm = 3000.f; break;
 		default:                             OutFullCm = 500.f;  OutMaxCm = 4000.f; break;
 		}
 	}

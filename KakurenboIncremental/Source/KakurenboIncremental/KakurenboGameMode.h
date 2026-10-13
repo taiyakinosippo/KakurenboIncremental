@@ -228,6 +228,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	double TreasureRewardRatio = 0.3;
 
+	/** M15：お宝 1 個でもらえる宝石の数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	int32 GemsPerTreasure = 1;
+
+	/** M15：そのラウンドのお宝を全部取ったときのボーナス（宝石の数・逃げ切り報酬に対するコインの割合） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	int32 AllTreasureBonusGems = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
+	double AllTreasureBonusCoinRatio = 0.5;
+
 	/** お宝はプレイヤー・他のお宝からこのマス数以上離して置く */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treasure")
 	float TreasureMinDistanceCells = 4.f;
@@ -391,10 +402,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float HeartbeatFastInterval = 0.38f;
 
-	/** 今の危なさ（0〜1）と、鳴らした心臓の音の数（テスト用） */
+	/** M15：心臓の音の大きさは、一番近い鬼との距離で決める。この距離（cm）より遠い鬼では鳴らない（向かってくる・追ってくる鬼は危なさで鳴る） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatMaxDistance = 2000.f;
+
+	/** 近さ（0〜1）がこれ以上で鳴り始める */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatMinCloseness = 0.12f;
+
+	/** 心臓の音の大きさ：一番遠いとき / すぐそば（DangerFullDistance 以内）のとき */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatQuietVolume = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatLoudVolume = 2.2f;
+
+	/** 今の危なさ（0〜1）・一番近い鬼の近さ（0〜1）・鳴らした心臓の音の数と最後の大きさ（テスト用） */
 	float GetCurrentDanger() const { return CurrentDanger; }
+	float GetCurrentCloseness() const { return CurrentCloseness; }
 	int32 GetHeartbeatCount() const { return HeartbeatCount; }
+	float GetLastHeartbeatVolume() const { return LastHeartbeatVolume; }
 	float ComputeDanger() const;
+	float ComputeOniCloseness() const;
 
 	/** 鬼の経路などをデバッグ表示する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
@@ -732,6 +761,42 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyShopItem(int32 Index);
 
+	/** M15：まとめ買い。商品を Count 個（強化は Count レベル）まで、買えるだけ買う。@return 買った数 */
+	int32 TryBuyShopItem(int32 Index, int32 Count);
+
+	/** まとめ買いで、今のコインで何個・いくらで買えるか（Count 個まで。1 個も買えなければ 0 個・1 個目の値段） */
+	void GetShopItemBulkPrice(int32 Index, int32 Count, int32& OutCount, double& OutCost) const;
+
+	/** M15：宝石のお店の商品一覧（宝石で買う道具：Traps.csv の bGemItem の行） */
+	TArray<FShopItemView> GetGemShopItems() const;
+
+	/** 宝石のお店で買う（Index は 0 始まり）。@return 買った数 */
+	int32 TryBuyGemShopItem(int32 Index, int32 Count = 1);
+
+	/** 宝石のお店の Index 番目の道具は、TrapTypes の何番か（無ければ INDEX_NONE） */
+	int32 GetGemShopTrapType(int32 Index) const;
+
+	/** 宝石のお店の番号（0 始まり）。その種類が宝石のお店に無ければ INDEX_NONE */
+	int32 GetGemShopIndexOfTrap(int32 TrapTypeIndex) const;
+
+	/** その種類の道具を探す（宝石のお店の道具・罠。無ければ INDEX_NONE） */
+	int32 FindTrapTypeOfKind(ETrapKind Kind) const;
+
+	/** お店に並ぶ罠の種類（bGem = false：コインのお店の罠 / true：宝石のお店の道具）。TrapTypes の番号の並び */
+	TArray<int32> GetTrapTypesInShop(bool bGem) const;
+
+	/** 宝石のお店：その道具の今の価格（宝石） */
+	int32 GetGemTrapCost(int32 TrapTypeIndex) const { return FMath::RoundToInt(GetTrapCost(TrapTypeIndex)); }
+
+	/** その罠が宝石で買う道具か */
+	bool IsGemTrap(int32 TrapTypeIndex) const { return TrapTypes.IsValidIndex(TrapTypeIndex) && TrapTypes[TrapTypeIndex].bGemItem; }
+
+	/** その罠を設置パートで置けるか（だるまさんがころんだは置かない。かくれんぼ中に使う） */
+	bool IsPlaceableTrap(int32 TrapTypeIndex) const { return TrapTypes.IsValidIndex(TrapTypeIndex) && TrapTypes[TrapTypeIndex].Kind != ETrapKind::Daruma; }
+
+	/** デバッグ用：宝石を増やす */
+	void DebugAddGems(int32 Amount);
+
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool TryBuyMashUpgrade();
 
@@ -754,7 +819,7 @@ public:
 	/** まとめて買うと何個・いくらになるか（足りない分を全部買ったとき） */
 	void GetRefillPlan(int32& OutCount, double& OutCost) const;
 
-	/** 商品の番号（0 始まり）。並び: 強化（連打・時間・壁の補強）→ 壁 → 罠 */
+	/** 商品の番号（0 始まり）。並び: 強化（連打・時間・壁の補強）→ 壁 → 罠（コインで買う罠だけ。宝石の道具は宝石のお店） */
 	int32 GetShopIndexOfWall(int32 WallTypeIndex) const;
 	int32 GetShopIndexOfTrap(int32 TrapTypeIndex) const;
 
@@ -777,6 +842,12 @@ public:
 	/** 設置パート：在庫の罠を置く */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
 	bool PlaceTrap(FIntPoint Cell, int32 TrapTypeIndex);
+
+	/** 設置パート：一方通行ののれんの向きを 90 度回す（左クリックで置いてあるのれんを押したとき） */
+	bool RotateTrap(FIntPoint Cell);
+
+	/** 次に置く一方通行ののれんの向き（0 +X / 1 +Y / 2 -X / 3 -Y。鬼が通れる向き。最初は門の反対＝西） */
+	int32 OneWayPlaceDir = 2;
 
 	/** 設置パート：罠を回収する（残っていれば在庫に戻す。発動済みなら設計図から消すだけ） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
@@ -805,6 +876,70 @@ public:
 
 	/** おとりが音を出した */
 	void HandleDecoyPing(ATrapActor* Trap);
+
+	// ===== 宝石のお店の道具（M15） =====
+
+	/** 真っ暗ブロック：画面の明るさを下げる量（EV） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float DarknessExposureBias = -1.8f;
+
+	/** だるまさんがころんだ：画面の真ん中からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float DarumaViewHalfAngle = 38.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float DarumaViewDistance = 3000.f;
+
+	/** タッチされて門へ帰った鬼が動けない秒数 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float DarumaTouchStunSeconds = 2.f;
+
+	/** 身代わり人形が逃げながら出す大きな音（連打 = 1） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float FakeHiderNoiseLoudness = 1.3f;
+
+	/** 身代わり人形が逃げている間、何秒ごとに音を出すか */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
+	float FakeHiderNoiseInterval = 0.7f;
+
+	/** 迷い猫・身代わり人形などの道具が音を出した（その場所から鬼に聞こえる） */
+	void HandleGadgetNoise(ATrapActor* Trap, float Loudness, EKakurenboNoise Kind);
+
+	/** 身代わり人形が鬼に捕まった（ポンと消える。鬼は「にせもの！」でしばらく見回す）。人形はここで消える */
+	void HandleFakeHiderCaught(ATrapActor* Trap, AOniCharacter* Oni);
+
+	/** のれんが鬼に通られすぎて壊れた。ここで消える */
+	void HandleOneWayBroken(ATrapActor* Trap);
+
+	/** 今のラウンドで、館全体が真っ暗か（真っ暗ブロックを置いている） */
+	bool IsMansionDark() const { return bMansionDark; }
+
+	/** 真っ暗のとき、鬼が見える距離（cm。真っ暗ブロックの Radius） */
+	float GetDarkSightRadius() const { return DarkSightRadius; }
+
+	/** プレイヤーと同じ見た目にする（身代わり人形にも使う。Tint は模様に掛ける色） */
+	void ApplyPlayerLookTo(AHiderCharacter* Hider, const FLinearColor& Tint = FLinearColor::White);
+
+	/** 身代わり人形：プレイヤー・鬼・のれんとぶつからないようにする（鬼とは体が重なれる＝触れたら捕まる判定は距離で見る） */
+	void RegisterFakeHiderCollision(AHiderCharacter* Fake);
+
+	/** 身代わり人形（今いるもの） */
+	TArray<class AHiderCharacter*> GetFakeHiders() const;
+
+	/** だるまさんがころんだ：今使えるか・使う（在庫を 1 つ使う）・効いている残りの秒数 */
+	bool CanUseDaruma() const;
+	bool UseDaruma();
+	float GetDarumaTimeLeft() const { return DarumaTimeLeft; }
+	bool IsDarumaActive() const { return DarumaTimeLeft > 0.f; }
+
+	/** だるまさんがころんだの間、その鬼をプレイヤーが見ているか（見られている鬼は動けない） */
+	bool IsOniWatchedByPlayer(const AOniCharacter* Oni) const;
+
+	/** だるまさんがころんだで止まっている鬼にタッチした：鬼は門へ帰される */
+	void HandleDarumaTouch(AOniCharacter* Oni);
+
+	/** だるまさんがころんだで鬼を門へ帰した回数（このラウンド。テスト用） */
+	int32 GetDarumaTouchCount() const { return DarumaTouchCount; }
 
 	/** パワー鬼が、抜け出した直後にトリモチを踏んで壊した。罠はここで消える */
 	void HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni);
@@ -986,6 +1121,25 @@ protected:
 	int32 LastCountdownSecond = 0;
 	int32 LastTimeTickSecond = 0;
 	float CurrentDanger = 0.f;
+	float CurrentCloseness = 0.f;
 	float HeartbeatTimer = 0.f;
 	int32 HeartbeatCount = 0;
+	float LastHeartbeatVolume = 0.f;
+
+	/** 真っ暗ブロック：このラウンドは館全体が暗い */
+	bool bMansionDark = false;
+	float DarkSightRadius = 300.f;
+	/** 館を暗くする画面の効果（ラウンドの間だけ） */
+	UPROPERTY()
+	TObjectPtr<class APostProcessVolume> DarknessVolume;
+	void SetMansionDark(bool bDark, float SightRadius);
+
+	/** だるまさんがころんだ */
+	float DarumaTimeLeft = 0.f;
+	int32 DarumaTouchCount = 0;
+	void TickDaruma(float DeltaSeconds);
+
+	/** そのラウンドの道具（真っ暗ブロック）を、ラウンドの終わりに使い切る */
+	void ConsumeRoundGadgets();
+
 };

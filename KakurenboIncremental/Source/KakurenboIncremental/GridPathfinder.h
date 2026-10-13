@@ -19,11 +19,46 @@ struct KAKURENBOINCREMENTAL_API FKakurenboPathGrid
 	 */
 	TArray<float> ExtraCost;
 
+	/**
+	 * 一方通行のマス（M15：一方通行ののれん）。-1 なら普通のマス、0〜3 なら通れる向き（0 +X / 1 +Y / 2 -X / 3 -Y）。
+	 * そのマスへは「通れる向き」にまっすぐ（縦横で）入り、同じ向きへまっすぐ出るしかない。空なら一方通行のマスは無い
+	 */
+	TArray<int8> OneWayDir;
+
 	void Init(int32 InSizeX, int32 InSizeY)
 	{
 		SizeX = InSizeX;
 		SizeY = InSizeY;
 		ExtraCost.Init(0.f, SizeX * SizeY);
+		OneWayDir.Reset();
+	}
+
+	/** マスを一方通行にする（Dir: 0 +X / 1 +Y / 2 -X / 3 -Y） */
+	void SetOneWay(const FIntPoint& P, int32 Dir)
+	{
+		if (OneWayDir.Num() != SizeX * SizeY)
+		{
+			OneWayDir.Init(-1, SizeX * SizeY);
+		}
+		OneWayDir[ToIndex(P)] = static_cast<int8>(Dir);
+	}
+
+	/** 一方通行の向き（普通のマスなら -1） */
+	int32 GetOneWay(const FIntPoint& P) const { return OneWayDir.Num() == SizeX * SizeY && IsInside(P) ? OneWayDir[ToIndex(P)] : -1; }
+
+	/** 向きの番号 → マスの差 */
+	static FIntPoint DirToStep(int32 Dir)
+	{
+		static const FIntPoint Steps[4] = { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 } };
+		return Steps[((Dir % 4) + 4) % 4];
+	}
+
+	/** P から P + D へ動けるか（一方通行のマスの決まりだけを見る） */
+	bool CanStep(const FIntPoint& P, const FIntPoint& D) const
+	{
+		const int32 From = GetOneWay(P);
+		const int32 To = GetOneWay(P + D);
+		return (From < 0 || D == DirToStep(From)) && (To < 0 || D == DirToStep(To));
 	}
 
 	bool IsInside(const FIntPoint& P) const { return P.X >= 0 && P.Y >= 0 && P.X < SizeX && P.Y < SizeY; }

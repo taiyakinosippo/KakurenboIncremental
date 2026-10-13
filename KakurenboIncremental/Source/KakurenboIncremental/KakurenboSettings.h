@@ -72,7 +72,7 @@ class KAKURENBOINCREMENTAL_API UKakurenboSettingsSave : public USaveGame
 public:
 	/** 1: 最初 / 2: コントローラーの感度・「ジャンプ」のキーを「よじ登る」へ / 3: コントローラーのボタン配置 */
 	UPROPERTY()
-	int32 Version = 3;
+	int32 Version = 4;
 
 	/** コントローラーのボタン配置（EKakurenboPadLayout。版 3 から） */
 	UPROPERTY()
@@ -99,6 +99,10 @@ public:
 
 	UPROPERTY()
 	bool bShowHints = true;
+
+	/** しゃがむボタンを 1 回押すとしゃがむ・もう 1 回で立つ（版 4 から。false なら押している間だけ） */
+	UPROPERTY()
+	bool bCrouchToggle = true;
 
 	/** 操作の名前（EKakurenboAction の名前）→ キー。並びを変えても困らないよう名前で持つ */
 	UPROPERTY()
@@ -142,6 +146,9 @@ public:
 
 	/** 画面下のキーの案内と、はじめての操作のヒントを出す */
 	bool bShowHints = true;
+
+	/** M15：しゃがむボタンを 1 回押すとしゃがむ・もう 1 回で立つ（ユーザーの依頼）。false なら押している間だけ */
+	bool bCrouchToggle = true;
 
 	/** コントローラーのボタン配置（変えるときは SetPadLayout） */
 	static EKakurenboPadLayout GetPadLayout() { return ActivePadLayout; }

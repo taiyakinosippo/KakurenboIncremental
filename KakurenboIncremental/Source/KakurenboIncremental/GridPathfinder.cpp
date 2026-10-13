@@ -84,11 +84,19 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 			const bool bDiagonal = D.X != 0 && D.Y != 0;
 			if (bDiagonal)
 			{
-				// 壁の角をすり抜けない／壁へ斜めに入らない
-				if (Extra > 0.f || !Grid.IsFree(FIntPoint(P.X + D.X, P.Y)) || !Grid.IsFree(FIntPoint(P.X, P.Y + D.Y)))
+				// 壁の角をすり抜けない／壁へ斜めに入らない（一方通行ののれんの角もすり抜けない）
+				const FIntPoint CornerA(P.X + D.X, P.Y);
+				const FIntPoint CornerB(P.X, P.Y + D.Y);
+				if (Extra > 0.f || !Grid.IsFree(CornerA) || !Grid.IsFree(CornerB) || Grid.GetOneWay(CornerA) >= 0 || Grid.GetOneWay(CornerB) >= 0)
 				{
 					continue;
 				}
+			}
+			// 一方通行ののれん：決まった向きにまっすぐしか通れない（今いるマスがのれんの上なら、出る向きは問わない＝閉じ込められない）
+			const int32 IntoDir = Grid.GetOneWay(N);
+			if (P == Start ? (IntoDir >= 0 && D != FKakurenboPathGrid::DirToStep(IntoDir)) : !Grid.CanStep(P, D))
+			{
+				continue;
 			}
 
 			const int32 NIndex = Grid.ToIndex(N);

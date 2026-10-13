@@ -42,6 +42,10 @@ struct FKakurenboBlockColumn
 	UPROPERTY()
 	int32 TrapDesign = INDEX_NONE;
 
+	/** 罠の向き（一方通行ののれん：0 +X / 1 +Y / 2 -X / 3 -Y） */
+	UPROPERTY()
+	int32 TrapDir = 0;
+
 	/** 今ある罠（発動して消えたら null。設計図は残る） */
 	UPROPERTY()
 	TObjectPtr<ATrapActor> Trap;
@@ -101,6 +105,12 @@ public:
 	 * @return 壊れたブロックの数
 	 */
 	int32 DamageBlocksInRadius(const FVector& Center, float Radius, double Damage);
+
+	/**
+	 * 決まったマスの壁に当たる（パワー鬼の前方の箱）。それぞれのマスの下から MaxLevels 段に Damage を与え、壊れたものを取り除く。
+	 * 設計図は変えない。@return 壊れたブロックの数
+	 */
+	int32 DamageBlocksInCells(const TArray<FIntPoint>& Cells, int32 MaxLevels, double Damage);
 
 	/**
 	 * 1 個だけ攻撃。そのマスの一番下のブロックに Damage を与え、壊れたら取り除く（上の段は落ちる）。
@@ -182,8 +192,14 @@ public:
 	/** 罠を置けるか（壁も壁の設計図も罠も無い床のマス）。置けない理由を返す */
 	bool CanPlaceTrap(const FIntPoint& Cell, FText* OutReason = nullptr) const;
 
-	/** プレイヤーが置く：罠を置いて設計図にも書く */
-	ATrapActor* PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
+	/** プレイヤーが置く：罠を置いて設計図にも書く（Dir は一方通行ののれんの向き） */
+	ATrapActor* PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir = 0);
+
+	/** 罠の向き（一方通行ののれん） */
+	int32 GetTrapDir(const FIntPoint& Cell) const;
+
+	/** 置いてある一方通行ののれんの向きを 90 度回す（のれんでなければ false） */
+	bool RotateTrap(const FIntPoint& Cell);
 
 	/**
 	 * プレイヤーが回収する：罠と設計図を消す。
@@ -296,7 +312,10 @@ private:
 	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
 	TArray<bool> BuildMainAreaMask() const;
 	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP = 0.0);
-	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
+	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir = 0);
+
+	/** 経路のグリッドに、今ある一方通行ののれんを書き込む */
+	void ApplyOneWays(FKakurenboPathGrid& Grid) const;
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);
 	void SyncDesignToBlocks(const FIntPoint& Cell);

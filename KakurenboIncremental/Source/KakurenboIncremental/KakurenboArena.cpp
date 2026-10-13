@@ -17,6 +17,8 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogKakurenboArena, Log, All);
 
+const FName AKakurenboArena::FurnitureCollisionTag(TEXT("KakuFurnitureCollision"));
+
 AKakurenboArena::AKakurenboArena()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -832,6 +834,7 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 	{
 		UStaticMeshComponent* Box = AddMapCube(Center + FVector(0.f, 0.f, Height * 0.5f), FVector(RectW, RectD, Height), Row.Color, true);
 		Box->SetHiddenInGame(Mesh != nullptr);
+		Box->ComponentTags.Add(FurnitureCollisionTag);
 		if (!bIsWall)
 		{
 			// 三人称カメラは家具をすり抜ける（家具の陰にしゃがんでも自分が見え、カメラが家具に当たってがくがくしない）
@@ -1029,6 +1032,26 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 					Scale3D = FVector(CopyScale);
 					(bMeshLongX ? Scale3D.X : Scale3D.Y) *= FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
 					(bMeshLongX ? Scale3D.Y : Scale3D.X) *= FMath::Clamp(ShortSlot * 0.9f / (MeshShort * CopyScale), MinShortStretch, MaxShortStretch);
+
+					// M15：背の高い家具（本棚・たんす・食器棚）の前のすき間は「体が入る（WalkInGap 以上）」か「無い」かのどちらかにする。
+					// （ユーザーの指摘：「本棚の隙間が入れない」。床が見えているのに、しゃがんでも体が入らない 30〜50cm のすき間があった）
+					// 後ろが壁なら奥行きを薄くして前に WalkInGap を空ける（薄くしすぎるなら、すき間を無くす）。真ん中に立っているなら、すき間を無くす
+					if (Height >= TallFurnitureHeight)
+					{
+						double& ShortScale = bMeshLongX ? Scale3D.Y : Scale3D.X; // FVector の成分は double
+						const float Depth = MeshShort * ShortScale;
+						const float Gap = ShortSlot - Depth;
+						// （すき間が 20cm より狭い家具は、床がほとんど見えないので今まで通り）
+						if (bPushBack && Gap > 20.f && Gap < FurnitureWalkInGap)
+						{
+							const float WalkInDepth = ShortSlot - FurnitureWalkInGap;
+							ShortScale *= (WalkInDepth >= MinShelfDepth ? WalkInDepth : ShortSlot * 0.96f) / FMath::Max(Depth, 1.f);
+						}
+						else if (!bPushBack && Gap > 20.f && Gap < FurnitureWalkInGap * 2.f)
+						{
+							ShortScale *= ShortSlot * 0.96f / FMath::Max(Depth, 1.f);
+						}
+					}
 				}
 				FVector Slot = Center + LongAxis * ((LongStart + LongSize * 0.5f) * CellSize - RectLong * 0.5f)
 					+ ShortAxis * ((ShortStart + ShortSize * 0.5f) * CellSize - RectShort * 0.5f);
@@ -1063,6 +1086,7 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 					UStaticMeshComponent* Box = AddMapCube(FVector(BoxCenter.X, BoxCenter.Y, Center.Z + Height * 0.5f), FVector(BoxSize.X, BoxSize.Y, Height), Row.Color, true);
 					Box->SetHiddenInGame(true);
 					Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+					Box->ComponentTags.Add(FurnitureCollisionTag);
 					++FurnitureCollisionBoxes;
 				}
 				// マスの境目にまたがって、どちらのマスも埋めていないメッシュ（真ん中にぽつんと置かれて 2 マスぶんの場所を取って見える）を数える

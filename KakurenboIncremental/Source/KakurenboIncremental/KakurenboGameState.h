@@ -119,6 +119,22 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	double TreasureCoinsThisRound = 0.0;
 
+	// ---- 宝石（M15：お宝を取るともらえる。宝石のお店で、ふしぎな道具と交換する。転生してもなくならない） ----
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 Gems = 0;
+
+	/** このラウンドでもらった宝石（コンプリートのボーナスを含む） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 GemsThisRound = 0;
+
+	/** このラウンドでお宝を全部取った（コンプリートのボーナスをもらった） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	bool bAllTreasuresThisRound = false;
+
+	/** コンプリートのボーナスのコイン */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	double TreasureBonusCoinsThisRound = 0.0;
+
 	/** このラウンドの時間収入・連打収入（リザルトの内訳） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	double TimeCoinsThisRound = 0.0;
