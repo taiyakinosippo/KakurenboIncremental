@@ -941,7 +941,7 @@ void AOniCharacter::TickWander(float DeltaSeconds)
 		if (!bFound && OniType == EOniType::Careful)
 		{
 			// 慎重鬼：まず広い場所を手分けして見渡す。壁に囲まれた場所（空洞）は、広い場所をほぼ調べ終わってから
-			bFound = ChooseCarefulTarget() || TryInspectPocket() || ChooseRandomTarget(0);
+			bFound = ChooseCarefulTarget() || TryInspectPocket() || ChooseCarefulPatrolTarget();
 		}
 		else if (!bFound && OniType == EOniType::Treasure)
 		{
@@ -1316,7 +1316,7 @@ bool AOniCharacter::ChooseWanderTarget()
 	{
 	case EOniType::Scout:   return ChooseScoutTarget() || ChooseRandomTarget(0);
 	case EOniType::Breaker: return ChooseRandomTarget(6); // 積極的に探さない：近場をうろうろ
-	case EOniType::Careful: return ChooseCarefulTarget() || ChooseRandomTarget(0);
+	case EOniType::Careful: return ChooseCarefulTarget() || ChooseCarefulPatrolTarget();
 	case EOniType::Treasure: return ChooseTreasurePatrolTarget() || ChooseRandomTarget(5);
 	case EOniType::Detector: return false; // 見張りの場所から動かない
 	default:                return ChooseRandomTarget(0);
@@ -1464,6 +1464,22 @@ bool AOniCharacter::ChooseCarefulTarget()
 		}
 	}
 	return false;
+}
+
+bool AOniCharacter::ChooseCarefulPatrolTarget()
+{
+	// 調べるマスも空洞も残っていない慎重鬼：自分の担当の区画の中を見回る（舞台全体へ散らばると、2 体が同じ側に寄ってしまう）
+	UKakurenboGridSubsystem* G = Grid();
+	const FIntPoint Here = GetCurrentCell();
+	for (int32 Try = 0; Try < 16; ++Try)
+	{
+		FIntPoint Cell;
+		if (G->FindRandomFreeCell(Cell) && Cell != Here && IsInCarefulSector(Cell) && RequestPathTo(Cell, EPathMode::WalkOnly))
+		{
+			return true;
+		}
+	}
+	return ChooseRandomTarget(0);
 }
 
 bool AOniCharacter::ChooseTreasurePatrolTarget()

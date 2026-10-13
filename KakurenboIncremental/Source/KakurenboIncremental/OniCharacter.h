@@ -579,6 +579,7 @@ private:
 	bool ChooseRandomTarget(int32 MaxDistanceCells);
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
+	bool ChooseCarefulPatrolTarget();
 	bool ChooseTreasurePatrolTarget();
 	bool TryInspectPocket();
 	/** 探知鬼：見張りの場所へ行き、着いたらその場で首を回して見張る */

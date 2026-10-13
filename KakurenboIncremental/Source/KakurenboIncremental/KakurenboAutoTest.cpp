@@ -3003,7 +3003,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(22, 1)));
 		} });
-		Steps.Add({ 3.3f, [=]
+		Steps.Add({ 3.3f, [=, this]
 		{
 			for (AOniCharacter* Oni : GM->GetOnis())
 			{
@@ -3013,12 +3013,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->StepHearingRadius = 0.f;
 				Oni->bDrawDebug = true;
 			}
+			// 目と耳を閉じても、ぶつかれば見つかる。広い場所を見て回る鬼が角のプレイヤーに触れてラウンドが終わると、
+			// 鬼が止まって測れなくなる（手分け・空洞の数字がでたらめになる）ので、プレイヤーは舞台の上の空中に止めておく
+			if (ACharacter* P = Cast<ACharacter>(GetPawn()))
+			{
+				P->GetCharacterMovement()->DisableMovement();
+				P->SetActorLocation(P->GetActorLocation() + FVector(0.f, 0.f, 1500.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
 		} });
 		for (int32 i = 0; i < 100; ++i)
 		{
 			Steps.Add({ 0.5f, [=, this]
 			{
-				if (GM->GetOnis().Num() < 2)
+				if (GM->GetOnis().Num() < 2 || GS()->Phase != EKakurenboPhase::Hide)
 				{
 					return;
 				}
@@ -3051,6 +3058,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		}
 		Steps.Add({ 0.1f, [=, this]
 		{
+			Check(FString::Printf(TEXT("the round keeps going while measuring (phase=%s, samples %d of 100)"), *UEnum::GetValueAsString(GS()->Phase), Sweep->Samples),
+				GS()->Phase == EKakurenboPhase::Hide && Sweep->Samples == 100);
 			Check(FString::Printf(TEXT("careful onis first look over the open area, not the hollow (inspect samples in the first 8s: %d)"), Sweep->EarlyInspect), Sweep->EarlyInspect == 0);
 			Check(FString::Printf(TEXT("after the open area, they inspect the hollow (%d samples)"), Sweep->Inspect), Sweep->Inspect >= 1);
 			Check(FString::Printf(TEXT("never both on the same hollow (%d)"), Sweep->SameInspect), Sweep->SameInspect == 0);
