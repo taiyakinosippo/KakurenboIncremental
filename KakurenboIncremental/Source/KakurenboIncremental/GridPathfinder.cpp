@@ -163,7 +163,8 @@ void KakurenboPathfinding::LabelFreeRegions(const FKakurenboPathGrid& Grid, TArr
 			for (const FIntPoint& D : Dirs)
 			{
 				const FIntPoint N = P + D;
-				if (!Grid.IsFree(N))
+				// のれんのマスにも広がらない（広がると、のれんで囲んだ場所が広い場所とつながって空洞にならない）
+				if (!Grid.IsFree(N) || Grid.GetOneWay(N) >= 0)
 				{
 					continue;
 				}

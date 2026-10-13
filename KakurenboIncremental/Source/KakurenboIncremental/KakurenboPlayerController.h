@@ -489,6 +489,19 @@ private:
 	int32 OniIntroPage = 0;
 	bool bOniBook = false;
 
+	/** いまのページを出した時刻（実時間）。出てすぐは「つぎ」を受け付けない（移動しようとしたキーで読む前に消えないように） */
+	double OniIntroPageShownTime = 0.0;
+
+public:
+	/** 鬼のチュートリアルのページを出してから「つぎ」を受け付けるまでの秒数（図鑑は除く） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Kakurenbo|Tips")
+	float OniIntroMinSeconds = 1.0f;
+
+	/** いまのページで「つぎ」を受け付けるか */
+	bool CanTurnOniIntroPage() const;
+
+private:
+
 	/** 設置パートのカメラの高さを最後に合わせた館の大きさ */
 	FIntPoint LastTopDownFitSize = FIntPoint::ZeroValue;
 

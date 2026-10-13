@@ -1007,10 +1007,45 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			}
 		}
 		const bool bPushBack = !Row.bWalkable && bBackBlocked && ShortSlots.Num() == 1 && FMath::Abs(FVector::DotProduct(Best.Dir, ShortAxis)) > 0.9f;
+
+		// 背の高い家具（本棚など）を長い辺に何個か並べたとき、間のすき間は「体が入る（WalkInGap 以上）」か「無い」かのどちらかにする。
+		// （ユーザーの指摘：「この本棚の隙間に入れるように」。伸ばしきれない本棚の間に 34〜37cm の、体が入らないすき間があった）
+		// 入れるなら：両端の本棚を端に寄せ、間を WalkInGap 空ける（本棚は少し細くなる）。細くなりすぎるなら、すき間を無くす
+		const int32 NumLong = LongSlots.Num();
+		float EvenCopyLength = 0.f; // 0 なら今まで通り（自分の場所の真ん中に置く）
+		float EvenCopyGap = 0.f;
+		constexpr float EndGap = 2.f;
+		if (!Row.bWalkable && Height >= TallFurnitureHeight && NumLong >= 2)
+		{
+			float NaturalTotal = 0.f;
+			for (const int32 LongSize : LongSlots)
+			{
+				const float SlotLength = LongSize * CellSize;
+				const float CopyScale = FMath::Min(Scale, SlotLength * 0.97f / (MeshLong * MinLongStretch));
+				NaturalTotal += MeshLong * CopyScale * FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
+			}
+			const float NaturalGap = (RectLong - NaturalTotal) / NumLong; // 隣どうしの間のすき間（両側の余りの半分ずつ）
+			if (NaturalGap > 20.f && NaturalGap < FurnitureWalkInGap)
+			{
+				const float SpreadLength = (RectLong - (NumLong - 1) * FurnitureWalkInGap - 2.f * EndGap) / NumLong;
+				if (SpreadLength >= FMath::Max(NaturalTotal / NumLong * 0.75f, 50.f))
+				{
+					EvenCopyLength = SpreadLength;
+					EvenCopyGap = FurnitureWalkInGap;
+				}
+				else
+				{
+					EvenCopyLength = (RectLong - 2.f * EndGap - (NumLong - 1) * 2.f) / NumLong;
+					EvenCopyGap = 2.f;
+				}
+			}
+		}
+
 		int32 ShortStart = 0;
 		for (const int32 ShortSize : ShortSlots)
 		{
 			int32 LongStart = 0;
+			int32 LongIndex = 0;
 			for (const int32 LongSize : LongSlots)
 			{
 				FVector Scale3D;
@@ -1030,7 +1065,9 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 					const float SlotLength = LongSize * CellSize;
 					const float CopyScale = FMath::Min(Scale, SlotLength * 0.97f / (MeshLong * MinLongStretch));
 					Scale3D = FVector(CopyScale);
-					(bMeshLongX ? Scale3D.X : Scale3D.Y) *= FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
+					(bMeshLongX ? Scale3D.X : Scale3D.Y) *= EvenCopyLength > 0.f
+						? EvenCopyLength / (MeshLong * CopyScale) // 間のすき間をそろえる（上で決めた長さ）
+						: FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
 					(bMeshLongX ? Scale3D.Y : Scale3D.X) *= FMath::Clamp(ShortSlot * 0.9f / (MeshShort * CopyScale), MinShortStretch, MaxShortStretch);
 
 					// M15：背の高い家具（本棚・たんす・食器棚）の前のすき間は「体が入る（WalkInGap 以上）」か「無い」かのどちらかにする。
@@ -1053,7 +1090,12 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 						}
 					}
 				}
-				FVector Slot = Center + LongAxis * ((LongStart + LongSize * 0.5f) * CellSize - RectLong * 0.5f)
+				// 長い辺の方向の位置：ふつうは自分の場所の真ん中。すき間をそろえるときは、端から「長さ＋すき間」ずつ
+				const float LongPos = EvenCopyLength > 0.f
+					? EndGap + EvenCopyLength * 0.5f + LongIndex * (EvenCopyLength + EvenCopyGap)
+					: (LongStart + LongSize * 0.5f) * CellSize;
+				++LongIndex;
+				FVector Slot = Center + LongAxis * (LongPos - RectLong * 0.5f)
 					+ ShortAxis * ((ShortStart + ShortSize * 0.5f) * CellSize - RectShort * 0.5f);
 				if (bPushBack)
 				{
@@ -1090,7 +1132,8 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 					++FurnitureCollisionBoxes;
 				}
 				// マスの境目にまたがって、どちらのマスも埋めていないメッシュ（真ん中にぽつんと置かれて 2 マスぶんの場所を取って見える）を数える
-				if (!Row.bWalkable)
+				// （本棚の間に体が入るすき間を空けたときは、わざとマスの途中で切れるので数えない）
+				if (!Row.bWalkable && EvenCopyGap < FurnitureWalkInGap)
 				{
 					const FVector Extent = World.GetExtent();
 					for (int32 Axis = 0; Axis < 2; ++Axis)

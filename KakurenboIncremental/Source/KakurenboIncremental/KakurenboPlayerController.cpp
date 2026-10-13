@@ -640,12 +640,19 @@ void AKakurenboPlayerController::OpenOniIntro(const TArray<EOniType>& Types, boo
 		GM->GetOniStudio()->CaptureAll(); // 写真を撮り直す（テクスチャが読み込まれた後のきれいな写真）
 	}
 	OpenMenu(EKakurenboMenu::OniIntro);
+	OniIntroPageShownTime = FPlatformTime::Seconds();
 	UKakurenboSoundSubsystem::Play2D(this, bBook ? EKakurenboSfx::Place : EKakurenboSfx::Alert, bBook ? 0.4f : 0.7f, bBook ? 1.5f : 0.9f);
+}
+
+bool AKakurenboPlayerController::CanTurnOniIntroPage() const
+{
+	// かくれんぼの始めに自動で出たときだけ。出てすぐ押したキー（移動しようとしたなど）では進まない（ゲームが止まっているので実時間で数える）
+	return bOniBook || FPlatformTime::Seconds() - OniIntroPageShownTime >= OniIntroMinSeconds;
 }
 
 void AKakurenboPlayerController::TurnOniIntroPage(int32 Delta)
 {
-	if (GetMenu() != EKakurenboMenu::OniIntro)
+	if (GetMenu() != EKakurenboMenu::OniIntro || (Delta > 0 && !CanTurnOniIntroPage()))
 	{
 		return;
 	}
@@ -656,6 +663,7 @@ void AKakurenboPlayerController::TurnOniIntroPage(int32 Delta)
 		return;
 	}
 	OniIntroPage = FMath::Clamp(Next, 0, OniIntroPages.Num() - 1);
+	OniIntroPageShownTime = FPlatformTime::Seconds();
 	FocusAction = EKakurenboUIAction::None;
 	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.35f, 1.7f);
 }
@@ -753,12 +761,13 @@ void AKakurenboPlayerController::HandleMenuInput()
 	}
 	else if (Menu == EKakurenboMenu::OniIntro)
 	{
-		// 鬼のチュートリアル：Enter・Space・→ でつぎ（最後は閉じる）、← でまえ
-		if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Right) || WasInputKeyJustPressed(EKeys::D))
+		// 鬼のチュートリアル：Enter・Space・→ でつぎ（最後は閉じる）、← でまえ。
+		// 移動のキー（WASD）では進めない（すぐ動こうとして、読む前に消えてしまわないように）
+		if (WasInputKeyJustPressed(EKeys::Enter) || WasInputKeyJustPressed(EKeys::SpaceBar) || WasInputKeyJustPressed(EKeys::Right))
 		{
 			TurnOniIntroPage(1);
 		}
-		else if (WasInputKeyJustPressed(EKeys::Left) || WasInputKeyJustPressed(EKeys::A))
+		else if (WasInputKeyJustPressed(EKeys::Left))
 		{
 			TurnOniIntroPage(-1);
 		}

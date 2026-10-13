@@ -686,6 +686,12 @@ bool FKakurenboPocketTest::RunTest(const FString& Parameters)
 	Grid.SetExtra(FIntPoint(1, 2), 0.f);
 	TestEqual(TEXT("opening removes the pocket"), KakurenboPathfinding::FindEnclosedPockets(Grid).Num(), 0);
 
+	// 入り口にのれん（一方通行）を置くと、また空洞（のれんで囲んだ場所は広い場所とつながらない）
+	Grid.SetOneWay(FIntPoint(1, 2), 0);
+	Pockets = KakurenboPathfinding::FindEnclosedPockets(Grid);
+	TestTrue(TEXT("a one-way gate in the opening keeps the pocket"), Pockets.Num() == 1 && Pockets[0].Num() == 6 && Pockets[0].Contains(FIntPoint(0, 0)));
+	Grid.SetOneWay(FIntPoint(1, 2), -1);
+
 	// 3x3 の輪（中央 1 マス）も空洞
 	FKakurenboPathGrid Ring;
 	Ring.Init(10, 10);

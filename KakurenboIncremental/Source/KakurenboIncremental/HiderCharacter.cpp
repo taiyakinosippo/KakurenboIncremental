@@ -49,10 +49,10 @@ AHiderCharacter::AHiderCharacter()
 	JumpMaxCount = 0;
 
 	// CreateDefaultSubobject: コンストラクタでコンポーネントを作る UE の決まった書き方
-	// 懐中電灯：胸の高さから、体の前を少し下向きに照らす（ふだんは消えている）
+	// 懐中電灯：頭の上から、カメラの向いている前を少し下向きに照らす（向きは Tick で合わせる。ふだんは消えている）
 	Flashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Flashlight"));
 	Flashlight->SetupAttachment(RootComponent);
-	Flashlight->SetRelativeLocation(FVector(30.f, 0.f, 30.f));
+	Flashlight->SetRelativeLocation(FVector(0.f, 0.f, 75.f));
 	Flashlight->SetRelativeRotation(FRotator(-12.f, 0.f, 0.f));
 	Flashlight->SetMobility(EComponentMobility::Movable);
 	Flashlight->SetLightColor(FLinearColor(1.f, 0.92f, 0.75f));
@@ -200,6 +200,18 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 	if (bClimbing)
 	{
 		TickClimb(DeltaSeconds);
+	}
+
+	// 懐中電灯は画面の前（カメラの向いている方）を照らす。真っ暗でどっちが前か分からなくならないように（ユーザーの希望）。
+	// 見下ろしすぎ・見上げすぎのときも、少し先の床と壁が照らされる角度にしておく
+	if (Flashlight && Flashlight->IsVisible())
+	{
+		const FRotator View = Controller ? Controller->GetControlRotation() : GetActorRotation();
+		const float Pitch = FMath::Clamp(FRotator::NormalizeAxis(View.Pitch), -35.f, 5.f) - 10.f;
+		Flashlight->SetWorldRotation(FRotator(Pitch, View.Yaw, 0.f));
+		// 光は頭より上・少し前から出す（自分の頭や体の影で前が暗くならないように）
+		const FVector Forward = FRotator(0.f, View.Yaw, 0.f).Vector();
+		Flashlight->SetWorldLocation(GetActorLocation() + FVector(0.f, 0.f, GetSimpleCollisionHalfHeight() + 30.f) + Forward * 45.f);
 	}
 
 	// ダッシュの時間とクールタイム

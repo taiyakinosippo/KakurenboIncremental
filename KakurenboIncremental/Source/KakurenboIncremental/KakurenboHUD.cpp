@@ -1157,7 +1157,10 @@ void AKakurenboHUD::DrawOniIntro(AKakurenboGameMode* GM)
 		DrawButton(TX, BY, 260, 64, TEXT("◀ まえ"), EKakurenboUIAction::OniPage, -1, false, 24);
 	}
 	const FString NextLabel = !bLast ? FString(TEXT("つぎの鬼 ▶")) : PC->IsOniBook() ? FString(TEXT("もどる")) : FString(TEXT("わかった！"));
-	DrawButton(X + W - 420, BY, 380, 64, PC->IsUsingGamepad() ? NextLabel : NextLabel + TEXT(" [Enter]"), EKakurenboUIAction::OniPage, 1, false, 26, Gold);
+	// 出てすぐ（1 秒）は押せないので、ボタンを薄く出す（読む前に消えないように）
+	const bool bCanTurn = PC->CanTurnOniIntroPage();
+	DrawButton(X + W - 420, BY, 380, 64, PC->IsUsingGamepad() ? NextLabel : NextLabel + TEXT(" [Enter]"), EKakurenboUIAction::OniPage, 1, false, 26,
+		bCanTurn ? Gold : FLinearColor(0.55f, 0.5f, 0.45f, 0.6f));
 }
 
 // ---------------------------------------------------------------- 購入

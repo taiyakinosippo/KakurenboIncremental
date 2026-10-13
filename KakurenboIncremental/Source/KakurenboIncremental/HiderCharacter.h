@@ -47,19 +47,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider")
 	FLinearColor BodyColor = FLinearColor(0.1f, 0.4f, 1.f);
 
-	/** 懐中電灯（真っ暗ブロックで館が真っ暗なときだけ点く。体の向いている前を照らす。M15） */
+	/** 懐中電灯（真っ暗ブロックで館が真っ暗なときだけ点く。カメラの向いている前を照らして、どっちが前か分かるようにする。M15） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
 	TObjectPtr<USpotLightComponent> Flashlight;
 
 	/** 懐中電灯の明るさ・届く距離（cm）・広がり（片側の角度） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
-	float FlashlightIntensity = 30000.f;
+	float FlashlightIntensity = 100000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
-	float FlashlightRange = 1800.f;
+	float FlashlightRange = 3000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
-	float FlashlightAngle = 32.f;
+	float FlashlightAngle = 42.f;
 
 	void SetFlashlightOn(bool bOn);
 	bool IsFlashlightOn() const;

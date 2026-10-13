@@ -84,7 +84,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
@@ -5144,6 +5144,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.1f, [=, this]
 		{
 			Check(TEXT("a petting oni cannot catch the player"), GM->GetOnis()[0]->GetOniState() == EOniState::Stunned || TheCat()->GetPetCount() >= 1);
+			// なで終わった鬼にぶつかって見つかると、ラウンドが終わって猫が使い切りになる（この後の確かめができない）ので、鬼から離れておく
+			const TArray<FIntPoint> Far = Grid()->FindSpreadFreeCells({ GM->GetOnis()[0]->GetActorLocation() }, 1);
+			if (Far.Num() > 0)
+			{
+				TeleportPlayer(Grid()->CellFloorCenter(Far[0]) + FVector(0.f, 0.f, GetHider()->GetSimpleCollisionHalfHeight() + 2.f));
+			}
+			GS()->HideTimeRemaining = 600.f;
 		} });
 		Steps.Add({ 5.5f, [=, this]
 		{
@@ -5157,6 +5164,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 3.f, [=, this]
 		{
 			Check(TEXT("the cat cannot be petted again"), TheCat() && TheCat()->GetPetCount() == 1 && TheCat()->IsOnOniHead());
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			// 1 回なでられた猫は使い切り（在庫が無ければ、次の設置パートで赤い枠）
+			Check(FString::Printf(TEXT("a petted cat is used up after the round (live %d, design %d, stock %d)"), TheCat() != nullptr, Grid()->GetTrapDesign(T->Cell), GS()->TrapStock[T->Type]),
+				TheCat() == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
 		} });
 	}
 	// ================================================================ FakeHider（M15：身代わり人形）
@@ -5545,8 +5559,24 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					GetMenu() == EKakurenboMenu::OniIntro && GetOniIntroPages().Num() == 3 && IsPaused() && !IsOniBook());
 				const AKakurenboOniStudio* Studio = GM->GetOniStudio();
 				Check(TEXT("each oni has a photo"), Studio && Studio->GetPortrait(EOniType::Scout) && Studio->GetPortrait(EOniType::Breaker) && Studio->GetPortrait(EOniType::Detector));
+				// 出てすぐ（移動しようとした D・つい押した Enter）では進まない（読む前に消えないように）
+				SimulateKey(EKeys::D, IE_Pressed);
+				SimulateKey(EKeys::D, IE_Released);
+				SimulateKey(EKeys::Enter, IE_Pressed);
+				SimulateKey(EKeys::Enter, IE_Released);
+				TSharedRef<int32> EarlyFrames = MakeShared<int32>(0);
+				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+				{
+					if (++*EarlyFrames < 5)
+					{
+						return true;
+					}
+					Check(FString::Printf(TEXT("keys pressed right after it opens do not skip the tutorial (page %d, menu %d)"), GetOniIntroPage(), static_cast<int32>(GetMenu())),
+						GetOniIntroPage() == 0 && GetMenu() == EKakurenboMenu::OniIntro);
+					return false;
+				}));
 				Shot(TEXT("oniintro_01_scout"));
-				RealDelay(0.5f, [=, this]
+				RealDelay(0.9f, [=, this]
 				{
 					SimulateKey(EKeys::Enter, IE_Pressed);
 					SimulateKey(EKeys::Enter, IE_Released);
@@ -5570,7 +5600,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 							RealDelay(0.5f, [=, this]
 							{
 								Shot(TEXT("oniintro_03_detector"));
-								RealDelay(0.5f, [=, this]
+								RealDelay(0.9f, [=, this] // ページが出てから 1 秒は押せない
 								{
 									Check(TEXT("the last page has the OK button"), ClickUI(EKakurenboUIAction::OniPage, 1));
 									RealDelay(0.3f, [=, this]
@@ -5624,6 +5654,164 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			});
 		} });
 		Steps.Add({ 7.f, [=] {} });
+	}
+	// ================================================================ SideGap（背の高い家具どうしの横のすき間。体が入らない 20〜78cm のすき間を全部の館で数える）
+	else if (Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase))
+	{
+		TSharedRef<int32> TotalGaps = MakeShared<int32>(0);
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 0.5f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				KeepOnlyOni(-1);
+				GS()->HideTimeRemaining = 600.f;
+			} });
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AKakurenboArena* Arena = GM->GetArena();
+				UKakurenboGridSubsystem* G = Grid();
+				// 背の高い家具の当たり判定の箱（上から見た形）
+				TArray<FBox> Boxes;
+				TArray<UPrimitiveComponent*> Comps;
+				Arena->GetComponents<UPrimitiveComponent>(Comps);
+				for (const UPrimitiveComponent* Comp : Comps)
+				{
+					const FBox B = Comp->Bounds.GetBox();
+					if (Comp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag) && B.GetSize().Z >= Arena->TallFurnitureHeight - 1.f)
+					{
+						Boxes.Add(B);
+					}
+				}
+				const FCollisionShape Body = FCollisionShape::MakeCapsule(35.f, 35.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuSideGap), false, GetPawn());
+				int32 Gaps = 0;
+				FString Examples;
+				for (int32 a = 0; a < Boxes.Num(); ++a)
+				{
+					for (int32 b = a + 1; b < Boxes.Num(); ++b)
+					{
+						for (int32 Axis = 0; Axis < 2; ++Axis)
+						{
+							const int32 Other = 1 - Axis;
+							const FBox& L = Boxes[a].Min[Axis] <= Boxes[b].Min[Axis] ? Boxes[a] : Boxes[b];
+							const FBox& R = Boxes[a].Min[Axis] <= Boxes[b].Min[Axis] ? Boxes[b] : Boxes[a];
+							const double Gap = R.Min[Axis] - L.Max[Axis];
+							const double Overlap = FMath::Min(L.Max[Other], R.Max[Other]) - FMath::Max(L.Min[Other], R.Min[Other]);
+							if (Gap <= 20.0 || Gap >= 78.0 || Overlap < 30.0)
+							{
+								continue;
+							}
+							// すき間の真ん中に体が入るか（入らなければ数える）
+							FVector Mid = (L.GetCenter() + R.GetCenter()) * 0.5;
+							Mid[Axis] = (L.Max[Axis] + R.Min[Axis]) * 0.5;
+							Mid[Other] = (FMath::Max(L.Min[Other], R.Min[Other]) + FMath::Min(L.Max[Other], R.Max[Other])) * 0.5;
+							bool bFits = false;
+							for (int32 k = -4; k <= 4 && !bFits; ++k)
+							{
+								FVector P(Mid.X, Mid.Y, G->CellFloorCenter(G->WorldToCell(Mid)).Z + 37.f);
+								P[Other] += k * 10.0;
+								bFits = !GetWorld()->OverlapBlockingTestByChannel(P, FQuat::Identity, ECC_Pawn, Body, Params);
+							}
+							if (bFits)
+							{
+								continue;
+							}
+							++Gaps;
+							const FIntPoint C = G->WorldToCell(Mid);
+							if (Examples.Len() < 300)
+							{
+								Examples += FString::Printf(TEXT(" [%c|%c gap %.0f at (%d,%d)]"), Arena->GetLayoutChar(G->WorldToCell(L.GetCenter())), Arena->GetLayoutChar(G->WorldToCell(R.GetCenter())), Gap, C.X, C.Y);
+							}
+						}
+					}
+				}
+				*TotalGaps += Gaps;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] sidegap %s: %d tall boxes, %d side gaps the body cannot enter:%s"), *MapName.ToString(), Boxes.Num(), Gaps, *Examples);
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("no side gap between tall furniture is too narrow to enter (%d)"), *TotalGaps), *TotalGaps == 0);
+		} });
+		// 本棚の間に空けたすき間に入って写す（ユーザーが送ってくれた写真の本棚。Archive の左下の本棚の列）
+		TSharedRef<FVector> GapSpot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->bMapOverride = true;
+			GM->MapOverride = FName(TEXT("Archive"));
+			GM->SwitchToMap(GM->MapOverride);
+			KeepOnlyOni(-1);
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			TArray<FBox> Boxes;
+			TArray<UPrimitiveComponent*> Comps;
+			Arena->GetComponents<UPrimitiveComponent>(Comps);
+			for (const UPrimitiveComponent* Comp : Comps)
+			{
+				const FBox B = Comp->Bounds.GetBox();
+				if (Comp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag) && B.GetSize().Z >= Arena->TallFurnitureHeight - 1.f && Arena->GetLayoutChar(G->WorldToCell(B.GetCenter())) == TEXT('B'))
+				{
+					Boxes.Add(B);
+				}
+			}
+			// 本棚どうしの間が体の入る幅（78〜100cm）になっている所
+			for (int32 a = 0; a < Boxes.Num() && GapSpot->IsZero(); ++a)
+			{
+				for (int32 b = 0; b < Boxes.Num() && GapSpot->IsZero(); ++b)
+				{
+					for (int32 Axis = 0; Axis < 2; ++Axis)
+					{
+						const int32 Other = 1 - Axis;
+						const double Gap = Boxes[b].Min[Axis] - Boxes[a].Max[Axis];
+						const double Overlap = FMath::Min(Boxes[a].Max[Other], Boxes[b].Max[Other]) - FMath::Max(Boxes[a].Min[Other], Boxes[b].Min[Other]);
+						if (Gap >= 76.0 && Gap <= 100.0 && Overlap >= 30.0)
+						{
+							FVector Mid;
+							Mid[Axis] = (Boxes[a].Max[Axis] + Boxes[b].Min[Axis]) * 0.5;
+							Mid[Other] = (FMath::Max(Boxes[a].Min[Other], Boxes[b].Min[Other]) + FMath::Min(Boxes[a].Max[Other], Boxes[b].Max[Other])) * 0.5;
+							Mid.Z = 0.0;
+							*GapSpot = Mid;
+							break;
+						}
+					}
+				}
+			}
+			Check(TEXT("a bookshelf row has a gap wide enough to enter"), !GapSpot->IsZero());
+			if (!GapSpot->IsZero())
+			{
+				const FVector Floor = G->CellFloorCenter(G->WorldToCell(*GapSpot));
+				// 体（立っている大きさ）がすき間に入るか
+				const FVector At(GapSpot->X, GapSpot->Y, Floor.Z + GetHider()->GetSimpleCollisionHalfHeight() + 2.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuSideGapStand), false, GetPawn());
+				const bool bFree = !GetWorld()->OverlapBlockingTestByChannel(At, FQuat::Identity, ECC_Pawn,
+					FCollisionShape::MakeCapsule(GetHider()->GetSimpleCollisionRadius(), GetHider()->GetSimpleCollisionHalfHeight()), Params);
+				Check(TEXT("the player fits standing in the bookshelf gap"), bFree);
+				TeleportPlayer(At);
+				// すき間の外（部屋の空いている側）から、すき間に入った自分を見る
+				float BestYaw = 0.f;
+				for (const float Yaw : { 0.f, 90.f, 180.f, 270.f })
+				{
+					const FVector Dir = FRotator(0.f, Yaw, 0.f).Vector();
+					if (!GetWorld()->OverlapBlockingTestByChannel(At + Dir * 150.f, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(30.f), Params))
+					{
+						BestYaw = Yaw + 180.f; // カメラは空いている側に置き、すき間の方を向く
+						break;
+					}
+				}
+				SetControlRotation(FRotator(-20.f, BestYaw, 0.f));
+				GetHider()->ThirdPersonDistance = 320.f;
+			}
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_01_in_gap")); } });
 	}
 	// ================================================================ ShelfGap（M15：家具のすき間。床が見えているのに体が入らないマスを全部の館で数える）
 	else if (Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase))

@@ -2388,10 +2388,11 @@ void AKakurenboGameMode::ConsumeRoundGadgets()
 	{
 		return;
 	}
-	// 真っ暗ブロックは 1 ラウンドで壊れる（ユーザーの希望：1 プレイで壊れる代わりに館じゅうを暗くする）
+	// 真っ暗ブロックは 1 ラウンドで壊れる（ユーザーの希望：1 プレイで壊れる代わりに館じゅうを暗くする）。
+	// 迷い猫は 1 回なでられたら使い切り（ユーザーの希望。そのラウンドの終わりまでは鬼の頭の上にいる）
 	for (ATrapActor* Trap : Grid->GetAllTraps())
 	{
-		if (Trap && Trap->GetKind() == ETrapKind::Darkness)
+		if (Trap && (Trap->GetKind() == ETrapKind::Darkness || (Trap->GetKind() == ETrapKind::Cat && Trap->GetPetCount() > 0)))
 		{
 			State->TrapsTriggeredThisRound++;
 			Grid->ConsumeTrap(Trap);
