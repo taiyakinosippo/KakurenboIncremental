@@ -683,6 +683,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			// ジャンプは無い。よじ登るのは最初はできない（転生のお店で解放する）
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
+			GS()->HideStartCountdown = 0.f; // 準備の「もういいかい」の間は連打できないので、数え終わったことにする
 			const int32 MashBefore = GS()->MashCountThisRound;
 			SimulateKey(EKeys::LeftMouseButton, IE_Pressed);
 			SimulateKey(EKeys::LeftMouseButton, IE_Released);
@@ -5055,6 +5056,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("in the dark the oni cannot see 6 m away (sight %.0f)"), Oni->GetEffectiveSightRadius()), !Oni->DebugCanSeeTarget() && Oni->GetEffectiveSightRadius() <= 300.f);
 			Oni->SetActorLocation(FVector(Me.X + 220.f, Me.Y, Me.Z + 20.f), false, nullptr, ETeleportType::TeleportPhysics);
 			Check(TEXT("but it still sees 2 m away"), Oni->DebugCanSeeTarget());
+			// 真っ暗の間は、プレイヤーの懐中電灯が体の前を照らす（鬼の方を向かせて写す）
+			GetHider()->SetActorRotation(FRotator(0.f, 0.f, 0.f));
+			Check(TEXT("the player's flashlight is on in the dark"), GetHider()->IsFlashlightOn());
 			LookAtOni();
 			ShotLater(TEXT("darkness_01_dark"));
 		} });
@@ -5062,6 +5066,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.6f, [=, this]
 		{
 			Check(TEXT("after the round the darkness block is used up (design stays)"), !Grid()->GetTrap(T->Cell) && Grid()->GetTrapDesign(T->Cell) == T->Type && !GM->IsMansionDark());
+			Check(TEXT("the flashlight turns off after the round"), !GetHider()->IsFlashlightOn());
 			KakuNext(); // → 購入
 		} });
 		Steps.Add({ 0.4f, [=, this]
@@ -5073,7 +5078,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Cat（M15：迷い猫）
 	else if (Scenario.Equals(TEXT("Cat"), ESearchCase::IgnoreCase))
 	{
-		struct FCatTest { FIntPoint Cell; int32 Type = INDEX_NONE; };
+		struct FCatTest { FIntPoint Cell; int32 Type = INDEX_NONE; FVector PlayerStart = FVector::ZeroVector; };
 		TSharedRef<FCatTest> T = MakeShared<FCatTest>();
 		auto TheCat = [T, Grid]() { return Grid()->GetTrap(T->Cell); };
 		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Treasure }); KakuSkipTime(1000.f); } });
@@ -5092,9 +5097,35 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
 			Check(TEXT("cat placed"), TheCat() != nullptr);
 		} });
-		Steps.Add({ 0.4f, [=, this] { KakuNext(); } }); // → かくれんぼ
-		Steps.Add({ 3.3f, [=, this]
+		Steps.Add({ 0.4f, [=, this]
 		{
+			KakuNext(); // → かくれんぼ
+			// 鬼が出てくる前に、猫を近くから写す（見た目の確認）
+			const FVector Cat = TheCat()->GetGadgetLocation();
+			T->PlayerStart = GetPawn()->GetActorLocation();
+			TeleportPlayer(Cat + FVector(-220.f, 120.f, 0.f));
+			SetControlRotation(FRotator(-12.f, (Cat - GetPawn()->GetActorLocation()).Rotation().Yaw, 0.f));
+			GetHider()->ThirdPersonDistance = 250.f;
+		} });
+		TSharedRef<FVector> CatAtShot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 1.5f, [=, this]
+		{
+			*CatAtShot = TheCat()->GetGadgetLocation();
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] cat yaw %.0f, camera yaw %.0f (the face should point this way)"), TheCat()->GetCatYaw(), PlayerCameraManager->GetCameraRotation().Yaw);
+			Shot(TEXT("cat_00_closeup"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 写真の中で猫がどちらへ歩いているか（顔の向きと合っているかを写真と見比べる）
+			FVector2D A, B;
+			ProjectWorldLocationToScreen(*CatAtShot, A, true);
+			ProjectWorldLocationToScreen(TheCat()->GetGadgetLocation(), B, true);
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] cat walks on screen from (%.0f, %.0f) to (%.0f, %.0f)"), A.X, A.Y, B.X, B.Y);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			GetHider()->ThirdPersonDistance = 550.f;
+			TeleportPlayer(T->PlayerStart);
 			// 宝物鬼（ふだんは連打もおとりも聞かない）を猫の 5 m 先へ
 			AOniCharacter* Oni = KeepOnlyOni(0);
 			Oni->SightRadius = 0.f;
@@ -5398,6 +5429,70 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GetHider()->TopDownPitch = -90.f;
 			} });
 		}
+	}
+	// ================================================================ StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図は消える）
+	else if (Scenario.Equals(TEXT("StaleDesign"), ESearchCase::IgnoreCase))
+	{
+		TSharedRef<FIntPoint> WallCell = MakeShared<FIntPoint>(0, 0);
+		TSharedRef<FIntPoint> TrapCell = MakeShared<FIntPoint>(0, 0);
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			GS()->WallStock[0] = FMath::Max(GS()->WallStock[0], 1);
+			GS()->TrapStock[0] = FMath::Max(GS()->TrapStock[0], 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			*WallCell = Me + FIntPoint(2, 0);
+			*TrapCell = Me + FIntPoint(0, 2);
+			KakuPlaceWall(WallCell->X, WallCell->Y, 0);
+			KakuPlaceTrap(TrapCell->X, TrapCell->Y, 0);
+			Check(TEXT("a wall and a trap are placed"), Grid()->GetColumnHeight(*WallCell) == 1 && Grid()->GetTrap(*TrapCell) != nullptr);
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 鬼に壊された・踏まれたことにする
+			Grid()->DamageBottomBlock(*WallCell, 1.0e9);
+			Grid()->ConsumeTrap(Grid()->GetTrap(*TrapCell));
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			// 同じ種類の在庫は無し（設置パートで置き直せず、赤いマスになる）。別の種類だけ持っている
+			GS()->WallStock[0] = 0;
+			GS()->TrapStock[0] = 0;
+			GS()->WallStock[1] = 1;
+			GS()->TrapStock[1] = 1;
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			Check(FString::Printf(TEXT("without stock the designs stay unbuilt (wall design %d / live %d, trap design %d / live %d)"),
+				Grid()->GetDesignHeight(*WallCell), Grid()->GetColumnHeight(*WallCell), Grid()->GetTrapDesign(*TrapCell), Grid()->GetTrap(*TrapCell) != nullptr),
+				Grid()->GetDesignHeight(*WallCell) == 1 && Grid()->GetColumnHeight(*WallCell) == 0
+				&& Grid()->GetTrapDesign(*TrapCell) == 0 && Grid()->GetTrap(*TrapCell) == nullptr);
+			Shot(TEXT("stale_01_red"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			FText Reason;
+			Check(FString::Printf(TEXT("a trap can go on the cell of a broken wall's design ('%s')"), *Reason.ToString()), GM->CanPlaceTrap(*WallCell, 1, &Reason));
+			Check(FString::Printf(TEXT("a wall can go on the cell of a used trap's design ('%s')"), *Reason.ToString()), GM->CanPlaceWall(*TrapCell, 1, &Reason));
+			KakuPlaceTrap(WallCell->X, WallCell->Y, 1);
+			KakuPlaceWall(TrapCell->X, TrapCell->Y, 1);
+			Check(FString::Printf(TEXT("placing a trap clears the old wall design (design %d, trap design %d)"), Grid()->GetDesignHeight(*WallCell), Grid()->GetTrapDesign(*WallCell)),
+				Grid()->GetDesignHeight(*WallCell) == 0 && Grid()->GetTrapDesign(*WallCell) == 1 && Grid()->GetTrap(*WallCell) != nullptr);
+			Check(FString::Printf(TEXT("placing a wall clears the old trap design (trap design %d, wall design %d)"), Grid()->GetTrapDesign(*TrapCell), Grid()->GetDesignHeight(*TrapCell)),
+				Grid()->GetTrapDesign(*TrapCell) == INDEX_NONE && Grid()->GetDesignHeight(*TrapCell) == 1 && Grid()->GetColumnHeight(*TrapCell) == 1);
+			Check(TEXT("nothing is left to repair"), Grid()->GetMissingWallCount(0) == 0 && Grid()->GetMissingTrapCount(0) == 0);
+			Check(TEXT("a live trap still blocks a wall"), !GM->CanPlaceWall(*WallCell, 1));
+		} });
+		Steps.Add({ 0.5f, [=, this] { Shot(TEXT("stale_02_replaced")); } });
 	}
 	// ================================================================ Heartbeat（M15：鬼が近いほど心臓の音が大きい）
 	else if (Scenario.Equals(TEXT("Heartbeat"), ESearchCase::IgnoreCase))
@@ -5844,9 +5939,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Log(TEXT("start"));
 			Check(FString::Printf(TEXT("treasures spawned (%d)"), GM->GetTreasures().Num()), GM->GetTreasures().Num() == GM->GetNumTreasures());
+			// 準備の間（もういいかい）は連打できない
+			const double CoinsBefore = GS()->Coins;
+			KakuMash(5);
+			Check(FString::Printf(TEXT("no mashing while the oni is still counting (countdown %.1f, coins %.1f -> %.1f, mashes %d)"), GS()->HideStartCountdown, CoinsBefore, GS()->Coins, GS()->MashCountThisRound),
+				GS()->HideStartCountdown > 0.f && GS()->Coins == CoinsBefore && GS()->MashCountThisRound == 0 && !GM->CanMash());
 			Shot(TEXT("loop_01_hide_countdown"));
 		} });
-		Steps.Add({ 1.f, [=, this] { KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("loop_02_hide_mashing")); } });
+		Steps.Add({ 3.f, [=, this] { Check(TEXT("mashing works once the oni comes out"), GM->CanMash()); KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("loop_02_hide_mashing")); } });
 		Steps.Add({ 1.f, [=, this] { KakuSkipTime(1000.f); } });
 		Steps.Add({ 1.f, [=, this]
 		{

@@ -1695,7 +1695,12 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	// 使える操作（キーの形で。設定で消せる）
 	if (bHints && PC)
 	{
-		FString Controls = FString::Printf(TEXT("%s 移動　%s しゃがむ　%s 連打"), *PC->UIKeyLabel(EKakurenboUIKey::Move), *KeyOf(PC, EKakurenboAction::Sneak), *KeyOf(PC, EKakurenboAction::Mash));
+		// 準備の間（もういいかい）は連打できないので出さない
+		FString Controls = FString::Printf(TEXT("%s 移動　%s しゃがむ"), *PC->UIKeyLabel(EKakurenboUIKey::Move), *KeyOf(PC, EKakurenboAction::Sneak));
+		if (GM->CanMash())
+		{
+			Controls += FString::Printf(TEXT("　%s 連打"), *KeyOf(PC, EKakurenboAction::Mash));
+		}
 		if (GM->IsDashUnlocked())
 		{
 			Controls += FString::Printf(TEXT("　%s 煙幕"), *KeyOf(PC, EKakurenboAction::Dash));

@@ -22,6 +22,7 @@ class UPoseableMeshComponent;
 class USkeletalMesh;
 class USkeletalMeshComponent;
 class USpringArmComponent;
+class USpotLightComponent;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -45,6 +46,23 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider")
 	FLinearColor BodyColor = FLinearColor(0.1f, 0.4f, 1.f);
+
+	/** 懐中電灯（真っ暗ブロックで館が真っ暗なときだけ点く。体の向いている前を照らす。M15） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
+	TObjectPtr<USpotLightComponent> Flashlight;
+
+	/** 懐中電灯の明るさ・届く距離（cm）・広がり（片側の角度） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
+	float FlashlightIntensity = 30000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
+	float FlashlightRange = 1800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
+	float FlashlightAngle = 32.f;
+
+	void SetFlashlightOn(bool bOn);
+	bool IsFlashlightOn() const;
 
 	// ===== 見た目（Fab のキャラクター。GameMode が ApplyLook で設定する。無ければ円柱） =====
 

@@ -16,7 +16,7 @@
 | プレイヤー | Fab「Cartoon Male Character Rigged 002」（FBX。CC BY 4.0：作者 Character Download） | `Content/Player`（元の FBX `SourceArt/Player`） |
 | プレイヤーの動き | UE 公式のマネキン（Third Person テンプレートと同じもの） | `Content/Characters/Mannequins` |
 | お宝（宝石） | Fab「Diamond Gem Shape Set - 2 Collectibles」（FBX） | `Content/Gem`（元の FBX `SourceArt/Gem`） |
-| 迷い猫（宝石のお店・M15） | Fab「Cat long haired」（FBX・歩く／走るアニメーション。無料） | `Content/Cat`（元の FBX `SourceArt/Cat`。まだ無ければ基本の形の猫） |
+| 迷い猫（宝石のお店・M15） | Fab「Low Poly Cat」（FBX 1 つ・40KB。骨・画像なし。色はマテリアルの色） | `Content/Cat`（SM_Cat と MI_Cat_*（M_KakuProp に FBX の色）。元の FBX は `SourceArt/Cat/cat.fbx`。ダウンロードした `Content/low_poly_cat` と、前に使った Cat long haired の `Content/cat-long-haired` は Git に入れない） |
 | 共通のマテリアル | 自作（Tools/ImportSourceArt.ps1 が作る） | `Content/Kakurenbo/Materials/M_KakuSurface`・`M_KakuProp`（家具）・`M_KakuGlass`（額のガラス）・`T_KakuDefaultORM` |
 | 館の家具・窓・松明・柱・出入り口のアーチ・石の床と壁（M14） | Fab「[Medieval Room Kit](https://www.fab.com/listings/52610433-0210-40e5-884b-abc12cf8901e)」（無料・**CC BY 4.0**。配布するときは作者名をクレジットに書く）の FBX と、4K のテクスチャを **1K に縮めたもの** | `Content/Kakurenbo/Mansion/Medieval`（元 `SourceArt/MedievalRoomKit`） |
 | 館の家具（たんす・机・ソファ・浴槽・洗面台・小さな台）・額・出入り口の枠・壁紙・しっくい・タイル・植木（M14） | Fab「Stylized House Interior」（StylizedKitchen）・「Isometric Interiors」から**使う 13 個のメッシュと模様だけ**取り出し、テクスチャを 1K に縮めたもの | `Content/Kakurenbo/Mansion/Props`（元 `SourceArt/FabProps`。`Tools/ExtractFabProps.py` が作る） |

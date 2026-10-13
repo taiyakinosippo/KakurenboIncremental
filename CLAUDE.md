@@ -73,8 +73,11 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   元のパックから家具を足すときは `Tools/ExtractFabProps.py`（エディタの Python で FBX と画像を `SourceArt/FabProps` へ → `python Tools/ExtractFabProps.py --shrink` で 1K に）→ `Tools\ImportSourceArt.ps1`。**大きな素材（4K・8K のテクスチャ）は縮めてから入れる**（LFS の容量）。新しい素材を入れたら docs/Assets.md に書く。
   パスは DefaultGame.ini（鬼・プレイヤー・宝石）と Data/Furniture.csv（家具）・Data/Surfaces.csv（模様）。アセットが無くても円柱・箱・色で動くようにしておく（テストは両方で通るように書く）。
   `.uasset` は LFS の lockable で読み取り専用になる（ImportSourceArt.ps1 は自分が作るフォルダの読み取り専用を外す）
-- FBX（プレイヤー・宝石）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
+- FBX（プレイヤー・宝石・猫）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
   煙幕のマテリアルだけ作り直すときは `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script="Tools/ImportSourceArt.py --smoke-only"`。
+  猫は `--cat-only`（取り込み直し）・`--cat-materials-only`（マテリアルだけ）。猫（Low Poly Cat）はスタティックメッシュ。向きは DefaultGame.ini の `CatMeshYaw`。
+  **スケルタルメッシュに使うマテリアルは `used_with_skeletal_mesh` を付ける**（無いとゲームでは灰色の既定のマテリアルになる）。
+  Python で書き換えたアセットは `save_loaded_asset(..., only_if_is_dirty=False)` で保存する（変更の印が付かず保存されないことがある）。
   模様は共通のマテリアル `/Game/Kakurenbo/Materials/M_KakuSurface`（Git に入れる。同じスクリプトが作る）に実行時にテクスチャを差し込む（`UKakurenboLibrary::CreateSurfaceMaterial`）
 - **館の大きさはマップごとに違う**（間取りの文字数 × 行数。ステージごとに大きくなる：16×16〜40×40）。変わるときは `ApplyCurrentMap` が舞台とグリッドを作り直す。テストで座標を決め打ちしない（家具の無いテスト用の舞台は 24×24）
 - **自動テストは家具の無い舞台で行う**（`KakuAutoTest` の最初に `bMapOverride` で切り替える。壁を置くマスが家具で塞がらないように）。
@@ -111,7 +114,8 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   CrouchFind / CarefulFind（M14：しゃがみは近くではのぞき込まれ、すぐそばでは気配で気づかれる / 慎重鬼が本物の館でしゃがんだプレイヤーを何秒で見つけるか。旧と新の探し方を比べる。約 8 分）、
   GemShop / OneWay / Darkness / Cat / FakeHider / Daruma / PowerBox / BuildRay / Heartbeat / ShelfGap（M15：宝石とまとめ買い / 宝石のお店の道具 5 つ / パワー鬼の前方 2×2×2 /
   設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）、
-  OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）。
+  OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）、
+  StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`

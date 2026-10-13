@@ -69,6 +69,9 @@ public:
 	/** 道具が今いる場所（身代わり人形・迷い猫は動く。ほかは置いた場所） */
 	FVector GetGadgetLocation() const;
 
+	/** 迷い猫の向き（Yaw。テストで顔の向きを確かめる） */
+	float GetCatYaw() const;
+
 	/** 身代わり人形（無ければ null） */
 	AHiderCharacter* GetFakeHider() const;
 
@@ -138,20 +141,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> CatTail;
 
-	/** 迷い猫のモデル（取り込んであれば。歩く・走るアニメーション） */
+	/** 迷い猫のモデル（取り込んであれば。骨が無いので、歩く動きは SetCatMotion で体を揺らす） */
 	UPROPERTY()
-	TObjectPtr<class USkeletalMeshComponent> CatModel;
+	TObjectPtr<UStaticMeshComponent> CatModel;
 
-	UPROPERTY()
-	TObjectPtr<class UAnimSequence> CatWalkAnim;
+	/** モデルの置き方（揺らす前の位置・向き） */
+	FVector CatModelBaseLocation = FVector::ZeroVector;
+	float CatModelBaseYaw = 0.f;
 
-	UPROPERTY()
-	TObjectPtr<class UAnimSequence> CatRunAnim;
-
-	UPROPERTY()
-	TObjectPtr<class UAnimSequence> CatPlayingAnim;
-
-	/** 迷い猫のアニメーション：0 止まっている / 1 歩く / 2 走る */
+	/** 迷い猫の動き：0 止まっている / 1 歩く / 2 走る（なでられている間はゴロゴロ揺れる） */
 	void SetCatMotion(int32 Motion);
 
 	/** 身代わり人形 */

@@ -298,17 +298,11 @@ public:
 	TSoftObjectPtr<UAnimationAsset> PlayerAnimFall;
 
 	/**
-	 * 迷い猫の見た目（Fab の「Cat long haired」を Tools/ImportSourceArt.ps1 で取り込んだもの。M15）。無ければ基本の形で作った猫。
-	 * 歩くアニメーション（Walk）・走るアニメーション（Run）。CatLength は鼻からしっぽの付け根までの長さ（cm）、CatMeshYaw はモデルの向きの補正
+	 * 迷い猫の見た目（Fab の「Low Poly Cat」を Tools/ImportSourceArt.ps1 で取り込んだもの。M15）。無ければ基本の形で作った猫。
+	 * 骨の無いモデルなので、歩くときはプログラムで体を揺らす。CatLength は体の長さ（cm）、CatMeshYaw はモデルの向きの補正（顔が +X を向くように）
 	 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
-	TSoftObjectPtr<USkeletalMesh> CatMesh;
-
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
-	TSoftObjectPtr<UAnimSequence> CatAnimWalk;
-
-	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
-	TSoftObjectPtr<UAnimSequence> CatAnimRun;
+	TSoftObjectPtr<UStaticMesh> CatMesh;
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Gem|Look")
 	float CatLength = 70.f;
@@ -960,6 +954,9 @@ public:
 	bool UseDaruma();
 	float GetDarumaTimeLeft() const { return DarumaTimeLeft; }
 	bool IsDarumaActive() const { return DarumaTimeLeft > 0.f; }
+
+	/** 連打できるか（かくれんぼ中で、始めの「もういいかい」の数え終わった後だけ。準備の間は連打できない） */
+	bool CanMash() const;
 
 	/** だるまさんがころんだの間、その鬼をプレイヤーが見ているか（見られている鬼は動けない） */
 	bool IsOniWatchedByPlayer(const AOniCharacter* Oni) const;

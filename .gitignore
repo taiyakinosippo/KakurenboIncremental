@@ -16,3 +16,10 @@ KakurenboIncremental/Content/Collections/
 
 # Packaged game (Tools/Package.ps1)
 /Packaged/
+
+# Fab「Cat long haired」の元のパック（.blend・下絵・大きな画像。300MB。今は Low Poly Cat に差し替えたので使わない）
+KakurenboIncremental/Content/cat-long-haired/
+# Fab「Low Poly Cat」のダウンロード（FBX は SourceArt/Cat/cat.fbx にコピーして取り込む）
+KakurenboIncremental/Content/low_poly_cat/
+# FBX を取り込むと、埋め込まれた画像が <名前>.fbm フォルダに書き出される（取り込みのたびにできる）
+*.fbm/

@@ -2085,9 +2085,9 @@ void AKakurenboPlayerController::DoMash()
 {
 	AKakurenboGameMode* GM = GetKakurenboGameMode();
 	AHiderCharacter* Hider = GetHider();
-	if (!GM || !Hider)
+	if (!GM || !Hider || !GM->CanMash())
 	{
-		return;
+		return; // 準備の間（もういいかい）は連打できない
 	}
 	GM->HandleMash(Hider->GetActorLocation());
 	Hider->PlayMashFeedback();

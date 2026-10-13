@@ -101,7 +101,8 @@ bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutRea
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnFurniture", "家具や部屋の壁があります");
 		return false;
 	}
-	if (HasTrap(Cell))
+	// 発動して消えた罠の設計図だけのマス（在庫が無くて赤いマス）には置ける。置くとその設計図は消える
+	if (GetTrap(Cell))
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnTrap", "罠があります（右クリックで回収できます）");
 		return false;
@@ -158,6 +159,9 @@ APlaceableBlock* UKakurenboGridSubsystem::PlaceBlock(const FIntPoint& Cell, int3
 		return nullptr;
 	}
 	Column.Blocks.Add(Block);
+	// 在庫が無くて置き直せなかった罠の設計図は、別の物を置いたら消す
+	Column.TrapDesign = INDEX_NONE;
+	Column.TrapDir = 0;
 
 	// プレイヤーが手で変えた列は、今の状態を新しい設計図にする
 	SyncDesignToBlocks(Cell);
@@ -546,13 +550,14 @@ bool UKakurenboGridSubsystem::CanPlaceTrap(const FIntPoint& Cell, FText* OutReas
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "PlaceOnFurniture", "家具や部屋の壁があります");
 		return false;
 	}
-	if (HasTrap(Cell))
+	// 設計図だけのマス（在庫が無くて置き直せず赤いマス）には置ける。置くとそのマスの設計図は新しい物に変わる
+	if (GetTrap(Cell))
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "TrapExists", "もう罠があります");
 		return false;
 	}
 	const FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
-	if (Column.Blocks.Num() > 0 || Column.Design.Num() > 0)
+	if (Column.Blocks.Num() > 0)
 	{
 		if (OutReason) *OutReason = NSLOCTEXT("Kakurenbo", "TrapOnWall", "罠は壁の無い床にだけ置けます");
 		return false;
@@ -587,6 +592,12 @@ ATrapActor* UKakurenboGridSubsystem::PlaceTrap(const FIntPoint& Cell, int32 Trap
 		Column.Trap = Trap;
 		Column.TrapDesign = TrapTypeIndex;
 		Column.TrapDir = Dir;
+		// 壊れて無くなった壁の設計図が残っていれば消す（罠を置いたマスは床）
+		if (Column.Design.Num() > 0)
+		{
+			Column.Design.Reset();
+			MarkChanged();
+		}
 		if (Def.Kind == ETrapKind::OneWay)
 		{
 			MarkChanged(); // 鬼の経路が変わる

@@ -5,6 +5,7 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimationAsset.h"
 #include "Components/PoseableMeshComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/StaticMeshComponent.h"
@@ -48,6 +49,16 @@ AHiderCharacter::AHiderCharacter()
 	JumpMaxCount = 0;
 
 	// CreateDefaultSubobject: コンストラクタでコンポーネントを作る UE の決まった書き方
+	// 懐中電灯：胸の高さから、体の前を少し下向きに照らす（ふだんは消えている）
+	Flashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Flashlight"));
+	Flashlight->SetupAttachment(RootComponent);
+	Flashlight->SetRelativeLocation(FVector(30.f, 0.f, 30.f));
+	Flashlight->SetRelativeRotation(FRotator(-12.f, 0.f, 0.f));
+	Flashlight->SetMobility(EComponentMobility::Movable);
+	Flashlight->SetLightColor(FLinearColor(1.f, 0.92f, 0.75f));
+	Flashlight->SetCastShadows(true);
+	Flashlight->SetVisibility(false);
+
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->SetUsingAbsoluteRotation(true); // 向きはワールド固定（Tick で設定する）
@@ -866,4 +877,22 @@ void AHiderCharacter::CopyDriverPose()
 			LookMesh->SetBoneTransformByName(Ref.GetBoneName(i), ComponentSpace[i], EBoneSpaces::ComponentSpace);
 		}
 	}
+}
+
+void AHiderCharacter::SetFlashlightOn(bool bOn)
+{
+	if (!Flashlight)
+	{
+		return;
+	}
+	Flashlight->SetIntensity(FlashlightIntensity);
+	Flashlight->SetAttenuationRadius(FlashlightRange);
+	Flashlight->SetOuterConeAngle(FlashlightAngle);
+	Flashlight->SetInnerConeAngle(FlashlightAngle * 0.6f);
+	Flashlight->SetVisibility(bOn);
+}
+
+bool AHiderCharacter::IsFlashlightOn() const
+{
+	return Flashlight && Flashlight->IsVisible();
 }

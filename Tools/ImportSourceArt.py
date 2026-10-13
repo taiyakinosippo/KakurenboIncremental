@@ -4,7 +4,7 @@
 #
 #   KakurenboIncremental/SourceArt/Player/Male_002.fbx（＋ CharacterTexture_*.png）→ /Game/Player
 #   KakurenboIncremental/SourceArt/Gem/Diamond_Shape2.fbx（＋ Diamond_Master2_*.jpeg / png）→ /Game/Gem
-#   KakurenboIncremental/SourceArt/Cat/*.fbx（Fab「Cat long haired」。モデルと歩く・走るアニメーション＋画像）→ /Game/Cat（--cat-only でこれだけ）
+#   KakurenboIncremental/SourceArt/Cat/*.fbx（Fab「Low Poly Cat」。骨なしのモデル。色はマテリアルの色）→ /Game/Cat（--cat-only でこれだけ）
 #   KakurenboIncremental/SourceArt/MedievalRoomKit（FBX＋1K の画像）→ /Game/Kakurenbo/Mansion/Medieval（--medieval-only でこれだけ）
 #   KakurenboIncremental/SourceArt/FabProps（Tools/ExtractFabProps.py が取り出した FBX＋1K の画像＋manifest.json）→ /Game/Kakurenbo/Mansion/Props（--props-only でこれだけ）
 #
@@ -127,9 +127,8 @@ def import_gem():
 
 
 def import_cat():
-    # Fab「Cat long haired」：FBX（モデル＋歩く・走るアニメーション）。ファイル名はパックによって違うので、フォルダの中を全部見る。
-    # 一番大きい FBX をモデルとして取り込み、残りの FBX はそのモデルの骨のアニメーションとして取り込む。
-    # 名前は決めておく（DefaultGame.ini の CatMesh・CatAnimWalk・CatAnimRun）：SK_Cat / A_CatWalk / A_CatRun
+    # Fab「Low Poly Cat」：FBX 1 つ（骨・アニメーション・画像は無い。色はマテリアルの色だけ）。
+    # 一番大きい FBX を 1 つのスタティックメッシュ SM_Cat（DefaultGame.ini の CatMesh）として取り込む。歩く動きはゲームがプログラムで付ける
     folder = os.path.join(SOURCE, "Cat")
     if not os.path.isdir(folder):
         log("no cat source")
@@ -146,75 +145,72 @@ def import_cat():
         log("no cat fbx")
         return
     fbxs.sort(key=lambda f: -os.path.getsize(f))
-    main = fbxs[0]
-
-    def options(skeleton=None):
-        opt = unreal.FbxImportUI()
-        opt.import_mesh = skeleton is None
-        opt.import_as_skeletal = True
-        opt.mesh_type_to_import = unreal.FBXImportType.FBXIT_SKELETAL_MESH
-        opt.import_animations = True
-        opt.import_materials = skeleton is None
-        opt.import_textures = skeleton is None
-        if skeleton:
-            opt.skeleton = skeleton
-        opt.automated_import_should_detect_type = False
-        return opt
-
+    opt = unreal.FbxImportUI()
+    opt.import_mesh = True
+    opt.import_as_skeletal = False
+    opt.mesh_type_to_import = unreal.FBXImportType.FBXIT_STATIC_MESH
+    opt.import_animations = False
+    opt.import_materials = True
+    opt.import_textures = False
+    opt.automated_import_should_detect_type = False
+    opt.static_mesh_import_data.set_editor_property("combine_meshes", True)
     task = unreal.AssetImportTask()
-    task.filename = main
+    task.filename = fbxs[0]
     task.destination_path = dest
-    task.destination_name = "SK_Cat"
+    task.destination_name = "SM_Cat"
     task.automated = True
     task.replace_existing = True
     task.save = True
-    task.options = options()
+    task.options = opt
     tools.import_asset_tasks([task])
     imported = list(task.imported_object_paths)
-    log("cat main %s -> %s" % (os.path.basename(main), imported))
-    mesh = None
-    for path in imported:
-        asset = unreal.load_asset(path)
-        if isinstance(asset, unreal.SkeletalMesh):
-            mesh = asset
+    log("cat %s -> %s" % (os.path.basename(fbxs[0]), imported))
+    mesh = unreal.load_asset(dest + "/SM_Cat") if eal.does_asset_exist(dest + "/SM_Cat") else None
     if not mesh:
-        log("cat: no skeletal mesh in " + main)
+        for path in imported:
+            asset = unreal.load_asset(path)
+            if isinstance(asset, unreal.StaticMesh):
+                mesh = asset
+    if not mesh:
+        log("cat: no static mesh")
         return
-    skeleton = mesh.skeleton
-    for other in fbxs[1:]:
-        t = unreal.AssetImportTask()
-        t.filename = other
-        t.destination_path = dest
-        t.automated = True
-        t.replace_existing = True
-        t.save = True
-        t.options = options(skeleton)
-        tools.import_asset_tasks([t])
-        log("cat anim %s -> %s" % (os.path.basename(other), list(t.imported_object_paths)))
-
-    # アニメーションの名前をそろえる（walk / run が入っている名前。無ければ最初のものを歩く）
-    anims = [a for a in eal.list_assets(dest, recursive=True) if isinstance(unreal.load_asset(a), unreal.AnimSequence)]
-    def find(word):
-        for a in anims:
-            if word in a.split("/")[-1].lower():
-                return a
-        return None
-    walk = find("walk") or (anims[0] if anims else None)
-    run = find("run") or walk
-    for src, name in ((walk, "A_CatWalk"), (run, "A_CatRun")):
-        if src and src.split("/")[-1].split(".")[0] != name and not eal.does_asset_exist(dest + "/" + name):
-            if src == walk and run == walk and name == "A_CatRun":
-                eal.duplicate_asset(dest + "/A_CatWalk", dest + "/" + name)
-            else:
-                eal.rename_asset(src.split(".")[0], dest + "/" + name)
-    # 画像が FBX と同じフォルダにあれば取り込み、マテリアルに付いていなければ色の画像を付ける
-    for root, _, files in os.walk(folder):
-        for f in files:
-            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tga")):
-                low = f.lower()
-                texture(os.path.join(root, f), dest, normal="normal" in low or "_n." in low, linear="rough" in low)
+    apply_cat_materials(mesh, dest)
     eal.save_directory(dest)
-    log("cat done: anims %s" % [a.split("/")[-1] for a in eal.list_assets(dest, recursive=True) if isinstance(unreal.load_asset(a), unreal.AnimSequence)])
+    log("cat done")
+
+
+def apply_cat_materials(mesh, dest):
+    # FBX のマテリアルの色（DiffuseColor）を、家具と同じ共通のマテリアル M_KakuProp の色にして付け直す
+    # （ほかの家具と同じ光り方にする。FBX から作られるマテリアルはそのまま使わない）
+    prop = unreal.load_asset("/Game/Kakurenbo/Materials/M_KakuProp")
+    if not prop:
+        log("cat: no M_KakuProp (run the full import first)")
+        return
+    materials = list(mesh.get_editor_property("static_materials"))
+    for i, slot in enumerate(materials):
+        name = str(slot.get_editor_property("material_slot_name"))
+        src = slot.get_editor_property("material_interface")
+        color = unreal.LinearColor(0.8, 0.8, 0.8, 1.0)
+        if isinstance(src, unreal.MaterialInstanceConstant):
+            for v in src.get_editor_property("vector_parameter_values"):
+                if str(v.parameter_info.name) == "DiffuseColor":
+                    color = v.parameter_value
+        mi_name = "MI_Cat_" + "".join(c if c.isalnum() else "_" for c in name)
+        mi_path = dest + "/" + mi_name
+        if eal.does_asset_exist(mi_path):
+            mi = unreal.load_asset(mi_path)
+        else:
+            mi = tools.create_asset(mi_name, dest, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        mel.set_material_instance_parent(mi, prop)
+        mel.set_material_instance_vector_parameter_value(mi, "Color", unreal.LinearColor(color.r, color.g, color.b, 1.0))
+        eal.save_loaded_asset(mi, only_if_is_dirty=False)
+        slot.set_editor_property("material_interface", mi)
+        materials[i] = slot
+        unreal.log_warning("[ImportSourceArt] cat slot %s color (%.3f, %.3f, %.3f)" % (name, color.r, color.g, color.b))
+    mesh.set_editor_property("static_materials", materials)
+    eal.save_loaded_asset(mesh, only_if_is_dirty=False)
+    box = mesh.get_bounding_box()
+    unreal.log_warning("[ImportSourceArt] cat bounds min %s max %s" % (box.min, box.max))
 
 
 def import_player():
@@ -427,7 +423,7 @@ def import_medieval():
                 mel.set_material_instance_texture_parameter_value(mi, param, tex)
         if glow:
             mel.set_material_instance_scalar_parameter_value(mi, "Emissive", 4.0)
-        eal.save_loaded_asset(mi)
+        eal.save_loaded_asset(mi, only_if_is_dirty=False)
         instances[group] = mi
         return mi
 
@@ -523,7 +519,7 @@ def import_fab_props():
                 mel.set_material_instance_texture_parameter_value(mi, param, t)
         c = slot["color"]
         mel.set_material_instance_vector_parameter_value(mi, "Color", unreal.LinearColor(c[0], c[1], c[2], 1.0))
-        eal.save_loaded_asset(mi)
+        eal.save_loaded_asset(mi, only_if_is_dirty=False)
         instances[key] = mi
         return mi
 
@@ -566,6 +562,8 @@ elif "--props-only" in sys.argv:
     import_fab_props()
 elif "--cat-only" in sys.argv:
     import_cat()
+elif "--cat-materials-only" in sys.argv:
+    apply_cat_materials(unreal.load_asset("/Game/Cat/SM_Cat"), "/Game/Cat")
 else:
     import_gem()
     import_cat()

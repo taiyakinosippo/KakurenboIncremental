@@ -1894,10 +1894,17 @@ void AKakurenboGameMode::RepairWalls()
 
 // ---------------------------------------------------------------- かくれんぼ
 
+bool AKakurenboGameMode::CanMash() const
+{
+	const AKakurenboGameState* State = GS();
+	return State && State->Phase == EKakurenboPhase::Hide && State->HideStartCountdown <= 0.f;
+}
+
 void AKakurenboGameMode::HandleMash(const FVector& NoiseLocation)
 {
 	AKakurenboGameState* State = GS();
-	if (!State || State->Phase != EKakurenboPhase::Hide)
+	// 準備の間（鬼が数えている「もういいかい」の間）は連打できない（ユーザーの希望）
+	if (!State || !CanMash())
 	{
 		return;
 	}
@@ -2417,6 +2424,11 @@ void AKakurenboGameMode::SetMansionDark(bool bDark, float SightRadius)
 	{
 		DarknessVolume->bEnabled = bDark;
 		DarknessVolume->BlendWeight = bDark ? 1.f : 0.f;
+	}
+	// 真っ暗の間は、プレイヤーの懐中電灯で前を照らす（ユーザーの希望。鬼に見つかりやすくはならない）
+	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
+	{
+		Hider->SetFlashlightOn(bDark);
 	}
 	if (bDark)
 	{

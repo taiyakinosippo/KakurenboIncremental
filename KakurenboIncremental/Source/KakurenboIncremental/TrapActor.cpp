@@ -2,10 +2,7 @@
 
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Animation/AnimSequence.h"
-#include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "FakeHiderCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -22,6 +19,9 @@ namespace
 	/** 迷い猫の色（茶トラ・白） */
 	const FLinearColor CatFurColor(1.f, 0.55f, 0.2f);
 	const FLinearColor CatWhiteColor(0.95f, 0.92f, 0.85f);
+
+	/** 鳴いた後、その場に座って待つ秒数 */
+	constexpr float CatSitAfterMeowSeconds = 3.f;
 
 	/** なでた鬼が、同じ猫にもう一度寄ってくるまでの秒数 */
 	constexpr float CatPetCooldownSeconds = 12.f;
@@ -199,25 +199,24 @@ void ATrapActor::BuildCatLook()
 	CatRoot->RegisterComponent();
 	MeowTimer = FMath::FRandRange(0.5f, 2.f);
 
-	// 取り込んだ猫のモデルがあれば、それを使う（Fab の「Cat long haired」。歩く・走るアニメーション付き）
+	// 取り込んだ猫のモデルがあれば、それを使う（Fab の「Low Poly Cat」。骨は無い）
 	const AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
-	if (USkeletalMesh* Model = GM ? UKakurenboLibrary::LoadIfExists(GM->CatMesh) : nullptr)
+	if (UStaticMesh* Model = GM ? UKakurenboLibrary::LoadIfExists(GM->CatMesh) : nullptr)
 	{
-		CatModel = NewObject<USkeletalMeshComponent>(this);
+		CatModel = NewObject<UStaticMeshComponent>(this);
 		CatModel->SetupAttachment(CatRoot);
-		CatModel->SetSkeletalMesh(Model);
+		CatModel->SetStaticMesh(Model);
 		CatModel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		CatModel->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-		// 長さを CatLength に合わせ、足を床に置く（モデルの横の長い方を体の長さとみなす）
-		const FBox Bounds = Model->GetBounds().GetBox();
+		CatModel->SetMobility(EComponentMobility::Movable);
+		// 長さを CatLength に合わせ、足を床に置き、真ん中を CatRoot に合わせる（モデルの横の長い方を体の長さとみなす）
+		const FBox Bounds = Model->GetBoundingBox();
 		const float Long = FMath::Max(Bounds.GetSize().X, Bounds.GetSize().Y);
 		const float Scale = GM->CatLength / FMath::Max(Long, 1.f);
+		CatModelBaseYaw = GM->CatMeshYaw;
+		const FVector Center = FRotator(0.f, CatModelBaseYaw, 0.f).RotateVector(FVector(Bounds.GetCenter().X, Bounds.GetCenter().Y, 0.f)) * Scale;
+		CatModelBaseLocation = FVector(-Center.X, -Center.Y, -Bounds.Min.Z * Scale);
 		CatModel->SetRelativeScale3D(FVector(Scale));
-		CatModel->SetRelativeRotation(FRotator(0.f, GM->CatMeshYaw, 0.f));
-		CatModel->SetRelativeLocation(FVector(0.f, 0.f, -Bounds.Min.Z * Scale));
 		CatModel->RegisterComponent();
-		CatWalkAnim = UKakurenboLibrary::LoadIfExists(GM->CatAnimWalk);
-		CatRunAnim = UKakurenboLibrary::LoadIfExists(GM->CatAnimRun);
 		SetCatMotion(0);
 		return;
 	}
@@ -244,22 +243,30 @@ void ATrapActor::SetCatMotion(int32 Motion)
 	{
 		return;
 	}
-	// 走る（なで終わって鬼の頭へ飛び乗る前など）→ 走るアニメーション、歩く → 歩く、止まっている → 歩くアニメーションの最初の格好で止める
-	UAnimSequence* Wanted = (Motion == 2 && CatRunAnim) ? CatRunAnim.Get() : CatWalkAnim ? CatWalkAnim.Get() : CatRunAnim.Get();
-	if (!Wanted)
+	// 骨が無いので、体ごと揺らす：歩く → ぴょこぴょこ上下と左右にゆらゆら（走ると速く大きく）、
+	// なでられている → ゴロゴロ小さく震える、止まっている → ゆっくり息をする
+	float Bob = 0.f, Roll = 0.f, Pitch = 0.f, Breath = 1.f;
+	if (Motion > 0)
 	{
-		return;
+		const float Speed = Motion == 2 ? 22.f : 13.f;
+		const float Size = Motion == 2 ? 1.6f : 1.f;
+		Bob = FMath::Abs(FMath::Sin(AnimTime * Speed)) * 2.5f * Size;
+		Roll = FMath::Sin(AnimTime * Speed) * 4.f * Size;
+		Pitch = FMath::Sin(AnimTime * Speed * 2.f) * 1.5f * Size;
 	}
-	if (Wanted != CatPlayingAnim)
+	else if (PetTimer > 0.f)
 	{
-		CatPlayingAnim = Wanted;
-		CatModel->PlayAnimation(Wanted, true);
+		Roll = FMath::Sin(AnimTime * 40.f) * 1.2f;
+		Breath = 1.f + 0.03f * FMath::Sin(AnimTime * 6.f);
 	}
-	CatModel->SetPlayRate(Motion == 0 ? 0.f : 1.f);
-	if (Motion == 0)
+	else
 	{
-		CatModel->SetPosition(0.f, false);
+		Breath = 1.f + 0.02f * FMath::Sin(AnimTime * 2.5f);
 	}
+	CatModel->SetRelativeLocation(CatModelBaseLocation + FVector(0.f, 0.f, Bob));
+	CatModel->SetRelativeRotation(FRotator(Pitch, CatModelBaseYaw, Roll));
+	const float Scale = CatModel->GetRelativeScale3D().X;
+	CatModel->SetRelativeScale3D(FVector(Scale, Scale, Scale * Breath));
 }
 
 void ATrapActor::SpawnFakeHider()
@@ -615,6 +622,10 @@ void ATrapActor::TickCat(float DeltaSeconds)
 		++MeowCount;
 		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Meow, CatAt + FVector(0.f, 0.f, 40.f), 1.f, FMath::FRandRange(0.92f, 1.1f));
 		GM->HandleGadgetNoise(this, Def.NoiseLoudness, EKakurenboNoise::Cat);
+		// 鳴いたらしばらくその場に座って待つ（声に寄ってきた鬼が、鳴いた場所で猫に会えるように）
+		CatPath.Reset();
+		CatPathIndex = 0;
+		CatWait = CatSitAfterMeowSeconds;
 	}
 
 	// うろうろ歩く（家の近くをとことこ）
@@ -663,4 +674,9 @@ void ATrapActor::TickAnimation(float DeltaSeconds)
 		TopMesh->SetRelativeLocation(FVector(0.f, 0.f, 42.f + Jump));
 		TopMesh->SetRelativeScale3D(TopScale * Swell);
 	}
+}
+
+float ATrapActor::GetCatYaw() const
+{
+	return CatRoot ? CatRoot->GetComponentRotation().Yaw : GetActorRotation().Yaw;
 }
