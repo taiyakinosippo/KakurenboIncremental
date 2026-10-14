@@ -1329,7 +1329,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemCatDesc", "近くをうろうろして「にゃーん」と鳴く猫。寄ってきた鬼は猫をなでて {0} 秒動かない（どの鬼も猫には弱い）"), Fmt(Def.Duration));
 			break;
 		case ETrapKind::Daruma:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。{0} 秒、自分（キャラクター）が向いている方の鬼だけ止まる（よそを向くと動く・ぶつかれば見つかる）"), Fmt(Def.Duration));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。使った瞬間に自分（キャラクター）の視界にいた鬼が {0} 秒動けなくなる（ぶつかれば見つかる）"), Fmt(Def.Duration));
 			break;
 		default:
 			Item.Description = FText::GetEmpty();
@@ -2455,10 +2455,21 @@ bool AKakurenboGameMode::UseDaruma()
 	const int32 Type = FindTrapTypeOfKind(ETrapKind::Daruma);
 	State->TrapStock[Type]--;
 	DarumaTimeLeft = TrapTypes[Type].Duration > 0.f ? TrapTypes[Type].Duration : 3.f;
+	// 使った瞬間に視界にいた鬼を、効いている間ずっと止める（ユーザーの指摘：「全然弱い。これで敵を巻くことができない」。
+	// 前は見ている間だけ止まり、逃げようと背を向けると動き出した）
+	DarumaFrozenOnis.Reset();
+	for (AOniCharacter* Oni : Onis)
+	{
+		if (Oni && IsOniInPlayerView(Oni))
+		{
+			DarumaFrozenOnis.Add(Oni);
+		}
+	}
 	Sfx2D(this, EKakurenboSfx::Daruma, 1.1f);
-	ShowPopup(TEXT("だるまさんが ころんだ！"), TrapTypes[Type].Color);
+	ShowPopup(DarumaFrozenOnis.Num() > 0 ? FString::Printf(TEXT("だるまさんが ころんだ！　%d 体ストップ"), DarumaFrozenOnis.Num()) : FString(TEXT("だるまさんが ころんだ！　（見えている鬼がいない）")),
+		TrapTypes[Type].Color);
 	FlashScreen(FLinearColor(1.f, 0.3f, 0.25f, 0.25f), 0.4f);
-	UE_LOG(LogKakurenbo, Log, TEXT("Daruma used (%.1f s, %d left)"), DarumaTimeLeft, State->TrapStock[Type]);
+	UE_LOG(LogKakurenbo, Log, TEXT("Daruma used (%.1f s, %d onis frozen, %d left)"), DarumaTimeLeft, DarumaFrozenOnis.Num(), State->TrapStock[Type]);
 	return true;
 }
 
@@ -2467,14 +2478,23 @@ void AKakurenboGameMode::TickDaruma(float DeltaSeconds)
 	if (DarumaTimeLeft > 0.f)
 	{
 		DarumaTimeLeft = FMath::Max(0.f, DarumaTimeLeft - DeltaSeconds);
+		if (DarumaTimeLeft <= 0.f)
+		{
+			DarumaFrozenOnis.Reset();
+		}
 	}
 }
 
-bool AKakurenboGameMode::IsOniWatchedByPlayer(const AOniCharacter* Oni) const
+bool AKakurenboGameMode::IsOniDarumaFrozen(const AOniCharacter* Oni) const
+{
+	return Oni && IsDarumaActive() && DarumaFrozenOnis.Contains(TWeakObjectPtr<AOniCharacter>(const_cast<AOniCharacter*>(Oni)));
+}
+
+bool AKakurenboGameMode::IsOniInPlayerView(const AOniCharacter* Oni) const
 {
 	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
 	const APawn* Player = PC ? PC->GetPawn() : nullptr;
-	if (!Oni || !Player || !IsDarumaActive())
+	if (!Oni || !Player)
 	{
 		return false;
 	}

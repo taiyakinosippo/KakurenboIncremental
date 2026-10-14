@@ -899,7 +899,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarknessExposureBias = -1.8f;
 
-	/** だるまさんがころんだ：プレイヤーの体が向いている方からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる（カメラの向きではない） */
+	/** だるまさんがころんだ：使った瞬間に、プレイヤーの体が向いている方からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる（カメラの向きではない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarumaViewHalfAngle = 38.f;
 
@@ -958,8 +958,14 @@ public:
 	/** 連打できるか（かくれんぼ中で、始めの「もういいかい」の数え終わった後だけ。準備の間は連打できない） */
 	bool CanMash() const;
 
-	/** だるまさんがころんだの間、その鬼をプレイヤーが見ているか（見られている鬼は動けない） */
-	bool IsOniWatchedByPlayer(const AOniCharacter* Oni) const;
+	/** その鬼がプレイヤーの視界（体が向いている方・DarumaViewHalfAngle 度以内・DarumaViewDistance 以内・間に壁が無い）にいるか */
+	bool IsOniInPlayerView(const AOniCharacter* Oni) const;
+
+	/** だるまさんがころんだで止まっている鬼か（使った瞬間に視界にいた鬼は、効いている間ずっと動けない。目をそらしても止まったまま） */
+	bool IsOniDarumaFrozen(const AOniCharacter* Oni) const;
+
+	/** 今のだるまさんがころんだで止めた鬼の数 */
+	int32 GetDarumaFrozenCount() const { return IsDarumaActive() ? DarumaFrozenOnis.Num() : 0; }
 
 
 
@@ -1162,6 +1168,9 @@ protected:
 	/** だるまさんがころんだ */
 	float DarumaTimeLeft = 0.f;
 	void TickDaruma(float DeltaSeconds);
+
+	/** だるまさんがころんだを使った瞬間に視界にいた鬼（効いている間は動けない） */
+	TArray<TWeakObjectPtr<AOniCharacter>> DarumaFrozenOnis;
 
 	/** そのラウンドの道具（真っ暗ブロック）を、ラウンドの終わりに使い切る */
 	void ConsumeRoundGadgets();

@@ -5255,82 +5255,94 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Daruma（M15：だるまさんがころんだ）
 	else if (Scenario.Equals(TEXT("Daruma"), ESearchCase::IgnoreCase))
 	{
-		struct FDarumaTest { FVector OniAt; };
+		// 使った瞬間に視界にいた鬼（前の鬼 A）だけ 3 秒止まる。後ろの鬼 B は止まらない。止まった A は、目をそらしても 3 秒たつまで動かない
+		// （ユーザーの指摘：「全然弱い。これで敵を巻くことができない」）
+		struct FDarumaTest { FVector AAt; FVector BAt; };
 		TSharedRef<FDarumaTest> T = MakeShared<FDarumaTest>();
-		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
-		// プレイヤーの体を鬼の方（bToward）/ 反対へ向ける（だるまさんがころんだはカメラではなく体の向きで見る）
-		auto FaceOni = [this, TheOni](bool bToward)
+		auto OniA = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		auto OniB = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 1 ? GM->GetOnis()[1].Get() : nullptr; };
+		// プレイヤーの体とカメラを鬼 A の方（bToward）/ 反対へ向ける（だるまさんがころんだはカメラではなく体の向きで見る）
+		auto FaceA = [this, OniA](bool bToward)
 		{
-			const FVector To = (TheOni()->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D();
-			GetPawn()->SetActorRotation(FRotator(0.f, (bToward ? To : -To).Rotation().Yaw, 0.f));
+			const FVector To = (OniA()->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D();
+			const float Yaw = (bToward ? To : -To).Rotation().Yaw;
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-25.f, Yaw, 0.f));
 		};
-		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		auto UseByKey = [SimulateKey]()
+		{
+			SimulateKey(EKeys::G, IE_Pressed);
+			SimulateKey(EKeys::G, IE_Released);
+		};
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced, EOniType::Balanced }); KakuSkipTime(1000.f); } });
 		Steps.Add({ 1.f, [=, this]
 		{
 			KakuNext(); // → 購入
 			KakuAddGems(30);
 			const int32 Type = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
 			KakuBuyGem(GM->GetGemShopIndexOfTrap(Type) + 1);
-			Check(TEXT("daruma bought"), GS()->TrapStock[Type] == 1);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Type) + 1);
+			Check(FString::Printf(TEXT("2 darumas bought (%d)"), GS()->TrapStock[Type]), GS()->TrapStock[Type] == 2);
 		} });
-		Steps.Add({ 0.5f, [=, this] { KakuNext(); TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(3, Grid()->GetSizeY() / 2))); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2))); } }); // → 設置
 		Steps.Add({ 0.4f, [=, this] { KakuNext(); } }); // → かくれんぼ
 		Steps.Add({ 3.3f, [=, this]
 		{
-			// 鬼を 9 m 先に置いて、こちらへ向かわせる。体とカメラは鬼の方
-			AOniCharacter* Oni = KeepOnlyOni(0);
-			MakeBlindListener(Oni);
-			Oni->SetActorLocation(GetPawn()->GetActorLocation() + FVector(900.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
-			LookAtOni();
-			FaceOni(true);
+			// 鬼 A を 9 m 前（東）、鬼 B を 9 m 後ろ（西）に置く。体とカメラは A の方
+			Check(TEXT("two onis"), OniA() && OniB());
+			for (AOniCharacter* Oni : { OniA(), OniB() })
+			{
+				MakeBlindListener(Oni);
+			}
+			OniA()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(900.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			OniB()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(-900.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			FaceA(true);
 			Check(TEXT("daruma can be used"), GM->CanUseDaruma());
-			SimulateKey(EKeys::G, IE_Pressed);
-			SimulateKey(EKeys::G, IE_Released);
+			UseByKey();
 		} });
 		Steps.Add({ 0.2f, [=, this]
 		{
-			Check(FString::Printf(TEXT("pressing G calls daruma-san ga koronda (%.1f s, short)"), GM->GetDarumaTimeLeft()), GM->IsDarumaActive() && GM->GetDarumaTimeLeft() <= 3.f);
-			AOniCharacter* Oni = TheOni();
-			Oni->DebugGoTo(Grid()->WorldToCell(GetPawn()->GetActorLocation()));
-			T->OniAt = Oni->GetActorLocation();
+			Check(FString::Printf(TEXT("pressing G calls daruma-san ga koronda (%.1f s, %d onis frozen)"), GM->GetDarumaTimeLeft(), GM->GetDarumaFrozenCount()),
+				GM->IsDarumaActive() && GM->GetDarumaTimeLeft() <= 3.f && GM->GetDarumaFrozenCount() == 1);
+			// A はプレイヤーへ、B はプレイヤーから離れる方（北）へ向かわせる
+			OniA()->DebugGoTo(Grid()->WorldToCell(GetPawn()->GetActorLocation()));
+			OniB()->DebugGoTo(Grid()->WorldToCell(OniB()->GetActorLocation()) + FIntPoint(0, -6));
+			T->AAt = OniA()->GetActorLocation();
+			T->BAt = OniB()->GetActorLocation();
 		} });
 		Steps.Add({ 1.f, [=, this]
 		{
-			const AOniCharacter* Oni = TheOni();
-			Check(FString::Printf(TEXT("the watched oni cannot move (moved %.0f cm, frozen %d)"), FVector::Dist2D(Oni->GetActorLocation(), T->OniAt), Oni->IsDarumaFrozen() ? 1 : 0),
-				FVector::Dist2D(Oni->GetActorLocation(), T->OniAt) < 30.f && Oni->IsDarumaFrozen());
+			Check(FString::Printf(TEXT("the oni in view when used cannot move (moved %.0f cm, frozen %d)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt), OniA()->IsDarumaFrozen() ? 1 : 0),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) < 30.f && OniA()->IsDarumaFrozen());
+			Check(FString::Printf(TEXT("the oni behind the player is not frozen (moved %.0f cm, frozen %d)"), FVector::Dist2D(OniB()->GetActorLocation(), T->BAt), OniB()->IsDarumaFrozen() ? 1 : 0),
+				FVector::Dist2D(OniB()->GetActorLocation(), T->BAt) > 40.f && !OniB()->IsDarumaFrozen());
 			Shot(TEXT("daruma_01_frozen"));
 		} });
 		Steps.Add({ 0.1f, [=, this]
 		{
-			// カメラだけ後ろへ向けても、体が鬼の方を向いていれば止まったまま（ユーザーの希望：「カメラが見ているではなく、プレイヤーが見ているときに」）
-			SetControlRotation(GetControlRotation() + FRotator(0.f, 180.f, 0.f));
-			T->OniAt = TheOni()->GetActorLocation();
+			// 背を向けて逃げる（体もカメラも反対へ）。止まった鬼は止まったまま
+			FaceA(false);
+			T->AAt = OniA()->GetActorLocation();
 		} });
-		Steps.Add({ 0.5f, [=, this]
+		Steps.Add({ 1.f, [=, this]
 		{
-			const AOniCharacter* Oni = TheOni();
-			Check(FString::Printf(TEXT("camera turned away but the player faces the oni: still frozen (moved %.0f cm, frozen %d)"), FVector::Dist2D(Oni->GetActorLocation(), T->OniAt), Oni->IsDarumaFrozen() ? 1 : 0),
-				FVector::Dist2D(Oni->GetActorLocation(), T->OniAt) < 30.f && Oni->IsDarumaFrozen());
-			// 体を後ろへ向ける（カメラは鬼の方）と動き出す
-			LookAtOni();
-			FaceOni(false);
-			T->OniAt = Oni->GetActorLocation();
+			Check(FString::Printf(TEXT("looking away does not release the frozen oni (moved %.0f cm, frozen %d, %.1f s left)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt),
+				OniA()->IsDarumaFrozen() ? 1 : 0, GM->GetDarumaTimeLeft()),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) < 30.f && OniA()->IsDarumaFrozen());
 		} });
-		Steps.Add({ 0.6f, [=, this]
+		Steps.Add({ 1.3f, [=, this]
 		{
-			const AOniCharacter* Oni = TheOni();
-			Check(FString::Printf(TEXT("camera on the oni but the player looks away: the oni moves (moved %.0f cm, frozen %d, intent %s, watched %d)"), FVector::Dist2D(Oni->GetActorLocation(), T->OniAt), Oni->IsDarumaFrozen() ? 1 : 0,
-				*UEnum::GetValueAsString(Oni->GetIntent()), GM->IsOniWatchedByPlayer(Oni) ? 1 : 0),
-				FVector::Dist2D(Oni->GetActorLocation(), T->OniAt) > 40.f && !Oni->IsDarumaFrozen());
-			LookAtOni();
-			FaceOni(true);
+			// 3 秒たったら動き出す
+			Check(FString::Printf(TEXT("after 3 s the oni moves again (moved %.0f cm, frozen %d, active %d)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt), OniA()->IsDarumaFrozen() ? 1 : 0, GM->IsDarumaActive() ? 1 : 0),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) > 40.f && !OniA()->IsDarumaFrozen() && !GM->IsDarumaActive());
+			FaceA(true);
+			UseByKey();
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
 			// 止まっている鬼でも、ぶつかれば見つかる（無敵ではない）
-			AOniCharacter* Oni = TheOni();
-			Check(TEXT("frozen again when looked at"), Oni->IsDarumaFrozen());
+			AOniCharacter* Oni = OniA();
+			Check(TEXT("the second daruma freezes the oni again"), Oni->IsDarumaFrozen());
 			TeleportPlayer(Oni->GetActorLocation() - (Oni->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D() * 70.f);
 		} });
 		Steps.Add({ 0.3f, [=, this]

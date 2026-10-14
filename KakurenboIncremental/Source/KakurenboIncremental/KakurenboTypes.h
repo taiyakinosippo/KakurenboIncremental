@@ -121,7 +121,7 @@ enum class ETrapKind : uint8
 	OneWay    UMETA(DisplayName = "OneWay"),    // 一方通行ののれん：鬼は矢印の向きにしか通れない（プレイヤーはどちらからも通れる）。Uses 回通られると壊れる
 	Darkness  UMETA(DisplayName = "Darkness"),  // 真っ暗ブロック：まわり（Radius）が真っ暗になり、鬼はすぐ近くしか見えない。自分も見えにくい
 	Cat       UMETA(DisplayName = "Cat"),       // 迷い猫：近くをうろうろして鳴く。寄ってきた鬼は猫をなでてしばらく動かない（どの鬼も猫には弱い）
-	Daruma    UMETA(DisplayName = "Daruma"),    // だるまさんがころんだ：かくれんぼ中に使う（置かない）。しばらくの間、自分が見ている鬼は動けない。止まった鬼にタッチすると門へ帰る
+	Daruma    UMETA(DisplayName = "Daruma"),    // だるまさんがころんだ：かくれんぼ中に使う（置かない）。使った瞬間に自分の視界にいた鬼は、しばらく動けない。止まった鬼にタッチすると門へ帰る
 };
 
 /** 転生のお店で買える永続強化（Data/PrestigeUpgrades.csv の行名と同じ名前） */

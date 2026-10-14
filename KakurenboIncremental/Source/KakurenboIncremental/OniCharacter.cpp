@@ -663,9 +663,10 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	}
 	StunImmunityTimer = FMath::Max(0.f, StunImmunityTimer - DeltaSeconds);
 
-	// だるまさんがころんだ：プレイヤーに見られている間だけ動けない。止まっていても、ぶつかれば見つかる（M15：無敵にならないように）
+	// だるまさんがころんだ：使った瞬間にプレイヤーの視界にいた鬼は、効いている間（3 秒）動けない（目をそらしても止まったまま）。
+	// 止まっていても、ぶつかれば見つかる（M15：無敵にならないように）
 	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
-	if (GM && GM->IsDarumaActive() && GM->IsOniWatchedByPlayer(this))
+	if (GM && GM->IsOniDarumaFrozen(this))
 	{
 		if (!bDarumaFrozen)
 		{
