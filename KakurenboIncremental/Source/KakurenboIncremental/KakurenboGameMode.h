@@ -497,11 +497,18 @@ public:
 	/** 指定したステージの設定（表より後は伸ばした値） */
 	FKakurenboStageRow GetStageSettingsFor(int32 Stage) const;
 
+	/** 連打 1 回のコイン（強化・転生のお店・ゴールドラッシュ込み） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetMashIncome() const;
 
+	/** 連打の強化がこのレベルのときの 1 回のコイン（転生のお店込み。ゴールドラッシュは入れない＝お店の表示用） */
+	double GetMashIncomeAtLevel(int32 Level) const;
+
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetTimeIncomePerSecond() const;
+
+	/** 時間の強化がこのレベルのときの毎秒のコイン（転生のお店込み） */
+	double GetTimeIncomeAtLevel(int32 Level) const;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetMashUpgradeCost() const;
@@ -808,7 +815,19 @@ public:
 	bool IsGemTrap(int32 TrapTypeIndex) const { return TrapTypes.IsValidIndex(TrapTypeIndex) && TrapTypes[TrapTypeIndex].bGemItem; }
 
 	/** その罠を設置パートで置けるか（だるまさんがころんだは置かない。かくれんぼ中に使う） */
-	bool IsPlaceableTrap(int32 TrapTypeIndex) const { return TrapTypes.IsValidIndex(TrapTypeIndex) && TrapTypes[TrapTypeIndex].Kind != ETrapKind::Daruma; }
+	bool IsPlaceableTrap(int32 TrapTypeIndex) const
+	{
+		return TrapTypes.IsValidIndex(TrapTypeIndex) && TrapTypes[TrapTypeIndex].Kind != ETrapKind::Daruma;
+	}
+
+	// ===== ゴールドラッシュ（宝石のお店） =====
+
+	/** ゴールドラッシュ中の連打のコインの倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
+	double GoldRushMashMultiplier = 2.0;
+
+	/** このかくれんぼはゴールドラッシュ中か（ゴールドラッシュを置いていれば。真っ暗ブロックと同じく 1 ラウンドで壊れる） */
+	bool IsGoldRushActive() const { return bGoldRushThisRound; }
 
 	/** デバッグ用：宝石を増やす */
 	void DebugAddGems(int32 Amount);
@@ -864,6 +883,9 @@ public:
 
 	/** 次に置く一方通行ののれんの向き（0 +X / 1 +Y / 2 -X / 3 -Y。鬼が通れる向き。最初は門の反対＝西） */
 	int32 OneWayPlaceDir = 2;
+
+	/** 次に置く身代わり人形の向き（0 = 東 … 3 = 北。人形はこの向きへ逃げる。置いた人形をクリックすると回る） */
+	int32 FakeHiderPlaceDir = 2;
 
 	/** 設置パート：罠を回収する（残っていれば在庫に戻す。発動済みなら設計図から消すだけ） */
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")
@@ -1174,6 +1196,7 @@ protected:
 
 	/** だるまさんがころんだ */
 	float DarumaTimeLeft = 0.f;
+	bool bGoldRushThisRound = false;
 	void TickDaruma(float DeltaSeconds);
 
 	/** だるまさんがころんだを使った瞬間に視界にいた鬼（効いている間は動けない） */

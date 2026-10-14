@@ -109,6 +109,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddGem(TEXT("真っ暗ブロック"), ETrapKind::Darkness, 3.0, 1.5, 0.f, 0.f, 300.f, 0.f, 0, 0.f, FLinearColor(0.12f, 0.08f, 0.18f));
 	AddGem(TEXT("迷い猫"), ETrapKind::Cat, 4.0, 1.6, 5.f, 0.9f, 450.f, 150.f, 0, 5.f, FLinearColor(1.f, 0.6f, 0.25f));
 	AddGem(TEXT("だるまさんがころんだ"), ETrapKind::Daruma, 3.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 3.f, FLinearColor(0.95f, 0.2f, 0.2f));
+	AddGem(TEXT("ゴールドラッシュ"), ETrapKind::GoldRush, 2.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 0.f, FLinearColor(1.f, 0.8f, 0.15f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）。M14：種類は 通常壁・消音壁・クライミング壁 の 3 つ（数ではなく置き方で勝負）
 	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, double CostGrowth, FLinearColor Color, float NoiseDamping, double SoundHP, float ClimbSeconds, bool bLadder)
@@ -145,6 +146,8 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddPrestigeUpgrade(TEXT("煙幕の数"), 3, 2.0, 2.0, 1.0, 1.0);       // SmokeCount: 1 ラウンドに 1 + Lv 回
 	AddPrestigeUpgrade(TEXT("よじ登る"), 1, 2.0, 1.0, 1.0, 1.0);       // Climb: Lv1 で解放
 	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("連打のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // MashIncome: 連打のコイン ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("時間のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // TimeIncome: 時間のコイン ×1.5^Lv
 	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
@@ -390,6 +393,7 @@ void AKakurenboGameMode::ReturnToTitle()
 		ClearTreasures();
 		SetMansionDark(false, DarkSightRadius);
 		DarumaTimeLeft = 0.f;
+		bGoldRushThisRound = false;
 		LoadProgress();
 	}
 	else
@@ -784,13 +788,23 @@ FKakurenboStageRow AKakurenboGameMode::GetStageSettings() const
 double AKakurenboGameMode::GetMashIncome() const
 {
 	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, State ? State->MashIncomeLevel : 0);
+	return GetMashIncomeAtLevel(State ? State->MashIncomeLevel : 0) * (bGoldRushThisRound ? GoldRushMashMultiplier : 1.0);
+}
+
+double AKakurenboGameMode::GetMashIncomeAtLevel(int32 Level) const
+{
+	return UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::MashIncome);
 }
 
 double AKakurenboGameMode::GetTimeIncomePerSecond() const
 {
 	const AKakurenboGameState* State = GS();
-	return UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State ? State->TimeIncomeLevel : 0);
+	return GetTimeIncomeAtLevel(State ? State->TimeIncomeLevel : 0);
+}
+
+double AKakurenboGameMode::GetTimeIncomeAtLevel(int32 Level) const
+{
+	return UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::TimeIncome);
 }
 
 double AKakurenboGameMode::GetMashUpgradeCost() const
@@ -938,6 +952,12 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 				FMath::RoundToInt(BaseSoundHP * Now), FMath::RoundToInt(BaseSoundHP * Next));
 			break;
 		}
+		case EPrestigeUpgrade::MashIncome:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeMashDesc", "連打で稼げるコイン ×{0} → ×{1}（コインの「連打コイン強化」の上に掛かる）"), Fmt(Now), Fmt(Next));
+			break;
+		case EPrestigeUpgrade::TimeIncome:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTimeDesc", "時間で稼げるコイン ×{0} → ×{1}（コインの「時間コイン強化」の上に掛かる）"), Fmt(Now), Fmt(Next));
+			break;
 		default:
 			break;
 		}
@@ -1217,7 +1237,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 		Item.DisplayName = MashUpgradeName;
 		Item.Cost = GetMashUpgradeCost();
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopMashDesc", "1回 {0} → {1} コイン"),
-			Fmt(GetMashIncome()), Fmt(UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, State->MashIncomeLevel + 1)));
+			Fmt(GetMashIncomeAtLevel(State->MashIncomeLevel)), Fmt(GetMashIncomeAtLevel(State->MashIncomeLevel + 1)));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->MashIncomeLevel);
 	}
 	{
@@ -1225,7 +1245,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetShopItems() const
 		Item.DisplayName = TimeUpgradeName;
 		Item.Cost = GetTimeUpgradeCost();
 		Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "ShopTimeDesc", "毎秒 {0} → {1} コイン"),
-			Fmt(GetTimeIncomePerSecond()), Fmt(UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, State->TimeIncomeLevel + 1)));
+			Fmt(GetTimeIncomeAtLevel(State->TimeIncomeLevel)), Fmt(GetTimeIncomeAtLevel(State->TimeIncomeLevel + 1)));
 		Item.OwnedText = FText::Format(NSLOCTEXT("Kakurenbo", "ShopLevel", "Lv.{0}"), State->TimeIncomeLevel);
 	}
 	{
@@ -1319,7 +1339,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 		switch (Def.Kind)
 		{
 		case ETrapKind::FakeHider:
-			Item.Description = NSLOCTEXT("Kakurenbo", "GemFakeDesc", "自分そっくりの人形。鬼に見つかると、大きな音を立てて鬼と反対へまっすぐ逃げる（捕まると消える）");
+			Item.Description = NSLOCTEXT("Kakurenbo", "GemFakeDesc", "自分そっくりの人形。鬼に見つかると、大きな音を立てて向いている方へまっすぐ逃げる（置いた人形をクリックで向きを変える。捕まると消える）");
 			break;
 		case ETrapKind::OneWay:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemOneWayDesc", "鬼は矢印の向きにしか通れないのれん（自分はどちらからも通れる）。その先が行き止まりのときだけ、鬼が破りに来る（硬さは通常壁の {0} 倍）"),
@@ -1333,6 +1353,9 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			break;
 		case ETrapKind::Daruma:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。使った瞬間に自分（キャラクター）の視界にいた鬼が {0} 秒動けなくなる（ぶつかれば見つかる）"), Fmt(Def.Duration));
+			break;
+		case ETrapKind::GoldRush:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemGoldRushDesc", "置いておくと、そのかくれんぼの間は連打で稼げるコインが {0} 倍（何個置いても {0} 倍）。1 回で壊れる"), Fmt(GoldRushMashMultiplier));
 			break;
 		default:
 			Item.Description = FText::GetEmpty();
@@ -1808,7 +1831,8 @@ bool AKakurenboGameMode::PlaceTrap(FIntPoint Cell, int32 TrapTypeIndex)
 		return false;
 	}
 	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
-	ATrapActor* Trap = Grid->PlaceTrap(Cell, TrapTypeIndex, TrapTypes[TrapTypeIndex], TrapTypes[TrapTypeIndex].Kind == ETrapKind::OneWay ? OneWayPlaceDir : 0);
+	const ETrapKind Kind = TrapTypes[TrapTypeIndex].Kind;
+	ATrapActor* Trap = Grid->PlaceTrap(Cell, TrapTypeIndex, TrapTypes[TrapTypeIndex], Kind == ETrapKind::OneWay ? OneWayPlaceDir : Kind == ETrapKind::FakeHider ? FakeHiderPlaceDir : 0);
 	if (!Trap)
 	{
 		return false;
@@ -1825,7 +1849,9 @@ bool AKakurenboGameMode::RotateTrap(FIntPoint Cell)
 	{
 		return false;
 	}
-	OneWayPlaceDir = Grid->GetTrapDir(Cell); // 次に置くのれんも同じ向き
+	// 次に置くのれん・人形も同じ向き
+	const ATrapActor* Trap = Grid->GetTrap(Cell);
+	(Trap && Trap->GetKind() == ETrapKind::FakeHider ? FakeHiderPlaceDir : OneWayPlaceDir) = Grid->GetTrapDir(Cell);
 	Sfx3D(this, EKakurenboSfx::Place, Grid->CellFloorCenter(Cell), 0.6f, 1.8f);
 	return true;
 }
@@ -2393,11 +2419,11 @@ void AKakurenboGameMode::ConsumeRoundGadgets()
 	{
 		return;
 	}
-	// 真っ暗ブロックは 1 ラウンドで壊れる（ユーザーの希望：1 プレイで壊れる代わりに館じゅうを暗くする）。
+	// 真っ暗ブロックは 1 ラウンドで壊れる（ユーザーの希望：1 プレイで壊れる代わりに館じゅうを暗くする）。ゴールドラッシュも同じ。
 	// 迷い猫は鬼に当たった時点で壊れた扱い（HandleCatTaken）。頭の上の猫は、かくれんぼが終わると自分で消える
 	for (ATrapActor* Trap : Grid->GetAllTraps())
 	{
-		if (Trap && Trap->GetKind() == ETrapKind::Darkness)
+		if (Trap && (Trap->GetKind() == ETrapKind::Darkness || Trap->GetKind() == ETrapKind::GoldRush))
 		{
 			State->TrapsTriggeredThisRound++;
 			Grid->ConsumeTrap(Trap);
@@ -3038,6 +3064,7 @@ void AKakurenboGameMode::StartHidePhase()
 	State->bAllTreasuresThisRound = false;
 	State->TreasureBonusCoinsThisRound = 0.0;
 	DarumaTimeLeft = 0.f;
+	bGoldRushThisRound = false;
 	State->TimeCoinsThisRound = 0.0;
 	State->MashCoinsThisRound = 0.0;
 	State->HideTimeLimit = GetHideDuration();
@@ -3056,7 +3083,7 @@ void AKakurenboGameMode::StartHidePhase()
 	// お宝は最初から置いておく（鬼が来る前に取りに行ける）
 	SpawnTreasures();
 
-	// 真っ暗ブロックを置いていれば、このラウンドは館じゅうが真っ暗
+	// 真っ暗ブロックを置いていれば、このラウンドは館じゅうが真っ暗。ゴールドラッシュを置いていれば、連打のコインが 2 倍（何個置いても 2 倍）
 	bool bDark = false;
 	float DarkRadius = DarkSightRadius;
 	if (const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>())
@@ -3067,6 +3094,12 @@ void AKakurenboGameMode::StartHidePhase()
 			{
 				bDark = true;
 				DarkRadius = Trap->Def.Radius > 0.f ? Trap->Def.Radius : DarkRadius;
+			}
+			if (Trap && Trap->GetKind() == ETrapKind::GoldRush && !bGoldRushThisRound)
+			{
+				bGoldRushThisRound = true;
+				ShowPopup(FString::Printf(TEXT("ゴールドラッシュ！ 連打のコイン ×%s"), *UKakurenboLibrary::FormatStatNumber(GoldRushMashMultiplier)), Trap->Def.Color);
+				UE_LOG(LogKakurenbo, Log, TEXT("Gold rush this round"));
 			}
 		}
 	}
@@ -3153,6 +3186,7 @@ void AKakurenboGameMode::EndHidePhase(bool bCleared)
 	ConsumeRoundGadgets();
 	SetMansionDark(false, DarkSightRadius);
 	DarumaTimeLeft = 0.f;
+	bGoldRushThisRound = false; // 結果画面の「連打 +」は MashCoinsThisRound で、ゴールドラッシュの分も入っている
 
 	SetPhase(EKakurenboPhase::Result);
 }

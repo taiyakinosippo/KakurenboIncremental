@@ -71,7 +71,7 @@
 
 ## PrestigeUpgrades.csv（転生のお店）
 
-転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP）は
+転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP / MashIncome / TimeIncome）は
 プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
 
 | 列 | 意味 |
@@ -89,6 +89,8 @@
 | SmokeCount | 1 ラウンドに煙幕ダッシュを使える回数。**ここだけ足し算**：回数 = BaseValue + ValueGrowth × レベル（1, 2, 3, 4 回） |
 | Climb | **Lv0 はよじ登れない**（Lv1 で解放。クライミング壁も買えるようになる）。値は使わない（M14 でジャンプの行を置き換え） |
 | QuietHP | 消音壁が音を消せる回数（Walls.csv の SoundHP）の倍率 |
+| MashIncome | 連打で稼げるコインの倍率（Upgrades.csv の連打コイン強化の上に掛かる） |
+| TimeIncome | 時間で稼げるコインの倍率（Upgrades.csv の時間コイン強化の上に掛かる） |
 
 ## Walls.csv（壁）
 
@@ -116,7 +118,7 @@ M14 で 3 種類（Normal 通常壁・Quiet 消音壁・Climb クライミング
 購入パートの数字キーは 1〜9 なので、強化 3 つ＋壁＋コインの罠の合計が 9 個までに収まるようにしてください（今は 3＋3＋2＝8）。
 
 **M15：宝石のお店の道具もこの表**（bGemItem = True の行。宝石で買い、「宝石のお店」に並ぶ。コインの罠より後ろに書く）。
-Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれん）・`Darkness`（真っ暗ブロック）・`Cat`（迷い猫）・`Daruma`（だるまさんがころんだ。置かずにかくれんぼ中に使う）。
+Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれん）・`Darkness`（真っ暗ブロック）・`Cat`（迷い猫）・`Daruma`（だるまさんがころんだ。置かずにかくれんぼ中に使う）・`GoldRush`（ゴールドラッシュ。置いておくとそのかくれんぼの間は連打のコインが 2 倍。1 ラウンドで壊れる）。
 働きは docs/GameDesign.md の「宝石と宝石のお店」
 
 | 列 | 意味 |
@@ -243,4 +245,4 @@ DefaultGame.ini の PlayerSurface・TreasureSurface に書きます。
 今の行：Wood01〜16（Fab「Substance Materials Vol 01 - Wood」を 1K に縮めたもの。`/Game/Kakurenbo/Wood`）、Metal（Fab「Stylized Metallic Floor」）、Gem（Fab の宝石）、Player（プレイヤーの服の色の表）、
 置く壁用の WoodWall（通常壁）・QuietWall（消音壁）・ClimbWall（クライミング壁）・StoneWall・IronWall（今は使っていない）、Stone（Fab「Stylized Hand-Painted Stone Wall」）、
 M14 の館用：MedStone・MedStoneFloor・MedWoodFloor（Medieval Room Kit）、Tile・WallpaperA・WallpaperB・Plaster・Stucco（Stylized House Interior から取り出したもの。`/Game/Kakurenbo/Mansion/Props/Textures`）。
-粗さのテクスチャが無い行は RoughnessScale の値のまま（マテリアルの既定のテクスチャは使わない）
+粗さのテクスチャが無い行は RoughnessScale の値のまま（マテリアルの既定のテクスチャは使わない）

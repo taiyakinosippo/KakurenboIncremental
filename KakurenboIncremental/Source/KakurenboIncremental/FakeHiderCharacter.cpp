@@ -36,22 +36,23 @@ void AFakeHiderCharacter::ReturnHome()
 		GetCharacterMovement()->StopMovementImmediately();
 		SetActorLocation(HomeLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
+	SetActorRotation(FRotator(0.f, HomeYaw, 0.f)); // 置いた向きに戻す
 }
 
-FVector AFakeHiderCharacter::ChooseFleeDirection(const FVector& Away) const
+FVector AFakeHiderCharacter::ChooseFleeDirection(const FVector& Preferred) const
 {
-	// 鬼から離れる向きに近い順に、前がふさがっていない向きを探す（壁・家具・置いた壁）
+	// 置いた向きに近い順に、前がふさがっていない向きを探す（壁・家具・置いた壁）
 	const FVector Start = GetActorLocation();
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuFakeFlee), false, this);
-	FVector Best = Away;
+	FVector Best = Preferred;
 	float BestScore = -TNumericLimits<float>::Max();
 	for (int32 i = 0; i < 16; ++i)
 	{
 		const FVector Dir = FRotator(0.f, i * 22.5f, 0.f).RotateVector(FVector::ForwardVector);
-		const float Facing = FVector::DotProduct(Dir, Away);
+		const float Facing = FVector::DotProduct(Dir, Preferred);
 		if (Facing < -0.2f)
 		{
-			continue; // 鬼の方へは逃げない
+			continue; // 置いた向きの後ろへは逃げない
 		}
 		FHitResult Hit;
 		const bool bBlocked = GetWorld()->SweepSingleByChannel(Hit, Start, Start + Dir * 160.f, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(30.f), Params)
@@ -90,21 +91,22 @@ void AFakeHiderCharacter::Tick(float DeltaSeconds)
 	if (Chaser)
 	{
 		CalmTimer = 0.f;
-		const FVector Away = (GetActorLocation() - Chaser->GetActorLocation()).GetSafeNormal2D();
+		// ユーザーの希望：鬼の位置ではなく、置いたときに向いている方へ逃げる（のれんと同じく向きを決めて置く）
+		const FVector Facing = FRotator(0.f, HomeYaw, 0.f).Vector();
 		if (!bFleeing)
 		{
-			// 見つかった：鬼と反対の方へ、まっすぐ逃げ始める
+			// 見つかった：向いている方へ、まっすぐ逃げ始める
 			bFleeing = true;
-			FleeDir = ChooseFleeDirection(Away);
+			FleeDir = ChooseFleeDirection(Facing);
 			NoiseTimer = 0.f;
 			StuckTimer = 0.f;
 		}
-		// 壁や家具にぶつかって止まったら、別の向きへ（なるべく鬼から離れる向き）
+		// 壁や家具にぶつかって止まったら、別の向きへ（なるべく置いた向きに近い向き）
 		StuckTimer = GetVelocity().Size2D() < 60.f ? StuckTimer + DeltaSeconds : 0.f;
 		if (StuckTimer > 0.25f)
 		{
 			StuckTimer = 0.f;
-			FleeDir = ChooseFleeDirection(Away);
+			FleeDir = ChooseFleeDirection(Facing);
 		}
 	}
 	else if (bFleeing)

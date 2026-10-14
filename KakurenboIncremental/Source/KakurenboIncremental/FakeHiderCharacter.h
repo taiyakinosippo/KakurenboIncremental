@@ -25,6 +25,9 @@ public:
 	/** 置いた場所（かくれんぼ以外のパートで戻る） */
 	FVector HomeLocation = FVector::ZeroVector;
 
+	/** 置いた向き（ヨー。見つかったらこの向きへ逃げる。設置パートで人形をクリックすると 90 度ずつ回る） */
+	float HomeYaw = 0.f;
+
 	/** 逃げる速さ（cm/秒。プレイヤーの歩きは 420） */
 	float FleeSpeed = 480.f;
 
@@ -48,8 +51,8 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
-	/** 鬼から離れる向きのうち、ふさがっていない向きを選ぶ */
-	FVector ChooseFleeDirection(const FVector& Away) const;
+	/** 置いた向き（Preferred）に近い順に、ふさがっていない向きを選ぶ（後ろ向きには逃げない） */
+	FVector ChooseFleeDirection(const FVector& Preferred) const;
 
 	bool bFleeing = false;
 	FVector FleeDir = FVector::ForwardVector;

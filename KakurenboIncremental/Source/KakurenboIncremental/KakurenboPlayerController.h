@@ -228,7 +228,7 @@ public:
 	void SelectBuildSlotByOffset(int32 Delta);
 
 	/** そのマスに一方通行ののれんがあるか（左クリック・A で向きを変える） */
-	bool IsOneWayAt(const FIntPoint& Cell) const;
+	bool IsRotatableTrapAt(const FIntPoint& Cell) const;
 
 	/** 選んでいる壁の種類（罠を選んでいたら INDEX_NONE） */
 	int32 GetSelectedWallType() const;

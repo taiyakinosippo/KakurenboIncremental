@@ -618,13 +618,16 @@ bool UKakurenboGridSubsystem::RotateTrap(const FIntPoint& Cell)
 		return false;
 	}
 	FKakurenboBlockColumn& Column = Columns[ToIndex(Cell)];
-	if (!Column.Trap || Column.Trap->GetKind() != ETrapKind::OneWay)
+	if (!Column.Trap || (Column.Trap->GetKind() != ETrapKind::OneWay && Column.Trap->GetKind() != ETrapKind::FakeHider))
 	{
 		return false;
 	}
 	Column.TrapDir = (Column.TrapDir + 1) % 4;
 	Column.Trap->SetDir(Column.TrapDir);
-	MarkChanged();
+	if (Column.Trap->GetKind() == ETrapKind::OneWay)
+	{
+		MarkChanged(); // 鬼の経路が変わる
+	}
 	return true;
 }
 

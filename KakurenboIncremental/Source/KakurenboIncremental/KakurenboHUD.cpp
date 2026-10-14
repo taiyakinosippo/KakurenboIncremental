@@ -1536,7 +1536,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		const float CY = Cursor.Y / UIScale + 26.f;
 		// 置ける・回収できるが両方あれば両方（コントローラーは A・X で選べる）。のれんの上なら「向きを変える」
 		FString Hint;
-		const bool bOneWayHere = PC->bHasTrapPickUpTarget && PC->IsOneWayAt(PC->TrapPickUpCell);
+		const bool bOneWayHere = PC->bHasTrapPickUpTarget && PC->IsRotatableTrapAt(PC->TrapPickUpCell);
 		if (bOneWayHere)
 		{
 			Hint = FString::Printf(TEXT("%s 向きを変える"), *PC->UIKeyLabel(EKakurenboUIKey::Place));
@@ -1575,11 +1575,17 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		}
 	}
 	TextFit(FString::Printf(TEXT("このステージの鬼の攻撃力: %s"), *Damage), 0, CanvasH - 60, 18, CanvasW - 80.f, Gray, true);
-	// 一方通行ののれんを選んでいるときは、置く向きを教える
-	if (PC && PC->IsTrapSlotSelected() && GM->TrapTypes.IsValidIndex(PC->GetSelectedTrapType()) && GM->TrapTypes[PC->GetSelectedTrapType()].Kind == ETrapKind::OneWay)
+	// 一方通行ののれん・身代わり人形を選んでいるときは、置く向きを教える
+	static const TCHAR* DirNames[] = { TEXT("東（門の方）"), TEXT("南"), TEXT("西（門の反対）"), TEXT("北") };
+	const ETrapKind SelectedKind = PC && PC->IsTrapSlotSelected() && GM->TrapTypes.IsValidIndex(PC->GetSelectedTrapType()) ? GM->TrapTypes[PC->GetSelectedTrapType()].Kind : ETrapKind::Sticky;
+	if (SelectedKind == ETrapKind::OneWay)
 	{
-		static const TCHAR* DirNames[] = { TEXT("東（門の方）"), TEXT("南"), TEXT("西（門の反対）"), TEXT("北") };
 		TextFit(FString::Printf(TEXT("のれんの矢印の向きにだけ鬼が通れる（次に置く向き：%s）。置いたのれんをクリックすると向きが変わる"), DirNames[FMath::Clamp(GM->OneWayPlaceDir, 0, 3)]),
+			0, CanvasH - 290, 18, FMath::Min(1000.f, CanvasW - 920.f), PaleText, true);
+	}
+	else if (SelectedKind == ETrapKind::FakeHider)
+	{
+		TextFit(FString::Printf(TEXT("人形は見つかると矢印の向きへ逃げる（次に置く向き：%s）。置いた人形をクリックすると向きが変わる"), DirNames[FMath::Clamp(GM->FakeHiderPlaceDir, 0, 3)]),
 			0, CanvasH - 290, 18, FMath::Min(1000.f, CanvasW - 920.f), PaleText, true);
 	}
 }
@@ -1709,6 +1715,10 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	if (GM->IsMansionDark())
 	{
 		Chip(TEXT("館が真っ暗（鬼は近くしか見えない）"), FLinearColor(0.7f, 0.65f, 0.95f));
+	}
+	if (GM->IsGoldRushActive())
+	{
+		Chip(FString::Printf(TEXT("ゴールドラッシュ　連打のコイン ×%s"), *UKakurenboLibrary::FormatStatNumber(GM->GoldRushMashMultiplier)), FLinearColor(1.f, 0.82f, 0.25f));
 	}
 	// だるまさんがころんだ（持っている数）
 	const int32 DarumaType = GM->FindTrapTypeOfKind(ETrapKind::Daruma);

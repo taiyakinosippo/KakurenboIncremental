@@ -117,7 +117,7 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   Climb / Walls / Gamepad / CameraWall / Lineup / TreasureBreak（M14：よじ登る / 3 種類の壁と壁の補強 / コントローラー / 壁ぎわでカメラが揺れない / 全部の家具を壁ぎわに並べて向き・大きさ・すき間を確かめる / 宝物鬼が壁を壊してお宝へ）。
   CrouchFind / CarefulFind（M14：しゃがみは近くではのぞき込まれ、すぐそばでは気配で気づかれる / 慎重鬼が本物の館でしゃがんだプレイヤーを何秒で見つけるか。旧と新の探し方を比べる。約 8 分）、
   GemShop / OneWay / Darkness / Cat / FakeHider / Daruma / PowerBox / BuildRay / Heartbeat / ShelfGap（M15：宝石とまとめ買い / 宝石のお店の道具 5 つ / パワー鬼の前方 2×2×2 /
-  設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）、SideGap（本棚を並べた間のすき間は体が入る 78cm 以上か無いか）、
+  設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）、SideGap（本棚を並べた間のすき間は体が入る 78cm 以上か無いか）、GoldRush（ゴールドラッシュを置くと連打 ×2・1 ラウンドで壊れる / 転生のお店の連打・時間のお金アップ）、
   OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）、
   StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）、
   Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））。

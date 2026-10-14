@@ -75,10 +75,18 @@ UStaticMeshComponent* ATrapActor::AddPart(UStaticMesh* Mesh, const FVector& Loca
 void ATrapActor::SetDir(int32 InDir)
 {
 	Dir = ((InDir % 4) + 4) % 4;
-	// 向き 0 = +X。のれんの矢印（部品の +X）が鬼の通れる向きを指す
-	if (Def.Kind == ETrapKind::OneWay)
+	// 向き 0 = +X。のれんの矢印（部品の +X）が鬼の通れる向きを指す。身代わり人形は、床の矢印と人形の顔がこの向き（見つかったらこの向きへ逃げる）
+	if (Def.Kind == ETrapKind::OneWay || Def.Kind == ETrapKind::FakeHider)
 	{
 		SetActorRotation(FRotator(0.f, Dir * 90.f, 0.f));
+	}
+	if (Def.Kind == ETrapKind::FakeHider && FakeHider)
+	{
+		FakeHider->HomeYaw = Dir * 90.f;
+		if (!FakeHider->IsFleeing())
+		{
+			FakeHider->SetActorRotation(FRotator(0.f, FakeHider->HomeYaw, 0.f));
+		}
 	}
 }
 
@@ -125,7 +133,8 @@ void ATrapActor::InitTrap(int32 InTrapTypeIndex, const FKakurenboTrapRow& InDef)
 	case ETrapKind::OneWay:   BuildOneWayLook(); SetDir(Dir); break;
 	case ETrapKind::Darkness: BuildDarknessLook(); break;
 	case ETrapKind::Cat:      BuildCatLook(); break;
-	case ETrapKind::FakeHider: SpawnFakeHider(); break;
+	case ETrapKind::GoldRush: BuildGoldRushLook(); break;
+	case ETrapKind::FakeHider: SpawnFakeHider(); SetDir(Dir); break;
 	default: break;
 	}
 }
@@ -190,6 +199,19 @@ void ATrapActor::BuildDarknessLook()
 	AddPart(CubeMesh, FVector(0.f, 0.f, 62.f), FVector(0.62f, 0.62f, 0.06f), Def.Color * 0.6f);
 	AddPart(CylinderMesh, FVector(0.f, 0.f, 75.f), FVector(0.08f, 0.08f, 0.2f), FLinearColor(0.85f, 0.8f, 0.75f));
 	AddPart(SphereMesh, FVector(0.f, 0.f, 90.f), FVector(0.07f, 0.07f, 0.1f), FLinearColor(0.55f, 0.3f, 1.f));
+}
+
+void ATrapActor::BuildGoldRushLook()
+{
+	// 小判がざくざく入った木の箱（連打のコインが増える道具）
+	const FLinearColor Wood(0.4f, 0.22f, 0.1f);
+	AddPart(CubeMesh, FVector(0.f, 0.f, 20.f), FVector(0.6f, 0.45f, 0.4f), Wood);
+	AddPart(CubeMesh, FVector(0.f, 0.f, 41.f), FVector(0.56f, 0.41f, 0.04f), Def.Color);
+	for (int32 i = 0; i < 5; ++i)
+	{
+		// 箱の上に積んだ小判（平たい円柱）
+		AddPart(CylinderMesh, FVector(-14.f + (i % 3) * 14.f, i < 3 ? -6.f : 8.f, 46.f + (i % 2) * 4.f), FVector(0.16f, 0.16f, 0.03f), Def.Color, nullptr, FRotator(0.f, 0.f, 12.f * (i - 2)));
+	}
 }
 
 void ATrapActor::BuildCatLook()
@@ -271,9 +293,9 @@ void ATrapActor::SetCatMotion(int32 Motion)
 
 void ATrapActor::SpawnFakeHider()
 {
-	// 自分そっくりの人形（プレイヤーと同じキャラクター。少し色を薄く）
+	// 自分そっくりの人形（プレイヤーと同じキャラクター。少し色を薄く）。置いた向き（Dir）を向いて立つ
 	const FVector Location = GetActorLocation() + FVector(0.f, 0.f, 82.f);
-	const FTransform At(FRotator(0.f, FMath::FRandRange(0.f, 360.f), 0.f), Location);
+	const FTransform At(FRotator(0.f, Dir * 90.f, 0.f), Location);
 	FakeHider = GetWorld()->SpawnActorDeferred<AFakeHiderCharacter>(AFakeHiderCharacter::StaticClass(), At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 	if (!FakeHider)
 	{
@@ -281,8 +303,14 @@ void ATrapActor::SpawnFakeHider()
 	}
 	FakeHider->OwnerTrap = this;
 	FakeHider->HomeLocation = Location;
+	FakeHider->HomeYaw = Dir * 90.f;
 	FakeHider->FleeSpeed = Def.Speed > 0.f ? Def.Speed : 480.f;
 	FakeHider->FinishSpawning(At);
+	// 床の矢印（逃げる向き。のれんと同じ形）
+	const FLinearColor ArrowColor = FMath::Lerp(Def.Color, FLinearColor::White, 0.45f);
+	AddPart(CubeMesh, FVector(18.f, 0.f, 1.5f), FVector(0.4f, 0.1f, 0.02f), ArrowColor);
+	AddPart(CubeMesh, FVector(46.f, 8.f, 1.6f), FVector(0.24f, 0.08f, 0.02f), ArrowColor, nullptr, FRotator(0.f, -45.f, 0.f));
+	AddPart(CubeMesh, FVector(46.f, -8.f, 1.6f), FVector(0.24f, 0.08f, 0.02f), ArrowColor, nullptr, FRotator(0.f, 45.f, 0.f));
 	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
 	{
 		GM->ApplyPlayerLookTo(FakeHider, FLinearColor(0.75f, 0.85f, 1.f));

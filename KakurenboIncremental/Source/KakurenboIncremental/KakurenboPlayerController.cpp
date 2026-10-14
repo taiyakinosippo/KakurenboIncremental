@@ -1704,9 +1704,9 @@ void AKakurenboPlayerController::HandleBuildInput()
 		}
 	}
 
-	// 左クリック：画面下の欄やボタンの上ならそれを押す。一方通行ののれんを指していれば向きを変える。そうでなければ置く
+	// 左クリック：画面下の欄やボタンの上ならそれを押す。一方通行ののれん・身代わり人形を指していれば向きを変える。そうでなければ置く
 	if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build
-		&& bHasTrapPickUpTarget && IsOneWayAt(TrapPickUpCell))
+		&& bHasTrapPickUpTarget && IsRotatableTrapAt(TrapPickUpCell))
 	{
 		GM->RotateTrap(TrapPickUpCell);
 	}
@@ -1810,7 +1810,7 @@ void AKakurenboPlayerController::HandleGamepadBuild(float DeltaTime)
 		SelectBuildSlotByOffset(+1);
 	}
 	// A：置く（のれんの上なら向きを変える）
-	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bHasTrapPickUpTarget && IsOneWayAt(TrapPickUpCell))
+	if (WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::A)) && bHasTrapPickUpTarget && IsRotatableTrapAt(TrapPickUpCell))
 	{
 		GM->RotateTrap(TrapPickUpCell);
 	}
@@ -1851,11 +1851,12 @@ void AKakurenboPlayerController::UpdateBuildTargetAtCell(const FIntPoint& Cell)
 	}
 }
 
-bool AKakurenboPlayerController::IsOneWayAt(const FIntPoint& Cell) const
+bool AKakurenboPlayerController::IsRotatableTrapAt(const FIntPoint& Cell) const
 {
+	// 向きのある道具（一方通行ののれん・身代わり人形）。クリックすると向きが変わる
 	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
 	const ATrapActor* Trap = Grid ? Grid->GetTrap(Cell) : nullptr;
-	return Trap && Trap->GetKind() == ETrapKind::OneWay;
+	return Trap && (Trap->GetKind() == ETrapKind::OneWay || Trap->GetKind() == ETrapKind::FakeHider);
 }
 
 bool AKakurenboPlayerController::SetStartCell(const FIntPoint& Cell)

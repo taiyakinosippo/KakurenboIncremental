@@ -4892,7 +4892,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.3f, [=, this]
 		{
 			const int32 Items = GM->GetGemShopItems().Num();
-			Check(FString::Printf(TEXT("five gem items (%d)"), Items), Items == 5);
+			Check(FString::Printf(TEXT("six gem items (%d)"), Items), Items == 6);
 			// 宝石が足りないと買えない
 			const int32 Gems = GS()->Gems;
 			GS()->Gems = 0;
@@ -4927,7 +4927,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const TArray<int32> Slots = GetBuildSlots();
 			const int32 Daruma = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
 			Check(FString::Printf(TEXT("build slots show the owned gem items but not daruma (%d slots)"), Slots.Num()),
-				Slots.Num() == GM->WallTypes.Num() + 2 + 4 && !Slots.Contains(GM->WallTypes.Num() + Daruma));
+				Slots.Num() == GM->WallTypes.Num() + 2 + 5 && // 置ける宝石の道具 5 つ（ゴールドラッシュも置く）
+				!Slots.Contains(GM->WallTypes.Num() + Daruma));
 			GetHider()->SetOverheadYaw(0.f);
 		} });
 		Steps.Add({ 0.6f, [=, this] { Shot(TEXT("gemshop_06_build_slots")); } });
@@ -5094,6 +5095,88 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("the second darkness block refills from stock"), Grid()->GetTrap(T->Cell) != nullptr && GS()->TrapStock[T->Type] == 0);
 		} });
 	}
+	// ================================================================ GoldRush（宝石のお店のゴールドラッシュ・転生のお店の連打 / 時間のお金アップ）
+	else if (Scenario.Equals(TEXT("GoldRush"), ESearchCase::IgnoreCase))
+	{
+		struct FGoldTest { int32 Type = INDEX_NONE; double Mash0 = 0.0; double Time0 = 0.0; double MashCoinsBefore = 0.0; FIntPoint Cell; };
+		TSharedRef<FGoldTest> T = MakeShared<FGoldTest>();
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			T->Mash0 = GM->GetMashIncome();
+			T->Time0 = GM->GetTimeIncomePerSecond();
+			// 転生のお店：連打・時間のお金アップを 1 つずつ
+			GS()->PrestigePoints = 10;
+			ShopTab = EKakurenboShopTab::Prestige;
+			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::MashIncome) + 1);
+			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::TimeIncome) + 1);
+			const double Mash = GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome);
+			const double Time = GM->GetPrestigeValue(EPrestigeUpgrade::TimeIncome);
+			Check(FString::Printf(TEXT("prestige: mash income x%.2f (%.2f -> %.2f), time income x%.2f (%.2f -> %.2f)"), Mash, T->Mash0, GM->GetMashIncome(), Time, T->Time0, GM->GetTimeIncomePerSecond()),
+				GM->GetPrestigeLevel(EPrestigeUpgrade::MashIncome) == 1 && GM->GetPrestigeLevel(EPrestigeUpgrade::TimeIncome) == 1 && Mash > 1.0 && Time > 1.0
+				&& FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * Mash) && FMath::IsNearlyEqual(GM->GetTimeIncomePerSecond(), T->Time0 * Time));
+			Check(TEXT("the prestige shop lists both income upgrades"), GM->GetPrestigeShopItems().Num() == static_cast<int32>(EPrestigeUpgrade::Count));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_01_prestige_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 宝石のお店：ゴールドラッシュを 1 個
+			ShopTab = EKakurenboShopTab::Gem;
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::GoldRush);
+			KakuAddGems(30);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+			Check(FString::Printf(TEXT("gold rush bought with gems (stock %d), placeable like the darkness block"), GS()->TrapStock.IsValidIndex(T->Type) ? GS()->TrapStock[T->Type] : -1),
+				GS()->TrapStock.IsValidIndex(T->Type) && GS()->TrapStock[T->Type] == 1 && GM->IsPlaceableTrap(T->Type) && !GM->IsGoldRushActive());
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Gem)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_02_gem_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → 設置
+			// 自分のそばに置く（置いたらそのかくれんぼで発動）
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			T->Cell = FIntPoint(FMath::Clamp(Me.X - 2, 1, Grid()->GetSizeX() - 2), Me.Y);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(FString::Printf(TEXT("gold rush placed (stock %d)"), GS()->TrapStock[T->Type]), Grid()->GetTrap(T->Cell) != nullptr && GS()->TrapStock[T->Type] == 0);
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_03_placed")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Check(FString::Printf(TEXT("a placed gold rush works this round (active %d)"), GM->IsGoldRushActive()), GM->IsGoldRushActive());
+		} });
+		Steps.Add({ 3.5f, [=, this]
+		{
+			KeepOnlyOni(0)->SetActorLocation(FVector(0.f, 0.f, -5000.f), false, nullptr, ETeleportType::TeleportPhysics); // 鬼はじゃまをしない
+			T->MashCoinsBefore = GS()->MashCoinsThisRound;
+			SimulateKey(EKeys::LeftMouseButton, IE_Pressed);
+			SimulateKey(EKeys::LeftMouseButton, IE_Released);
+			NextTick([=, this]
+			{
+				const double Got = GS()->MashCoinsThisRound - T->MashCoinsBefore;
+				const double Expected = T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome) * GM->GoldRushMashMultiplier;
+				Check(FString::Printf(TEXT("one mash during gold rush gives x%.0f coins (%.2f, expected %.2f)"), GM->GoldRushMashMultiplier, Got, Expected), FMath::IsNearlyEqual(Got, Expected, 0.01));
+			});
+		} });
+		Steps.Add({ 0.5f, [=, this] { Shot(TEXT("goldrush_04_hiding")); } });
+		Steps.Add({ 0.3f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			// 真っ暗ブロックと同じく 1 ラウンドで壊れる（設計図は残る）
+			Check(FString::Printf(TEXT("gold rush ends with the round and breaks (live %d, design %d)"), Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell)),
+				!GM->IsGoldRushActive() && Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.3f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Check(FString::Printf(TEXT("without stock there is no gold rush next round (mash %.2f)"), GM->GetMashIncome()),
+				!GM->IsGoldRushActive() && FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome)));
+		} });
+	}
 	// ================================================================ Cat（M15：迷い猫）
 	else if (Scenario.Equals(TEXT("Cat"), ESearchCase::IgnoreCase))
 	{
@@ -5218,8 +5301,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			// プレイヤーは隅、人形は真ん中
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
 			T->Cell = FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			GM->FakeHiderPlaceDir = 0; // 東向きに置いて
 			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
 			Check(TEXT("the fake hider stands on its cell"), TheFake() != nullptr);
+			// のれんと同じく、置いた人形をクリック（RotateTrap）すると 90 度回る → 南（+Y）向き
+			GM->RotateTrap(T->Cell);
+			Check(FString::Printf(TEXT("clicking a placed fake hider turns it (dir %d, yaw %.0f, next %d)"), Grid()->GetTrapDir(T->Cell), TheFake() ? TheFake()->GetActorRotation().Yaw : -1.f, GM->FakeHiderPlaceDir),
+				Grid()->GetTrapDir(T->Cell) == 1 && TheFake() && FMath::IsNearlyEqual(TheFake()->GetActorRotation().Yaw, 90.f, 1.f) && GM->FakeHiderPlaceDir == 1);
 			if (TheFake())
 			{
 				T->Home = TheFake()->GetActorLocation();
@@ -5246,9 +5334,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			AFakeHiderCharacter* Fake = TheFake();
 			Check(FString::Printf(TEXT("the oni chases the fake hider (intent %s, chasing player %d)"), *UEnum::GetValueAsString(Oni->GetIntent()), Oni->IsChasingPlayer() ? 1 : 0),
 				Fake && Oni->GetIntent() == EOniState::Chase && Oni->GetChaseTarget() == Fake);
-			Check(FString::Printf(TEXT("the fake hider flees away from the oni (moved %.0f cm, dir %.2f)"), Fake ? FVector::Dist2D(Fake->GetActorLocation(), T->Home) : -1.f,
-				Fake ? FVector::DotProduct(Fake->GetFleeDirection(), (Fake->GetActorLocation() - Oni->GetActorLocation()).GetSafeNormal2D()) : -1.f),
-				Fake && Fake->IsFleeing() && FVector::Dist2D(Fake->GetActorLocation(), T->Home) > 150.f);
+			// 鬼は東にいるが、人形は置いた向き（南 = +Y）へ逃げる
+			const FVector Moved = Fake ? (Fake->GetActorLocation() - T->Home) * FVector(1.f, 1.f, 0.f) : FVector::ZeroVector;
+			Check(FString::Printf(TEXT("the fake hider flees the way it faces (moved %.0f cm, flee dir (%.2f, %.2f), moved dir (%.2f, %.2f))"), Moved.Size(),
+				Fake ? Fake->GetFleeDirection().X : 0.f, Fake ? Fake->GetFleeDirection().Y : 0.f, Moved.GetSafeNormal().X, Moved.GetSafeNormal().Y),
+				Fake && Fake->IsFleeing() && Moved.Size() > 150.f && Fake->GetFleeDirection().Y > 0.9f && Moved.GetSafeNormal().Y > 0.8f);
 			Check(FString::Printf(TEXT("the fake hider makes loud noise while fleeing (%d)"), Fake ? Fake->GetNoiseCount() : -1), Fake && Fake->GetNoiseCount() >= 1);
 			Check(TEXT("the fake hider's steps are not the player's steps"), GS()->StepsThisRound == T->Steps);
 			LookAtOni();

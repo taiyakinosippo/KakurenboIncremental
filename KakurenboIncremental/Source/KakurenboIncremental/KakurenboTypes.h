@@ -122,6 +122,7 @@ enum class ETrapKind : uint8
 	Darkness  UMETA(DisplayName = "Darkness"),  // 真っ暗ブロック：まわり（Radius）が真っ暗になり、鬼はすぐ近くしか見えない。自分も見えにくい
 	Cat       UMETA(DisplayName = "Cat"),       // 迷い猫：近くをうろうろして鳴く。寄ってきた鬼は猫をなでてしばらく動かない（どの鬼も猫には弱い）
 	Daruma    UMETA(DisplayName = "Daruma"),    // だるまさんがころんだ：かくれんぼ中に使う（置かない）。使った瞬間に自分の視界にいた鬼は、しばらく動けない。止まった鬼にタッチすると門へ帰る
+	GoldRush  UMETA(DisplayName = "GoldRush"),  // ゴールドラッシュ：真っ暗ブロックと同じく、置いておくとそのかくれんぼの間は連打のコインが 2 倍。1 ラウンドで壊れる
 };
 
 /** 転生のお店で買える永続強化（Data/PrestigeUpgrades.csv の行名と同じ名前） */
@@ -134,6 +135,8 @@ enum class EPrestigeUpgrade : uint8
 	SmokeCount   UMETA(DisplayName = "SmokeCount"),   // 煙幕の数：1 ラウンドに煙幕ダッシュを使える回数（1 + Lv）。セーブの並びを変えないよう、元の「ダッシュの回復」の場所
 	Climb        UMETA(DisplayName = "Climb"),        // よじ登る：Lv1 で壁・家具によじ登れるようになる（元の「ジャンプ」の場所。セーブのレベルはそのまま）
 	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
+	MashIncome   UMETA(DisplayName = "MashIncome"),   // 連打のお金アップ：連打 1 回のコインの倍率
+	TimeIncome   UMETA(DisplayName = "TimeIncome"),   // 時間のお金アップ：時間で増えるコインの倍率
 	Count        UMETA(Hidden)
 };
 

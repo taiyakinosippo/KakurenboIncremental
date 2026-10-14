@@ -315,6 +315,12 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		// 煙幕ダッシュは回数制（足し算）。最初から 1 回は使えて、レベルで増える
 		const FKakurenboPrestigeUpgradeRow* Smoke = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("SmokeCount"), TEXT("Test"));
 		TestTrue(TEXT("smoke uses start at 1 or more and grow"), Smoke && Smoke->BaseValue >= 1.0 && Smoke->ValueGrowth >= 1.0 && Smoke->MaxLevel > 0);
+		// 連打・時間のお金アップは ×1 から始まって、レベルで増える（上限なし）
+		for (const TCHAR* Name : { TEXT("MashIncome"), TEXT("TimeIncome") })
+		{
+			const FKakurenboPrestigeUpgradeRow* Row = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(Name, TEXT("Test"));
+			TestTrue(FString::Printf(TEXT("%s starts at x1 and grows"), Name), Row && Row->BaseValue == 1.0 && Row->ValueGrowth > 1.0 && Row->MaxLevel == 0);
+		}
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{
@@ -401,7 +407,7 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{
-		// M15：宝石のお店の道具が 5 つ（身代わり人形・のれん・真っ暗ブロック・迷い猫・だるまさんがころんだ）。コインの罠は 2 つのまま
+		// M15：宝石のお店の道具が 6 つ（身代わり人形・のれん・真っ暗ブロック・迷い猫・だるまさんがころんだ・ゴールドラッシュ）。コインの罠は 2 つのまま
 		TArray<FKakurenboTrapRow*> Rows;
 		Traps->GetAllRows<FKakurenboTrapRow>(TEXT("Test"), Rows);
 		int32 GemItems = 0;
@@ -411,10 +417,10 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			GemItems += Row->bGemItem ? 1 : 0;
 			Kinds.Add(Row->Kind);
 		}
-		TestEqual(TEXT("five gem items"), GemItems, 5);
+		TestEqual(TEXT("six gem items"), GemItems, 6);
 		TestEqual(TEXT("two coin traps"), Rows.Num() - GemItems, 2);
 		TestTrue(TEXT("every gem item kind is used"), Kinds.Contains(ETrapKind::FakeHider) && Kinds.Contains(ETrapKind::OneWay) && Kinds.Contains(ETrapKind::Darkness)
-			&& Kinds.Contains(ETrapKind::Cat) && Kinds.Contains(ETrapKind::Daruma));
+			&& Kinds.Contains(ETrapKind::Cat) && Kinds.Contains(ETrapKind::Daruma) && Kinds.Contains(ETrapKind::GoldRush));
 	}
 	TArray<FName> MapNames;
 	if (UDataTable* Maps = Load(FKakurenboMapRow::StaticStruct(), TEXT("Maps.csv")))
