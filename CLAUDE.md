@@ -121,7 +121,8 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）、
   StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）、
   Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））。
-  Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。仕様を変えたら全部流す
+  Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。
+  Showcase は紹介用（ポートフォリオ）のスクリーンショット（本物のステージ 10「大広間」で、お店・設置・追われる・だるまさんがころんだ・お宝。`-ResX 1920 -ResY 1080` で撮る）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`
 - カーソルを使うテスト（設置パートのマス・HUD のボタン）は `bUseTestCursor` / `TestCursorPosition` を使う（本物のマウスは動かさない）。

@@ -2,7 +2,8 @@
 #   スクリーンショット: KakurenboIncremental/Saved/AutoTest/*.png
 #   ログ:              KakurenboIncremental/Saved/Logs/KakurenboIncremental.log
 #   -Sound を付けると音を出して起動する（既定は -NoSound。効果音の再生まで確かめたいときに使う）
-param([string]$Scenario = "Loop", [int]$TimeoutSec = 600, [string]$ExtraExec = "", [string]$SaveSlot = "", [switch]$Sound)
+#   -ResX / -ResY で画面の大きさ（既定 1280×720。紹介用の Showcase は 1920×1080 など）
+param([string]$Scenario = "Loop", [int]$TimeoutSec = 600, [string]$ExtraExec = "", [string]$SaveSlot = "", [switch]$Sound, [int]$ResX = 1280, [int]$ResY = 720)
 
 . (Join-Path $PSScriptRoot "EnginePath.ps1") # $Engine に UE 5.8 のインストール先が入る
 $Project = Join-Path $PSScriptRoot "..\KakurenboIncremental\KakurenboIncremental.uproject" | Resolve-Path
@@ -11,7 +12,7 @@ $Saved = Join-Path (Split-Path $Project) "Saved"
 # このシナリオの古いスクリーンショットだけを消す（他のシナリオの分は残す）
 Get-ChildItem (Join-Path $Saved "AutoTest") -Filter "$($Scenario.ToLower())_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=1280", "-ResY=720", "-KakuNoSave", "-ExecCmds=`"$ExtraExec KakuAutoTest $Scenario`"", "-log")
+$GameArgs = @("`"$Project`"", "-game", "-windowed", "-ResX=$ResX", "-ResY=$ResY", "-KakuNoSave", "-ExecCmds=`"$ExtraExec KakuAutoTest $Scenario`"", "-log")
 if (-not $Sound) { $GameArgs += "-NoSound" }
 if ($SaveSlot -ne "") { $GameArgs += "-KakuSaveSlot=$SaveSlot" }
 $Proc = Start-Process -FilePath "$Engine\Engine\Binaries\Win64\UnrealEditor.exe" -ArgumentList $GameArgs -PassThru

@@ -85,7 +85,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || bTitleScenario;
+		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
 		GM->bMapOverride = true;
@@ -5359,6 +5359,255 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(FString::Printf(TEXT("bumping into a frozen oni still gets you found (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Result && !GS()->bLastRoundCleared);
 		} });
+	}
+	// ================================================================ Showcase（紹介用のスクリーンショット。本物のステージ 10（大広間）で、お店・設置・追われる・だるまさんがころんだ・お宝を撮る。テストではない）
+	else if (Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase))
+	{
+		struct FShowcase { FIntPoint BuildCell; FIntPoint BuildDir; FIntPoint HideCell; FIntPoint HideDir; };
+		TSharedRef<FShowcase> T = MakeShared<FShowcase>();
+		constexpr int32 ShowStage = 10;
+		// まっすぐ開けた場所を探す：Cell から Dir の向きに Len マス（後ろ 2 マス・bWide なら左右 1 マスも）歩ける。家具が近くにあるほどよい（Avoid から 8 マス以内は使わない）
+		auto FindRunOnce = [Grid](int32 Len, bool bWide, const TArray<FIntPoint>& Avoid, FIntPoint& OutCell, FIntPoint& OutDir) -> bool
+		{
+			const UKakurenboGridSubsystem* G = Grid();
+			int32 BestScore = -1;
+			for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+			{
+				for (int32 X = 0; X < G->GetSizeX(); ++X)
+				{
+					const FIntPoint C(X, Y);
+					bool bNear = false;
+					for (const FIntPoint& A : Avoid)
+					{
+						bNear |= FMath::Max(FMath::Abs(A.X - C.X), FMath::Abs(A.Y - C.Y)) < 8;
+					}
+					if (bNear)
+					{
+						continue;
+					}
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint Side(D.Y, D.X);
+						bool bOpen = true;
+						for (int32 k = -2; k <= Len && bOpen; ++k)
+						{
+							for (int32 s = bWide ? -1 : 0; s <= (bWide ? 1 : 0) && bOpen; ++s)
+							{
+								bOpen = G->IsWalkable(C + D * k + Side * s);
+							}
+						}
+						if (!bOpen)
+						{
+							continue;
+						}
+						// 道の真ん中のまわり（3 マス以内）の家具の数
+						const FIntPoint Mid = C + D * (Len / 2);
+						int32 Score = 0;
+						for (int32 dy = -3; dy <= 3; ++dy)
+						{
+							for (int32 dx = -3; dx <= 3; ++dx)
+							{
+								Score += G->IsObstacle(Mid + FIntPoint(dx, dy)) ? 1 : 0;
+							}
+						}
+						if (Score > BestScore)
+						{
+							BestScore = Score;
+							OutCell = C;
+							OutDir = D;
+						}
+					}
+				}
+			}
+			return BestScore >= 0;
+		};
+		// 見つからなければ、短く・細くして探し直す（館によって部屋の広さが違う）
+		auto FindRun = [FindRunOnce](int32 Len, const TArray<FIntPoint>& Avoid, FIntPoint& OutCell, FIntPoint& OutDir) -> bool
+		{
+			return FindRunOnce(Len, true, Avoid, OutCell, OutDir) || FindRunOnce(Len, false, Avoid, OutCell, OutDir)
+				|| FindRunOnce(Len - 3, true, Avoid, OutCell, OutDir) || FindRunOnce(Len - 3, false, Avoid, OutCell, OutDir)
+				|| FindRunOnce(Len - 5, false, {}, OutCell, OutDir);
+		};
+		// プレイヤーの体とカメラを Dir の向きへ
+		auto FaceDir = [this](const FIntPoint& Dir, float Pitch)
+		{
+			const float Yaw = FVector(Dir.X, Dir.Y, 0.f).Rotation().Yaw;
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(Pitch, Yaw, 0.f));
+		};
+
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } }); // ステージ 1 を逃げ切って結果へ
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入。ここでステージ 10 にして、その館へ
+			GS()->Stage = ShowStage;
+			GM->SwitchToMap(GM->GetMapNameForStage(ShowStage));
+			GS()->NoticeUntilTime = 0.f; // ステージ 2 の館に入ったお知らせは消す
+			Check(FString::Printf(TEXT("stage %d uses its own mansion (%s)"), ShowStage, *GM->GetCurrentMapName().ToString()), GM->GetCurrentMapName() == GM->GetMapNameForStage(ShowStage) && !GM->GetCurrentMapName().IsNone());
+			KakuAddCoins(5.0e7);
+			for (int32 i = 0; i < 12; ++i) { KakuBuy(1); } // 連打コイン強化
+			for (int32 i = 0; i < 6; ++i) { KakuBuy(2); }  // 時間コイン強化
+			for (int32 i = 0; i < 3; ++i) { KakuBuy(3); }  // 壁の補強
+			BuyWall(0, 11);
+			BuyWall(1, 4);
+			BuyTrap(0, 2);
+			BuyTrap(1, 1);
+			KakuAddGems(60);
+			const int32 Daruma = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Daruma) + 1);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Daruma) + 1);
+			KakuAddCoins(1.2e8 - GS()->Coins); // 画面のコインを大きな数に
+			Check(FString::Printf(TEXT("darumas bought (%d)"), GS()->TrapStock[Daruma]), GS()->TrapStock[Daruma] >= 1);
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("showcase_01_shop")); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置。家具の多い部屋に、壁で囲んだ隠れ家と罠を置く
+			// 隠れ家の場所：中の 3×3 と罠を置くマスが空いていて、外まわりの輪（16 マス）もほとんど空いている（家具が壁の代わりになってもよい）。
+			// 輪が空いているほど、まわり（4 マス以内）に家具が多いほどよい。門のそばは避ける
+			{
+				const UKakurenboGridSubsystem* G = Grid();
+				const FIntPoint Gate(G->GetSizeX() - 1, G->GetSizeY() / 2);
+				int32 BestScore = -1;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						bool bFree = FMath::Max(FMath::Abs(C.X - Gate.X), FMath::Abs(C.Y - Gate.Y)) > 6;
+						int32 RingFree = 0;
+						for (int32 dy = -2; dy <= 2 && bFree; ++dy)
+						{
+							for (int32 dx = -2; dx <= 2 && bFree; ++dx)
+							{
+								const bool bRing = FMath::Max(FMath::Abs(dx), FMath::Abs(dy)) == 2;
+								const bool bWalk = G->IsWalkable(C + FIntPoint(dx, dy));
+								RingFree += (bRing && bWalk) ? 1 : 0;
+								bFree = bRing || bWalk;
+							}
+						}
+						bFree = bFree && RingFree >= 13;
+						for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+						{
+							const FIntPoint Side(D.Y, D.X);
+							if (!bFree || !G->IsWalkable(C + D * 3) || !G->IsWalkable(C + D * 4 + Side * 2))
+							{
+								continue;
+							}
+							int32 Score = RingFree * 100;
+							for (int32 dy = -4; dy <= 4; ++dy)
+							{
+								for (int32 dx = -4; dx <= 4; ++dx)
+								{
+									Score += G->IsObstacle(C + FIntPoint(dx, dy)) ? 1 : 0;
+								}
+							}
+							if (Score > BestScore)
+							{
+								BestScore = Score;
+								T->BuildCell = C - D * 2;
+								T->BuildDir = D;
+							}
+						}
+					}
+				}
+				Check(TEXT("an open 5x5 spot for the hideout"), BestScore >= 0);
+			}
+			const FIntPoint A = T->BuildCell + T->BuildDir * 2;
+			KakuSetStart(A.X, A.Y);
+			int32 Placed = 0;
+			for (int32 dy = -2; dy <= 2; ++dy)
+			{
+				for (int32 dx = -2; dx <= 2; ++dx)
+				{
+					const FIntPoint Off(dx, dy);
+					if (FMath::Max(FMath::Abs(dx), FMath::Abs(dy)) != 2 || Off == T->BuildDir * 2)
+					{
+						continue; // 外まわりの輪だけ。前に 1 マスの出入り口
+					}
+					KakuPlaceWall(A.X + dx, A.Y + dy, Placed < 11 ? 0 : 1);
+					++Placed;
+				}
+			}
+			const FIntPoint Side(T->BuildDir.Y, T->BuildDir.X);
+			const FIntPoint Sticky = A + T->BuildDir * 3;
+			const FIntPoint Decoy = A + T->BuildDir * 4 + Side * 2;
+			KakuPlaceTrap(Sticky.X, Sticky.Y, 0);
+			KakuPlaceTrap(Decoy.X, Decoy.Y, 1);
+			GetHider()->TopDownPitch = -62.f; // 少し傾けて、壁の高さが分かるように
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] showcase build at (%d,%d) dir (%d,%d), %d walls on the grid"), A.X, A.Y, T->BuildDir.X, T->BuildDir.Y, Grid()->GetBlockCount());
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("showcase_02_build")); } });
+		Steps.Add({ 0.5f, [=, this] { GetHider()->TopDownPitch = -90.f; KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.6f, [=, this]
+		{
+			// 鬼が出てきた。1 体だけ残し、別の開けた場所でプレイヤーの先（まっすぐ歩ける所まで・最大 11 マス）に置いて追いかけさせる
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(TEXT("an oni came out"), Oni != nullptr);
+			// 門（東の端の真ん中）のそばは赤い明かりで画面が真っ赤になるので避ける
+			const FIntPoint Gate(Grid()->GetSizeX() - 1, Grid()->GetSizeY() / 2);
+			Check(TEXT("an open spot for the chase"), FindRun(12, { T->BuildCell, Gate }, T->HideCell, T->HideDir));
+			int32 Run = 0;
+			while (Run < 11 && Grid()->IsWalkable(T->HideCell + T->HideDir * (Run + 1)))
+			{
+				++Run;
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(T->HideCell));
+			FaceDir(T->HideDir, -14.f);
+			const FIntPoint From = T->HideCell + T->HideDir * Run;
+			Oni->SetActorLocation(Grid()->CellFloorCenter(From) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, FVector(-T->HideDir.X, -T->HideDir.Y, 0.f).Rotation().Yaw, 0.f));
+			Oni->DebugGoTo(T->HideCell);
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] showcase hide at (%d,%d) dir (%d,%d), oni %d cells ahead"), T->HideCell.X, T->HideCell.Y, T->HideDir.X, T->HideDir.Y, Run);
+		} });
+		Steps.Add({ 0.45f, [=, this] { Shot(TEXT("showcase_03_chase")); } });
+		Steps.Add({ 0.05f, [=, this]
+		{
+			// 向かってくる鬼に、だるまさんがころんだ（G）
+			FaceDir(T->HideDir, -14.f);
+			SimulateKey(EKeys::G, IE_Pressed);
+			SimulateKey(EKeys::G, IE_Released);
+		} });
+		Steps.Add({ 0.35f, [=, this]
+		{
+			Check(FString::Printf(TEXT("daruma froze the oni (%d)"), GM->GetDarumaFrozenCount()), GM->GetDarumaFrozenCount() == 1);
+			Shot(TEXT("showcase_04_daruma"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// お宝：鬼は遠くへ。いちばん近いお宝の 3 マス手前から見る
+			if (AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr)
+			{
+				Oni->Deactivate();
+				Oni->SetActorLocation(FVector(0.f, 0.f, -5000.f));
+			}
+			const ATreasureActor* Best = nullptr;
+			for (const ATreasureActor* Treasure : GM->GetTreasures())
+			{
+				if (Treasure && (!Best || FVector::Dist2D(Treasure->GetActorLocation(), GetPawn()->GetActorLocation()) < FVector::Dist2D(Best->GetActorLocation(), GetPawn()->GetActorLocation())))
+				{
+					Best = Treasure;
+				}
+			}
+			Check(TEXT("there is a treasure"), Best != nullptr);
+			if (!Best)
+			{
+				return;
+			}
+			const FIntPoint TC = Grid()->WorldToCell(Best->GetActorLocation());
+			for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+			{
+				if (Grid()->IsWalkable(TC + D * 3) && Grid()->IsWalkable(TC + D * 2) && Grid()->IsWalkable(TC + D * 4))
+				{
+					// お宝の方を向き、カメラは少し横から（体の真後ろだとお宝が体に隠れる）
+					TeleportPlayer(Grid()->CellFloorCenter(TC + D * 3));
+					FaceDir(FIntPoint(-D.X, -D.Y), -22.f);
+					SetControlRotation(GetControlRotation() + FRotator(0.f, 28.f, 0.f));
+					break;
+				}
+			}
+		} });
+		Steps.Add({ 3.f, [=, this] { Shot(TEXT("showcase_05_treasure")); } }); // だるまさんがころんだの表示が消えてから
 	}
 	// ================================================================ Intuition（鬼の勘：見えず聞こえずでも、プレイヤーのそばへ来やすい）
 	else if (Scenario.Equals(TEXT("Intuition"), ESearchCase::IgnoreCase))
