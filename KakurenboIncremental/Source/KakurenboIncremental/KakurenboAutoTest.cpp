@@ -1024,7 +1024,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("treasure light is blocked by walls (casts shadows, the gem itself does not; %d wrong)"), Leaky), Leaky == 0);
 			ShotLater(TEXT("treasure_01_spawned"));
 		} });
-		// 見た目：お宝のまわりを 3 段の壁で囲み、壁の外の床に光がもれていないか撮る
+		// 見た目：お宝のまわりを 1 段の壁で囲み（宝石は壁より低い）、壁の外の床に光がもれていないか撮る
 		Steps.Add({ 0.5f, [=, this]
 		{
 			const FIntPoint Cell = Grid()->WorldToCell(GM->GetTreasures()[0]->GetActorLocation());
@@ -1035,15 +1035,16 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					const FIntPoint C(Cell.X + DX, Cell.Y + DY);
 					if ((DX != 0 || DY != 0) && Grid()->CanPlaceBlock(C))
 					{
-						for (int32 Level = 0; Level < 3; ++Level)
-						{
-							PlaceTestWall(C);
-						}
+						PlaceTestWall(C);
 					}
 				}
 			}
-			TeleportPlayer(Grid()->CellFloorCenter(Cell + FIntPoint(3, 0)));
-			GetHider()->SetOverheadYaw(270.f);
+			Log(FString::Printf(TEXT("walled treasure at (%d,%d): wall height %.0f, gem height %.0f"), Cell.X, Cell.Y, Grid()->GetBlockHeight(),
+				GM->GetTreasures()[0]->Spin->GetComponentLocation().Z - GM->GetTreasures()[0]->GetActorLocation().Z));
+			// 少し離れた所から、上から見下ろすように囲いを見る（壁の外の床が暗ければ光はもれていない）
+			const FIntPoint Stand = Cell + FIntPoint(Cell.X < Grid()->GetSizeX() / 2 ? 4 : -4, 0);
+			TeleportPlayer(Grid()->CellFloorCenter(Stand));
+			SetControlRotation(FRotator(-70.f, (Grid()->CellFloorCenter(Cell) - Grid()->CellFloorCenter(Stand)).Rotation().Yaw, 0.f));
 		} });
 		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("treasure_01b_walled")); } });
 		Steps.Add({ 0.2f, [=, this] { Grid()->ClearAllBlocks(); } });
