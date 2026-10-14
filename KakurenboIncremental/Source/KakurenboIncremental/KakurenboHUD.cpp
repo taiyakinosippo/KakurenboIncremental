@@ -809,8 +809,12 @@ void AKakurenboHUD::DrawTitle(AKakurenboGameState* State, AKakurenboGameMode* GM
 		{
 			const FString Info = bEnabled
 				? FString::Printf(TEXT("ステージ %d%s"), State->Stage, State->PrestigeCount > 0 ? *FString::Printf(TEXT("・転生 %d 回"), State->PrestigeCount) : TEXT(""))
-				: FString(TEXT("セーブがありません"));
-			Text(Info, 110 + 460 - 20 - MeasureText(Info, 18), Y + 24, 18, bEnabled ? Gold : FLinearColor(0.45f, 0.42f, 0.5f));
+				: FString(TEXT("セーブなし"));
+			// 右寄せ。「つづきから」の文字の右に残っている幅に収める（入らなければ小さく・「…」）。前は 720p で文字が重なっていた
+			const float InfoRight = 110 + 460 - 20;
+			const float InfoMaxW = InfoRight - (146 + MeasureText(Item.Label, 30) + 16);
+			const float InfoW = FMath::Min(MeasureText(Info, FitSize(Info, 18, InfoMaxW, false)), InfoMaxW);
+			TextFit(Info, InfoRight - InfoW, Y + 24, 18, InfoMaxW, bEnabled ? Gold : FLinearColor(0.45f, 0.42f, 0.5f));
 		}
 		Y += 82.f;
 	}
