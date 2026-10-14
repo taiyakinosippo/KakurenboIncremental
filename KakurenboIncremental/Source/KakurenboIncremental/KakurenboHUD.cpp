@@ -1364,7 +1364,7 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const FString CoinsPerPrestige = Big(GM->PrestigeSettings.StartCoinsPerPrestige);
 	if (bGemTab)
 	{
-		TextFit(FString::Printf(TEXT("宝石はお宝 1 個で %d つ（ラウンドのお宝を全部取るとボーナス +%d）。宝石と宝石の道具は転生してもなくならない"), GM->GemsPerTreasure, GM->AllTreasureBonusGems),
+		TextFit(FString::Printf(TEXT("宝石はお宝 1 個で %d つ（ラウンドのお宝を全部取るとボーナス +%d）。宝石と宝石の道具は転生してもなくならない"), GM->GetGemsPerTreasure(), GM->GetAllTreasureBonusGems()),
 			0, InfoY, 16, InfoW, GemTextColor, true);
 	}
 	else if (bPrestigeTab)
@@ -1832,7 +1832,7 @@ void AKakurenboHUD::DrawResult(AKakurenboGameState* State, AKakurenboGameMode* G
 	if (State->GemsThisRound > 0)
 	{
 		const FString GemLine = State->bAllTreasuresThisRound
-			? FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d（宝石のお店で道具と交換できる）"), GM->AllTreasureBonusGems)
+			? FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d（宝石のお店で道具と交換できる）"), GM->GetAllTreasureBonusGems())
 			: FString(TEXT("全部取るとボーナスの宝石（宝石のお店で道具と交換できる）"));
 		TextFit(GemLine, 0, Y + 276, 18, W - 40.f, GemTextColor, true);
 	}

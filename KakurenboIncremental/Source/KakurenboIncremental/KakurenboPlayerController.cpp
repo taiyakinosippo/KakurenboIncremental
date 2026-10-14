@@ -1688,9 +1688,16 @@ void AKakurenboPlayerController::HandleBuildInput()
 	else
 	{
 		bGamepadCursorValid = false; // 次にコントローラーに持ち替えたら、カメラの真ん中から始める
-		// カーソルの先の置き場所
+		// カーソルの先の置き場所（画面の下の欄・ボタンの上なら、後ろのマスは狙わない）
 		float MouseX = 0.f, MouseY = 0.f;
-		if (bUseTestCursor)
+		const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+		FVector2D UICursor;
+		FKakurenboUIButton OverButton;
+		if (HUD && GetUICursorPosition(UICursor) && HUD->FindButtonAt(UICursor, OverButton))
+		{
+			ClearBuildTarget();
+		}
+		else if (bUseTestCursor)
 		{
 			UpdateBuildTargetAt(TestCursorPosition);
 		}
@@ -1704,13 +1711,14 @@ void AKakurenboPlayerController::HandleBuildInput()
 		}
 	}
 
-	// 左クリック：画面下の欄やボタンの上ならそれを押す。一方通行ののれん・身代わり人形を指していれば向きを変える。そうでなければ置く
-	if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && !HandleUIClick() && GM->GetPhase() == EKakurenboPhase::Build
-		&& bHasTrapPickUpTarget && IsRotatableTrapAt(TrapPickUpCell))
+	// 左クリック：画面下の欄やボタンの上ならそれを押す（後ろのマスには置かない）。一方通行ののれん・身代わり人形を指していれば向きを変える。そうでなければ置く
+	const bool bLeftClick = !bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton);
+	const bool bClickedUI = bLeftClick && HandleUIClick();
+	if (bLeftClick && !bClickedUI && GM->GetPhase() == EKakurenboPhase::Build && bHasTrapPickUpTarget && IsRotatableTrapAt(TrapPickUpCell))
 	{
 		GM->RotateTrap(TrapPickUpCell);
 	}
-	else if (!bUsingGamepad && WasInputKeyJustPressed(EKeys::LeftMouseButton) && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
+	else if (bLeftClick && !bClickedUI && GM->GetPhase() == EKakurenboPhase::Build && bCanPlaceAtTarget)
 	{
 		if (IsTrapSlotSelected())
 		{

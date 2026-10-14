@@ -922,7 +922,8 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallDesc", "すべての壁の耐久 ×{0} → ×{1}（かけ算。コインの「壁の補強」の上に掛かる・置いてある壁も）"), Fmt(Now), Fmt(Next));
 			break;
 		case EPrestigeUpgrade::Treasure:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝 1 個でもらえる宝石 {0} → {1} 個"), GetGemsPerTreasure(Level), GetGemsPerTreasure(Level + 1));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝 1 個でもらえる宝石 {0} → {1} 個・全部取ったボーナス {2} → {3} 個"),
+				GetGemsPerTreasure(Level), GetGemsPerTreasure(Level + 1), GetAllTreasureBonusGems(Level), GetAllTreasureBonusGems(Level + 1));
 			break;
 		case EPrestigeUpgrade::SmokeDuration:
 			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeSmokeTimeMax", "煙幕が残る時間 {0} 秒"), Fmt(GetSmokeDuration(Level)))
@@ -1099,6 +1100,13 @@ double AKakurenboGameMode::GetTrapCost(int32 TrapTypeIndex) const
 double AKakurenboGameMode::GetClearReward() const
 {
 	return GetStageSettings().ClearReward;
+}
+
+int32 AKakurenboGameMode::GetAllTreasureBonusGems(int32 Level) const
+{
+	// ユーザーの希望：お宝の強化で全取得ボーナスも増える（お宝 1 個の宝石が 1 → 2 → 3 なら、ボーナスは 2 → 4 → 6）
+	const int32 Base = FMath::Max(1, GetGemsPerTreasure(0));
+	return FMath::RoundToInt(static_cast<double>(AllTreasureBonusGems) * GetGemsPerTreasure(Level) / Base);
 }
 
 int32 AKakurenboGameMode::GetGemsPerTreasure(int32 Level) const
@@ -2208,13 +2216,14 @@ void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
 			State->AddCoins(BonusCoins, true);
 		}
 		State->TreasureBonusCoinsThisRound = BonusCoins;
-		State->Gems += AllTreasureBonusGems;
-		State->GemsThisRound += AllTreasureBonusGems;
+		const int32 BonusGems = GetAllTreasureBonusGems();
+		State->Gems += BonusGems;
+		State->GemsThisRound += BonusGems;
 		Sfx2D(this, EKakurenboSfx::Gem);
 		FlashScreen(FLinearColor(0.4f, 0.9f, 1.f, 0.35f), 0.6f);
-		ShowPopup(BonusCoins > 0.0 ? FString::Printf(TEXT("お宝コンプリート！ 宝石 +%d・コイン +%s"), AllTreasureBonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins))
-			: FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d"), AllTreasureBonusGems), FLinearColor(0.5f, 0.95f, 1.f));
-		UE_LOG(LogKakurenbo, Log, TEXT("All treasures collected: bonus %d gems, %s coins"), AllTreasureBonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins));
+		ShowPopup(BonusCoins > 0.0 ? FString::Printf(TEXT("お宝コンプリート！ 宝石 +%d・コイン +%s"), BonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins))
+			: FString::Printf(TEXT("お宝コンプリート！ ボーナス 宝石 +%d"), BonusGems), FLinearColor(0.5f, 0.95f, 1.f));
+		UE_LOG(LogKakurenbo, Log, TEXT("All treasures collected: bonus %d gems, %s coins"), BonusGems, *UKakurenboLibrary::FormatBigNumber(BonusCoins));
 	}
 
 	// 宝物鬼は取られた後もその場所を見回りに来る

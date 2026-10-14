@@ -1107,6 +1107,35 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			GetHider()->SetOverheadYaw(30.f);
 		} });
 		Steps.Add({ 0.6f, [=] { Shot(TEXT("build_01_placed")); } });
+		// 下の欄（壁などのボタン）をクリックしても、その後ろの置けるマスに壁を置かない（ユーザーの指摘）
+		TSharedRef<int32> BlocksBeforeUI = MakeShared<int32>(0);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			int32 SlotIndex = INDEX_NONE;
+			for (const FKakurenboUIButton& Button : HUD ? HUD->GetButtons() : TArray<FKakurenboUIButton>())
+			{
+				if (Button.Action == EKakurenboUIAction::BuildSlot)
+				{
+					UpdateBuildTargetAt(Button.Rect.GetCenter());
+					if (bCanPlaceAtTarget)
+					{
+						SlotIndex = Button.Index;
+						break;
+					}
+				}
+			}
+			Check(TEXT("a build slot button lies over a placeable cell"), SlotIndex != INDEX_NONE);
+			*BlocksBeforeUI = Grid()->GetBlockCount();
+			SelectedBuildSlot = 0;
+			ClickUI(EKakurenboUIAction::BuildSlot, SlotIndex);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("clicking a build slot selects it and places nothing behind it (slot %d, blocks %d -> %d)"), SelectedBuildSlot, *BlocksBeforeUI, Grid()->GetBlockCount()),
+					SelectedBuildSlot == SlotIndex && Grid()->GetBlockCount() == *BlocksBeforeUI);
+				bUseTestCursor = false;
+			});
+		} });
 		Steps.Add({ 0.5f, [=, this] { KakuNext(); Log(TEXT("hide start")); } }); // → かくれんぼ
 		Steps.Add({ 3.5f, [=] { EnableOniDebug(); Log(TEXT("onis spawned")); } });
 
@@ -2376,6 +2405,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				// ほかの強化も確かめる（ポイントを足して、番号で買う）
 				GS()->PrestigePoints += 20;
 				const int32 TreasureBefore = GM->GetGemsPerTreasure();
+				const int32 BonusBefore = GM->GetAllTreasureBonusGems();
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeDuration) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
@@ -2384,6 +2414,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
 				Check(FString::Printf(TEXT("treasure upgrade gives one more gem per treasure (%d -> %d)"), TreasureBefore, GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() == TreasureBefore + 1);
+				Check(FString::Printf(TEXT("treasure upgrade also raises the complete bonus (%d -> %d)"), BonusBefore, GM->GetAllTreasureBonusGems()),
+					GM->GetAllTreasureBonusGems() > BonusBefore && GM->GetAllTreasureBonusGems() == GM->AllTreasureBonusGems * GM->GetGemsPerTreasure() / FMath::Max(1, GM->GetGemsPerTreasure(0)));
 				Check(FString::Printf(TEXT("smoke dash unlocked with its smoke time and uses (%.1fs, %d per round)"), GM->GetSmokeDuration(), Hider->DashUsesPerRound),
 					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
 					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
@@ -4838,15 +4870,15 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.4f, [=, this]
 		{
 			const AKakurenboGameState* S = GS();
-			Check(FString::Printf(TEXT("every treasure gives a gem, plus the complete bonus (gems %d -> %d, treasures %d, bonus %d)"), T->GemsBefore, S->Gems, T->Treasures, GM->AllTreasureBonusGems),
-				S->Gems == T->GemsBefore + T->Treasures * GM->GetGemsPerTreasure() + GM->AllTreasureBonusGems && S->bAllTreasuresThisRound);
+			Check(FString::Printf(TEXT("every treasure gives a gem, plus the complete bonus (gems %d -> %d, treasures %d, bonus %d)"), T->GemsBefore, S->Gems, T->Treasures, GM->GetAllTreasureBonusGems()),
+				S->Gems == T->GemsBefore + T->Treasures * GM->GetGemsPerTreasure() + GM->GetAllTreasureBonusGems() && S->bAllTreasuresThisRound);
 			Check(FString::Printf(TEXT("treasures give no coins (coins %.1f -> %.1f, only time income)"), T->CoinsBefore, S->Coins), S->Coins - T->CoinsBefore < 10.0 && S->TreasureBonusCoinsThisRound == 0.0);
 			Check(TEXT("the complete sound played"), Sound()->GetPlayCount(EKakurenboSfx::Gem) == 1);
 			KakuSkipTime(1000.f);
 		} });
 		Steps.Add({ 1.f, [=, this]
 		{
-			Check(TEXT("result shows the gems"), GS()->GemsThisRound == T->Treasures + GM->AllTreasureBonusGems);
+			Check(TEXT("result shows the gems"), GS()->GemsThisRound == T->Treasures * GM->GetGemsPerTreasure() + GM->GetAllTreasureBonusGems());
 			Shot(TEXT("gemshop_01_result"));
 		} });
 		Steps.Add({ 0.5f, [=, this]

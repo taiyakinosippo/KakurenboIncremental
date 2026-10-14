@@ -723,6 +723,10 @@ public:
 	int32 GetGemsPerTreasure(int32 Level) const;
 	int32 GetGemsPerTreasure() const { return GetGemsPerTreasure(GetPrestigeLevel(EPrestigeUpgrade::Treasure)); }
 
+	/** お宝を全部取ったボーナスの宝石。転生のお店の「お宝の宝石」で、お宝 1 個の宝石と同じ割合で増える（Lv0 は AllTreasureBonusGems） */
+	int32 GetAllTreasureBonusGems(int32 Level) const;
+	int32 GetAllTreasureBonusGems() const { return GetAllTreasureBonusGems(GetPrestigeLevel(EPrestigeUpgrade::Treasure)); }
+
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetHideDuration() const;
 
