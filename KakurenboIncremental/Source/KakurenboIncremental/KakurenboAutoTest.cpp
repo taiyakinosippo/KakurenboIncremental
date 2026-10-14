@@ -2416,6 +2416,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1);
 				const int32 PointsAfter = GS()->PrestigePoints;
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = GM->PrestigeUpgrades[static_cast<int32>(EPrestigeUpgrade::Climb)].MaxLevel; // 最大レベルにして
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
 				Check(FString::Printf(TEXT("treasure upgrade gives one more gem per treasure (%d -> %d)"), TreasureBefore, GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() == TreasureBefore + 1);
@@ -2425,7 +2426,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
 					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
 				Check(TEXT("climbing unlocked (and still no jumping)"), Hider->bClimbUnlocked && Hider->JumpMaxCount == 0 && GM->IsClimbUnlocked());
-				Check(TEXT("climbing is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Climb)].bMaxed);
+				Check(TEXT("climbing is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == GM->PrestigeUpgrades[static_cast<int32>(EPrestigeUpgrade::Climb)].MaxLevel && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Climb)].bMaxed);
 			});
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -4059,6 +4060,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		const FIntPoint Start(4, 4), WallA(5, 4), WallB(6, 4), WallC(8, 4);
 		const FIntPoint LadderFrom(4, 9), Ladder(4, 8), Tower(5, 8);
 		const FIntPoint LowFrom(11, 4), Low(12, 4), TallFrom(11, 8), Tall(12, 8);
+		const FIntPoint SideFrom(4, 14), SideTarget(5, 14), SideTall(5, 13), DollFrom(4, 18), DollTarget(5, 18);
 		auto FeetHeight = [this, CS]() { return GetPawn()->GetActorLocation().Z - GetPawn()->GetSimpleCollisionHalfHeight() - CS->FloorZ; };
 		auto PressClimb = [=]() { SimulateKey(EKeys::SpaceBar, IE_Pressed); SimulateKey(EKeys::SpaceBar, IE_Released); };
 		auto StandAt = [=, this](const FIntPoint& Cell, float Yaw)
@@ -4259,6 +4261,72 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("tall furniture (220 cm) cannot be climbed (climbing %d)"), GetHider()->IsClimbing()), !GetHider()->IsClimbing() && GetHider()->GetClimbCount() == Before);
+			});
+		} });
+		// 転生のお店で「よじ登る」を上げる：速く登れる・ClimbTwoTierLevel で 2 段の高さ（220cm の家具）にも登れる
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const float SlowSeconds = GM->GetClimbSeconds(INDEX_NONE);
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = GM->ClimbTwoTierLevel;
+			GM->ApplyPrestigeToPlayer();
+			Check(FString::Printf(TEXT("higher climb level is faster (furniture %.2f s -> %.2f s, x%.2f) and reaches two tiers (%.0f cm)"), SlowSeconds, GM->GetClimbSeconds(INDEX_NONE), GM->GetClimbSpeedMultiplier(), GetHider()->ClimbMaxHeight),
+				GM->GetClimbSeconds(INDEX_NONE) < SlowSeconds && GM->CanClimbTwoTiers() && GetHider()->ClimbMaxHeight >= Grid()->GetBlockHeight() * 2.f);
+			StandAt(TallFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("now the tall furniture (220 cm) can be climbed (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()), GetHider()->IsClimbing());
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the tall furniture (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), 220.f, 15.f));
+			Shot(TEXT("climb_09_two_tiers"));
+			// 隣に高い壁（3 段）がある 1 段の壁へ、高い壁の側に寄って登る（ユーザーの指摘：隣に壁があると登るのがシビア）
+			PlaceTestWall(SideTarget);
+			for (int32 i = 0; i < 3; ++i)
+			{
+				PlaceTestWall(SideTall);
+			}
+			StandAt(SideFrom, 0.f);
+			GetPawn()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(0.f, -30.f, 0.f), false, nullptr, ETeleportType::TeleportPhysics); // 高い壁の側（-Y）へ 30cm
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("climbs a wall even when a tall wall stands right beside it (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the wall next to the tall wall (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			// 身代わり人形がすぐ横にいても登れる（ユーザーの指摘：おとりが近くにいると登れない）
+			PlaceTestWall(DollTarget);
+			const int32 DollType = GM->FindTrapTypeOfKind(ETrapKind::FakeHider);
+			Grid()->PlaceTrap(DollFrom + FIntPoint(0, 3), DollType, GM->TrapTypes[DollType], 0);
+			StandAt(DollFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const TArray<AHiderCharacter*> Dolls = GM->GetFakeHiders();
+			if (Dolls.Num() > 0)
+			{
+				// 人形をプレイヤーのすぐ横（体がふれるくらい）に立たせる
+				Dolls[0]->SetActorLocation(GetPawn()->GetActorLocation() + FVector(0.f, 45.f, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			Check(TEXT("a fake hider stands right beside the player"), Dolls.Num() > 0);
+		} });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("a fake hider beside the player does not stop climbing (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
 			});
 		} });
 	}
@@ -5115,7 +5183,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("but it still sees 2 m away"), Oni->DebugCanSeeTarget());
 			// 真っ暗の間は、プレイヤーの懐中電灯が体の前を照らす（鬼の方を向かせて写す）
 			GetHider()->SetActorRotation(FRotator(0.f, 0.f, 0.f));
-			Check(TEXT("the player's flashlight is on in the dark"), GetHider()->IsFlashlightOn());
+			Check(TEXT("the player's flashlight is on and the body glows in the dark"), GetHider()->IsFlashlightOn() && GetHider()->IsBodyGlowOn());
 			LookAtOni();
 			ShotLater(TEXT("darkness_01_dark"));
 		} });
@@ -5123,7 +5191,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.6f, [=, this]
 		{
 			Check(TEXT("after the round the darkness block is used up (design stays)"), !Grid()->GetTrap(T->Cell) && Grid()->GetTrapDesign(T->Cell) == T->Type && !GM->IsMansionDark());
-			Check(TEXT("the flashlight turns off after the round"), !GetHider()->IsFlashlightOn());
+			Check(TEXT("the flashlight and the glow turn off after the round"), !GetHider()->IsFlashlightOn() && !GetHider()->IsBodyGlowOn());
 			KakuNext(); // → 購入
 		} });
 		Steps.Add({ 0.4f, [=, this]
@@ -5204,6 +5272,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			// 真っ暗ブロックと同じく 1 ラウンドで壊れる（設計図は残る）
 			Check(FString::Printf(TEXT("gold rush ends with the round and breaks (live %d, design %d)"), Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell)),
 				!GM->IsGoldRushActive() && Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
+			// 値段は、壊れて持っている数が 0 に戻っても、このラン（転生するまで）は上がったまま
+			Check(FString::Printf(TEXT("the gold rush price stays raised for the run (cost %d, base %.0f, bought %d)"), GM->GetGemTrapCost(T->Type), GM->TrapTypes[T->Type].Cost, GS()->GoldRushBoughtThisRun),
+				GM->GetOwnedTrapCount(T->Type) == 0 && GS()->GoldRushBoughtThisRun == 1
+				&& FMath::IsNearlyEqual(GM->GetTrapCost(T->Type), GM->TrapTypes[T->Type].Cost * GM->TrapTypes[T->Type].CostGrowth, 0.01));
 			KakuNext(); // → 購入
 		} });
 		Steps.Add({ 0.3f, [=, this] { KakuNext(); } }); // → 設置
@@ -5450,6 +5522,44 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("no 'spotted' popup and no '!' for the doll (popups %d -> %d)"), T->Popups, HUD ? HUD->GetPopupCount() : -1),
 				HUD && HUD->GetPopupCount() <= T->Popups && Watcher->GetChaseStartTime() < 0.f);
 			Shot(TEXT("detectordoll_01"));
+		} });
+	}
+	// ================================================================ DetectorEar（探知鬼は連打の音がした方へ振り向き、見つけたら仲間を呼ぶ）
+	else if (Scenario.Equals(TEXT("DetectorEar"), ESearchCase::IgnoreCase))
+	{
+		struct FEarTest { FVector Player; int32 Summons = 0; };
+		TSharedRef<FEarTest> T = MakeShared<FEarTest>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Detector }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			Check(FString::Printf(TEXT("the detector hears mashing from far (hearing %.0f, base %.0f)"), Watcher->HearingRadius, GM->GetOniHearingRadius()),
+				Watcher->HearingRadius >= GM->GetOniHearingRadius() * 1.5f);
+			// 真ん中を見張りの場所にして、首を回さないようにする（音で振り向くかだけを見る）
+			const FIntPoint Post(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Watcher->SetGuardCell(Post);
+			Watcher->ScanDegreesPerSecond = 0.f;
+			Watcher->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 東を向く
+			Watcher->SightRadius = 1500.f;
+			TeleportPlayer(Grid()->CellFloorCenter(Post + FIntPoint(-5, 0))); // 真後ろ（西）5 マス
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			T->Player = GetPawn()->GetActorLocation();
+			T->Summons = GS()->SummonsThisRound;
+			Check(FString::Printf(TEXT("the detector does not see the player behind it (summons %d, at post %d)"), T->Summons, Watcher->IsAtGuardPost()), T->Summons == 0 && Watcher->IsAtGuardPost());
+			KakuMash(1);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			const float Facing = FVector::DotProduct(Watcher->GetActorForwardVector().GetSafeNormal2D(), (T->Player - Watcher->GetActorLocation()).GetSafeNormal2D());
+			Check(FString::Printf(TEXT("hearing the mash, the detector turns toward it (facing %.2f) and calls the others (summons %d)"), Facing, GS()->SummonsThisRound),
+				Facing > 0.8f && GS()->SummonsThisRound > T->Summons);
+			LookAtOni();
+			Shot(TEXT("detectorear_01"));
 		} });
 	}
 	// ================================================================ Daruma（M15：だるまさんがころんだ）

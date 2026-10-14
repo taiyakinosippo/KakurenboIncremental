@@ -635,6 +635,57 @@ void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMo
 	{
 		Text(FString::Printf(TEXT("転生 %d 回・転生ポイント %d pt"), State->PrestigeCount, State->PrestigePoints), 36, 134, 18, Purple);
 	}
+	if (State->Phase == EKakurenboPhase::Shop || State->Phase == EKakurenboPhase::Build)
+	{
+		DrawStageOnis(GM);
+	}
+}
+
+void AKakurenboHUD::DrawStageOnis(AKakurenboGameMode* GM)
+{
+	// 種類ごとに数える（Stages.csv に書いた順）
+	TArray<TPair<EOniType, int32>> Counts;
+	for (const EOniType Type : GM->GetStageSettings().OniTypes)
+	{
+		TPair<EOniType, int32>* Found = Counts.FindByPredicate([Type](const TPair<EOniType, int32>& P) { return P.Key == Type; });
+		if (Found)
+		{
+			++Found->Value;
+		}
+		else
+		{
+			Counts.Add(TPair<EOniType, int32>(Type, 1));
+		}
+	}
+	if (Counts.Num() == 0)
+	{
+		return;
+	}
+	constexpr int32 Size = 18;
+	constexpr float Swatch = 14.f;
+	const FString Title = TEXT("このステージの鬼");
+	TArray<FString> Labels;
+	float W = MeasureText(Title, Size) + 24.f;
+	for (const TPair<EOniType, int32>& P : Counts)
+	{
+		const FString Name = GM->GetOniTypeRow(P.Key).DisplayName.ToString();
+		Labels.Add(P.Value > 1 ? FString::Printf(TEXT("%s ×%d"), *Name, P.Value) : Name);
+		W += Swatch + 6.f + MeasureText(Labels.Last(), Size) + 18.f;
+	}
+	const float CanvasW = Canvas->ClipX / UIScale;
+	float X = (CanvasW - W) * 0.5f;
+	const float Y = 20.f;
+	Panel(X, Y, W, 34.f);
+	Text(Title, X + 12.f, Y + 6.f, Size, Gray);
+	X += MeasureText(Title, Size) + 24.f;
+	for (int32 i = 0; i < Counts.Num(); ++i)
+	{
+		// 色の四角は鬼の種類の色（OniTypes.csv の Color）
+		Panel(X, Y + 10.f, Swatch, Swatch, GM->GetOniTypeRow(Counts[i].Key).Color);
+		X += Swatch + 6.f;
+		Text(Labels[i], X, Y + 6.f, Size, FLinearColor::White);
+		X += MeasureText(Labels[i], Size) + 18.f;
+	}
 }
 
 void AKakurenboHUD::DrawCornerButtons(EKakurenboPhase Phase)
@@ -1071,7 +1122,8 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		Lines.Add(TEXT("見たマスを「調べた」と仲間と分け合い、まだの場所へ行く"));
 		Lines.Add(TEXT("細い道・行き止まり・壁で囲んだ場所は後回し（最後に壊して調べる）"));
 		Lines.Add(TEXT("壁は目の前の 1 個ずつ壊す"));
-		Lines.Add(TEXT("対策：入り組んだ通路と、何重にもした壁が苦手"));
+		// ユーザーの指摘：何重の壁には強く、入り組んだ通路も得意。弱いのは「一度見た場所はしばらく見に来ない」こと
+		Lines.Add(FString::Printf(TEXT("対策：一度見た場所は %d 秒ほど見に来ない。見終わった場所へこっそり移って隠れ直す"), FMath::RoundToInt(GetDefault<AOniCharacter>()->CarefulMemorySeconds)));
 		break;
 	case EOniType::Treasure:
 		Lines.Add(TEXT("お宝（取られた場所も）へまっすぐ向かって、まわりを回る。じゃまな壁は壊す"));
@@ -1082,8 +1134,8 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 	case EOniType::Detector:
 		Lines.Add(FString::Printf(TEXT("決まった見張りの場所へ行き、首を回して遠くまで見張る（%s）"), *Sight));
 		Lines.Add(FString::Printf(TEXT("あなたを見つけると、%sm 以内の鬼をみんな呼び寄せる"), *M(Row.SummonRadius)));
-		Lines.Add(TEXT("自分は追いかけない。音も聞かない"));
-		Lines.Add(TEXT("対策：部屋の壁・家具・置いた壁で見張りの視線を切る"));
+		Lines.Add(FString::Printf(TEXT("自分は追いかけない。耳がとてもよく、連打の音がした方へ振り向く（%s 倍遠くから）"), *UKakurenboLibrary::FormatStatNumber(Row.HearingScale)));
+		Lines.Add(TEXT("対策：部屋の壁・家具・置いた壁で見張りの視線を切る。見張りの近くでは連打しない"));
 		break;
 	default:
 		break;
@@ -1096,7 +1148,7 @@ void AKakurenboHUD::GetOniRatings(const FKakurenboOniTypeRow& Row, int32& OutSpe
 	// 星 1〜5（0 は「しない」）。標準鬼がだいたい 3。勘（Intuition）は隠しステータスなので出さない
 	OutSpeed = FMath::Clamp(FMath::RoundToInt((Row.SpeedScale - 0.55f) / 0.15f), 1, 5);
 	OutSight = FMath::Clamp(FMath::RoundToInt(Row.SightRadius / 300.f), 1, 5);
-	OutHearing = Row.HearingScale <= 0.f ? 0 : FMath::Clamp(FMath::RoundToInt(Row.HearingScale * 3.f), 1, 5);
+	OutHearing = Row.HearingScale <= 0.f ? 0 : FMath::Clamp(FMath::RoundToInt(1.f + Row.HearingScale * 2.f), 1, 5); // 標準 1.0 = 3・スピード 1.5 = 4・探知 2.0 = 5
 	OutPower = FMath::Clamp(FMath::RoundToInt(Row.DamageScale * 2.f + 1.f), 1, 5);
 }
 

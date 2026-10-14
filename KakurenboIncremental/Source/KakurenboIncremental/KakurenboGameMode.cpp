@@ -109,7 +109,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddGem(TEXT("真っ暗ブロック"), ETrapKind::Darkness, 3.0, 1.5, 0.f, 0.f, 300.f, 0.f, 0, 0.f, FLinearColor(0.12f, 0.08f, 0.18f));
 	AddGem(TEXT("迷い猫"), ETrapKind::Cat, 4.0, 1.6, 5.f, 0.9f, 450.f, 150.f, 0, 5.f, FLinearColor(1.f, 0.6f, 0.25f));
 	AddGem(TEXT("だるまさんがころんだ"), ETrapKind::Daruma, 3.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 3.f, FLinearColor(0.95f, 0.2f, 0.2f));
-	AddGem(TEXT("ゴールドラッシュ"), ETrapKind::GoldRush, 2.0, 1.3, 0.f, 0.f, 0.f, 0.f, 0, 0.f, FLinearColor(1.f, 0.8f, 0.15f));
+	AddGem(TEXT("ゴールドラッシュ"), ETrapKind::GoldRush, 2.0, 1.15, 0.f, 0.f, 0.f, 0.f, 0, 0.f, FLinearColor(1.f, 0.8f, 0.15f));
 
 	// 壁の既定値（Data/Walls.csv が読めなかったときに使う）。M14：種類は 通常壁・消音壁・クライミング壁 の 3 つ（数ではなく置き方で勝負）
 	auto AddWall = [this](const TCHAR* Name, double HP, double Cost, double CostGrowth, FLinearColor Color, float NoiseDamping, double SoundHP, float ClimbSeconds, bool bLadder)
@@ -140,11 +140,11 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Row.BaseValue = Value;
 		Row.ValueGrowth = ValueGrowth;
 	};
-	AddPrestigeUpgrade(TEXT("壁の硬さ"), 0, 1.0, 1.5, 1.0, 1.5);      // WallHP: 耐久 ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("壁の硬さ"), 0, 1.0, 1.5, 1.0, 2.0);      // WallHP: 耐久 ×2^Lv（×1.5 では先に進める感じが無かった）
 	AddPrestigeUpgrade(TEXT("お宝の宝石"), 0, 2.0, 1.6, 1.0, 1.0);    // Treasure: お宝 1 個の宝石 1 + Lv（M15：お宝はコインではなく宝石に）
 	AddPrestigeUpgrade(TEXT("煙幕ダッシュ"), 4, 2.0, 1.6, 1.0, 2.0);   // SmokeDuration: Lv1 で解放。煙が残る時間 1 + 2×(Lv-1) 秒
 	AddPrestigeUpgrade(TEXT("煙幕の数"), 3, 2.0, 2.0, 1.0, 1.0);       // SmokeCount: 1 ラウンドに 1 + Lv 回
-	AddPrestigeUpgrade(TEXT("よじ登る"), 1, 2.0, 1.0, 1.0, 1.0);       // Climb: Lv1 で解放
+	AddPrestigeUpgrade(TEXT("よじ登る"), 5, 2.0, 1.6, 1.0, 1.3);       // Climb: Lv1 で解放。Lv2 から登る速さ ×1.3^(Lv-1)・ClimbTwoTierLevel で 2 段
 	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
 	AddPrestigeUpgrade(TEXT("連打のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // MashIncome: 連打のコイン ×1.5^Lv
 	AddPrestigeUpgrade(TEXT("時間のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // TimeIncome: 時間のコイン ×1.5^Lv
@@ -774,6 +774,7 @@ FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
 	Growth.OniDamageGrowth = StageOniDamageGrowth;
 	Growth.OniHearingRadiusPerStage = StageOniHearingGrowth;
 	Growth.OniSpeedBonusPerStage = StageOniSpeedGrowth;
+	Growth.ExtraOniEveryStages = StageExtraOniEvery;
 	return KakurenboBalance::ResolveStage(StageRows, Stage, Growth);
 }
 
@@ -873,7 +874,14 @@ int32 AKakurenboGameMode::GetHitsToBreak(double HP) const
 
 float AKakurenboGameMode::GetClimbSeconds(int32 WallTypeIndex) const
 {
-	return WallTypes.IsValidIndex(WallTypeIndex) ? FMath::Max(0.05f, WallTypes[WallTypeIndex].ClimbSeconds) : FurnitureClimbSeconds;
+	const float Seconds = WallTypes.IsValidIndex(WallTypeIndex) ? FMath::Max(0.05f, WallTypes[WallTypeIndex].ClimbSeconds) : FurnitureClimbSeconds;
+	return FMath::Max(0.05f, Seconds / static_cast<float>(GetClimbSpeedMultiplier())); // 転生のお店で「よじ登る」を上げると速くなる
+}
+
+double AKakurenboGameMode::GetClimbSpeedMultiplier(int32 Level) const
+{
+	// Lv1（解放）を ×1 として、そこからレベルごとに ValueGrowth 倍
+	return Level <= 1 ? 1.0 : GetPrestigeValue(EPrestigeUpgrade::Climb, Level) / FMath::Max(0.001, GetPrestigeValue(EPrestigeUpgrade::Climb, 1));
 }
 
 int32 AKakurenboGameMode::GetPrestigeLevel(EPrestigeUpgrade Upgrade) const
@@ -939,7 +947,23 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 			}
 			break;
 		case EPrestigeUpgrade::Climb:
-			Item.Description = NSLOCTEXT("Kakurenbo", "PrestigeClimbDesc", "壁・低い家具に 1 段ずつよじ登れる（隙間は越えられない）。クライミング壁が買えるようになる");
+			if (Level == 0)
+			{
+				Item.Description = NSLOCTEXT("Kakurenbo", "PrestigeClimbDesc", "壁・低い家具に 1 段ずつよじ登れる（隙間は越えられない）。クライミング壁が買えるようになる");
+			}
+			else if (Item.bMaxed)
+			{
+				Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeClimbMax", "よじ登る速さ ×{0}（2 段の高さにも登れる）"), Fmt(GetClimbSpeedMultiplier(Level)));
+			}
+			else
+			{
+				// 上げると速く登れる。ClimbTwoTierLevel で 2 段の高さ（本棚・積んだ壁 2 段）にも一度で登れる
+				const FText Speed = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeClimbSpeed", "よじ登る速さ ×{0} → ×{1}"), Fmt(GetClimbSpeedMultiplier(Level)), Fmt(GetClimbSpeedMultiplier(Level + 1)));
+				Item.Description = CanClimbTwoTiers(Level + 1) && !CanClimbTwoTiers(Level)
+					? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeClimbTwoTier", "{0}・2 段の高さ（本棚・積んだ壁 2 段）にも登れるようになる"), Speed)
+					: CanClimbTwoTiers(Level) ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeClimbTwoTierHas", "{0}（2 段の高さにも登れる）"), Speed)
+					: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeClimbToTwoTier", "{0}（Lv.{1} で 2 段の高さにも登れる）"), Speed, ClimbTwoTierLevel);
+			}
 			break;
 		case EPrestigeUpgrade::QuietHP:
 		{
@@ -1017,6 +1041,7 @@ void AKakurenboGameMode::ApplyPrestigeToPlayer()
 	const int32 NewUses = Hider->bDashUnlocked ? Hider->DashUsesPerRound : 0;
 	Hider->AddDashUses(NewUses - OldUses);
 	Hider->bClimbUnlocked = IsClimbUnlocked();
+	Hider->ClimbMaxHeight = CanClimbTwoTiers() ? ClimbMaxHeightTwoTier : ClimbMaxHeightOneTier;
 	Hider->JumpMaxCount = 0; // ジャンプは無い（M14：壁から壁へ跳んで逃げられないように。よじ登るだけ）
 }
 
@@ -1094,7 +1119,10 @@ double AKakurenboGameMode::GetTrapCost(int32 TrapTypeIndex) const
 		return 0.0;
 	}
 	const FKakurenboTrapRow& Def = TrapTypes[TrapTypeIndex];
-	return UKakurenboLibrary::ExpCurve(Def.Cost, Def.CostGrowth, GetOwnedTrapCount(TrapTypeIndex));
+	// ゴールドラッシュは 1 ラウンドで壊れて持っている数が減るので、値段はこのラン（転生するまで）に買った数で上がる（ユーザーの希望。上がり方は控えめ）
+	const AKakurenboGameState* State = GS();
+	const int32 Count = Def.Kind == ETrapKind::GoldRush ? (State ? State->GoldRushBoughtThisRun : 0) : GetOwnedTrapCount(TrapTypeIndex);
+	return UKakurenboLibrary::ExpCurve(Def.Cost, Def.CostGrowth, Count);
 }
 
 double AKakurenboGameMode::GetClearReward() const
@@ -1363,7 +1391,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。使った瞬間に自分（キャラクター）の視界にいた鬼が {0} 秒動けなくなる（ぶつかれば見つかる）"), Fmt(Def.Duration));
 			break;
 		case ETrapKind::GoldRush:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemGoldRushDesc", "置いておくと、そのかくれんぼの間は連打で稼げるコインが {0} 倍（何個置いても {0} 倍）。1 回で壊れる"), Fmt(GoldRushMashMultiplier));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemGoldRushDesc", "置いておくと、そのかくれんぼの間は連打で稼げるコインが {0} 倍（何個置いても {0} 倍）。1 回で壊れる。値段は転生するまで買うたびに上がる"), Fmt(GoldRushMashMultiplier));
 			break;
 		default:
 			Item.Description = FText::GetEmpty();
@@ -1556,6 +1584,10 @@ bool AKakurenboGameMode::TryBuyTrap(int32 TrapTypeIndex)
 	}
 	State->TrapStock.SetNum(TrapTypes.Num());
 	State->TrapStock[TrapTypeIndex]++;
+	if (TrapTypes[TrapTypeIndex].Kind == ETrapKind::GoldRush)
+	{
+		State->GoldRushBoughtThisRun++;
+	}
 	return true;
 }
 
@@ -2474,6 +2506,7 @@ void AKakurenboGameMode::SetMansionDark(bool bDark, float SightRadius)
 	if (AHiderCharacter* Hider = Cast<AHiderCharacter>(GetPlayerCharacter()))
 	{
 		Hider->SetFlashlightOn(bDark);
+		Hider->SetBodyGlowOn(bDark); // 体もほんのり光る（ユーザーの希望）
 	}
 	if (bDark)
 	{
@@ -3565,6 +3598,7 @@ bool AKakurenboGameMode::Prestige()
 	State->WallStock.Init(0, WallTypes.Num());
 	State->TrapStock = GemStock;
 	State->Gems = 0; // ユーザーの希望：宝石は転生で引き継がない（宝石で買った道具は残る）
+	State->GoldRushBoughtThisRun = 0; // ゴールドラッシュの値段は、転生したら元に戻る
 	State->LastRepairedWalls = 0;
 	State->LastUnrepairedWalls = 0;
 	State->LastRefilledTraps = 0;
@@ -3610,6 +3644,7 @@ bool AKakurenboGameMode::SaveProgress()
 	Save->WallStock = State->WallStock;
 	Save->TrapStock = State->TrapStock;
 	Save->Gems = State->Gems;
+	Save->GoldRushBoughtThisRun = State->GoldRushBoughtThisRun;
 	Grid->ExportLayout(Save->Columns);
 	Save->CurrentMap = CurrentMapName;
 	Save->MapLayouts = StoredMapLayouts;
@@ -3673,6 +3708,7 @@ bool AKakurenboGameMode::LoadProgress()
 	State->TrapStock = Save->TrapStock;
 	State->TrapStock.SetNum(TrapTypes.Num());
 	State->Gems = Save->SaveVersion >= 7 ? Save->Gems : 0;
+	State->GoldRushBoughtThisRun = Save->GoldRushBoughtThisRun; // 古いセーブは 0
 
 	// マップ（版 4 までのセーブには無いので、ステージ 1 のマップ）を先に作ってから、壁・罠を置き直す
 	Grid->ClearAllBlocks();
@@ -3760,6 +3796,7 @@ void AKakurenboGameMode::ResetProgress(bool bShowNotice)
 	State->WallStock.Init(0, WallTypes.Num());
 	State->TrapStock.Init(0, TrapTypes.Num());
 	State->Gems = 0;
+	State->GoldRushBoughtThisRun = 0;
 	State->LastRepairedWalls = 0;
 	State->LastUnrepairedWalls = 0;
 	State->LastRefilledTraps = 0;

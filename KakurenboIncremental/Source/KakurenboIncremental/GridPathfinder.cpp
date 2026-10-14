@@ -222,13 +222,20 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 	{
 		OutBoundaryCells->Reset();
 	}
-	if (!Grid.IsFree(Cell))
+	if (!Grid.IsInside(Cell))
 	{
-		return 0.f; // 壁の上や外にいる
+		return 0.f; // 外にいる
+	}
+	// 家具・壁の上に乗っているときは、そのマスも床として数える（囲んだ中のベッドの上で連打しても音が小さくなるように。ユーザーの指摘）。
+	// 囲いの壁そのものの上に乗っていれば、中と外がつながるので囲まれていない扱いになる
+	FKakurenboPathGrid Work = Grid;
+	if (!Work.IsFree(Cell))
+	{
+		Work.ExtraCost[Work.ToIndex(Cell)] = 0.f;
 	}
 	TArray<int32> Labels, Sizes;
-	LabelFreeRegions(Grid, Labels, Sizes);
-	const int32 Region = Labels[Grid.ToIndex(Cell)];
+	LabelFreeRegions(Work, Labels, Sizes);
+	const int32 Region = Labels[Work.ToIndex(Cell)];
 	if (Region == FindLargestRegion(Sizes))
 	{
 		return 0.f; // 囲まれていない（一番広い空間にいる）
@@ -242,16 +249,16 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 		{
 			continue;
 		}
-		const FIntPoint P = Grid.FromIndex(Index);
+		const FIntPoint P = Work.FromIndex(Index);
 		for (int32 DY = -1; DY <= 1; ++DY)
 		{
 			for (int32 DX = -1; DX <= 1; ++DX)
 			{
 				const FIntPoint N = P + FIntPoint(DX, DY);
 				// CellDamping が負のマス（家具・部屋の壁）は数えない
-				if (Grid.IsInside(N) && Grid.GetExtra(N) != 0.f && !(CellDamping.IsValidIndex(Grid.ToIndex(N)) && CellDamping[Grid.ToIndex(N)] < 0.f))
+				if (Work.IsInside(N) && Work.GetExtra(N) != 0.f && !(CellDamping.IsValidIndex(Work.ToIndex(N)) && CellDamping[Work.ToIndex(N)] < 0.f))
 				{
-					Walls.Add(Grid.ToIndex(N));
+					Walls.Add(Work.ToIndex(N));
 				}
 			}
 		}

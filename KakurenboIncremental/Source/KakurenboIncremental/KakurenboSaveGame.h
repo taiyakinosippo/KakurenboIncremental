@@ -67,6 +67,10 @@ public:
 	UPROPERTY()
 	int32 Gems = 0;
 
+	/** このランにゴールドラッシュを買った数（無いセーブは 0） */
+	UPROPERTY()
+	int32 GoldRushBoughtThisRun = 0;
+
 	UPROPERTY()
 	double Coins = 0.0;
 

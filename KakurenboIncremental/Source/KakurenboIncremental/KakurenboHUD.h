@@ -183,6 +183,9 @@ public:
 
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
+
+	/** 購入・設置パートで、このステージに出てくる鬼の種類と数を上の真ん中に出す（ユーザーの希望：始まる前に分かるように） */
+	void DrawStageOnis(AKakurenboGameMode* GM);
 	void DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM);
 	void DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM);

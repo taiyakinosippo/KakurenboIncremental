@@ -155,6 +155,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
 	float StageOniSpeedGrowth = 15.f;
 
+	/** Stages.csv より後のステージは、このステージ数ごとに鬼が 1 体増える（0 なら増えない。鬼の数に上限は無い） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	int32 StageExtraOniEvery = 3;
+
 	// ===== かくれんぼのルール =====
 
 	/** かくれんぼ開始から鬼が出てくるまでの猶予（秒） */
@@ -580,6 +584,24 @@ public:
 	/** よじ登れるか（転生のお店で解放。M14 でジャンプの代わりに） */
 	bool IsClimbUnlocked() const { return GetPrestigeLevel(EPrestigeUpgrade::Climb) > 0; }
 
+	/** よじ登るの速さの倍率（転生のお店の「よじ登る」。Lv1 = ×1、そこから ValueGrowth ずつ速くなる） */
+	double GetClimbSpeedMultiplier(int32 Level) const;
+	double GetClimbSpeedMultiplier() const { return GetClimbSpeedMultiplier(GetPrestigeLevel(EPrestigeUpgrade::Climb)); }
+
+	/** このレベルから、2 段の高さ（本棚・大時計・2 段に積んだ壁）にも一度で登れる（ユーザーの希望） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+	int32 ClimbTwoTierLevel = 3;
+
+	/** 一度に登れる高さ（cm）：ふつう（壁 1 段 160cm まで）・2 段（壁 2 段 320cm まで。部屋の壁は 10m あるので登れない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+	float ClimbMaxHeightOneTier = 175.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+	float ClimbMaxHeightTwoTier = 335.f;
+
+	bool CanClimbTwoTiers(int32 Level) const { return Level >= ClimbTwoTierLevel; }
+	bool CanClimbTwoTiers() const { return CanClimbTwoTiers(GetPrestigeLevel(EPrestigeUpgrade::Climb)); }
+
 	/** 家具によじ登るのにかかる秒数（壁は Walls.csv の ClimbSeconds） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
 	float FurnitureClimbSeconds = 1.2f;
@@ -828,7 +850,7 @@ public:
 
 	/** ゴールドラッシュ中の連打のコインの倍率 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shop")
-	double GoldRushMashMultiplier = 2.0;
+	double GoldRushMashMultiplier = 1.5; // ×2 は強すぎた
 
 	/** このかくれんぼはゴールドラッシュ中か（ゴールドラッシュを置いていれば。真っ暗ブロックと同じく 1 ラウンドで壊れる） */
 	bool IsGoldRushActive() const { return bGoldRushThisRound; }

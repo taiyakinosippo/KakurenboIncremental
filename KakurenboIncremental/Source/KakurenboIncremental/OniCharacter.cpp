@@ -999,6 +999,13 @@ void AOniCharacter::TickGuard(float DeltaSeconds)
 		FaceTowards(GetChaseTarget()->GetActorLocation(), DeltaSeconds, 240.f);
 		GuardLookYaw = GetActorRotation().Yaw;
 	}
+	else if (GuardNoiseLookTimer > 0.f)
+	{
+		// 音のした方を向く（首を回すのは止める）
+		GuardNoiseLookTimer -= DeltaSeconds;
+		FaceTowards(GuardNoiseLocation, DeltaSeconds, 240.f);
+		GuardLookYaw = GetActorRotation().Yaw;
+	}
 	else
 	{
 		GuardLookYaw = FRotator::NormalizeAxis(GuardLookYaw + ScanDegreesPerSecond * DeltaSeconds);
@@ -1979,9 +1986,19 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 		: Kind == EKakurenboNoise::Step ? StepHearingRadius
 		: Kind == EKakurenboNoise::Cat ? BaseHearingRadius
 		: HearingRadius;
-	if (!bActive || !G || Radius <= 0.f || State == EOniState::Stunned || OniType == EOniType::Detector)
+	if (!bActive || !G || Radius <= 0.f || State == EOniState::Stunned)
 	{
-		return; // 探知鬼は見張りの場所から動かない
+		return;
+	}
+	if (OniType == EOniType::Detector)
+	{
+		// 探知鬼は見張りの場所から動かない。聞こえたら、その方を向いてしばらく見張る（見えれば仲間を呼ぶ）
+		if (bAtGuardPost && FVector::Dist(NoiseLocation, GetActorLocation()) <= Radius * Loudness)
+		{
+			GuardNoiseLocation = NoiseLocation;
+			GuardNoiseLookTimer = GuardNoiseLookSeconds;
+		}
+		return;
 	}
 	// 追いかけている間は、音より目で追うのを優先する
 	if (GetIntent() == EOniState::Chase)

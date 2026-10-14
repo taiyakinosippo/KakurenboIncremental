@@ -123,6 +123,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 Gems = 0;
 
+	/** このラン（転生するまで）にゴールドラッシュを買った数（値段がこれで上がる） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 GoldRushBoughtThisRun = 0;
+
 	/** このラウンドでもらった宝石（コンプリートのボーナスを含む） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 GemsThisRound = 0;

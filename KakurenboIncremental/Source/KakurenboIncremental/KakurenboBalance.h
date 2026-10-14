@@ -20,6 +20,8 @@ namespace KakurenboBalance
 		double OniDamageGrowth = 1.6;
 		float OniHearingRadiusPerStage = 100.f;
 		float OniSpeedBonusPerStage = 15.f;
+		/** 表より後は、このステージ数ごとに鬼が 1 体増える（0 なら増えない）。増える種類は最後の行の鬼（探知鬼を除く）を順に */
+		int32 ExtraOniEveryStages = 3;
 	};
 
 	/**

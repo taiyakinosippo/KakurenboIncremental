@@ -23,6 +23,7 @@ class USkeletalMesh;
 class USkeletalMeshComponent;
 class USpringArmComponent;
 class USpotLightComponent;
+class UPointLightComponent;
 class UStaticMeshComponent;
 
 UCLASS()
@@ -63,6 +64,19 @@ public:
 
 	void SetFlashlightOn(bool bOn);
 	bool IsFlashlightOn() const;
+
+	/** 真っ暗のときに体がほんのり光る（ユーザーの希望。自分の場所が分かるように。鬼に見つかりやすくはならない）。カメラ側から体を照らす弱い光 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hider")
+	TObjectPtr<UPointLightComponent> BodyGlow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
+	float BodyGlowIntensity = 6000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hider|Flashlight")
+	float BodyGlowRadius = 260.f;
+
+	void SetBodyGlowOn(bool bOn);
+	bool IsBodyGlowOn() const;
 
 	// ===== 見た目（Fab のキャラクター。GameMode が ApplyLook で設定する。無ければ円柱） =====
 

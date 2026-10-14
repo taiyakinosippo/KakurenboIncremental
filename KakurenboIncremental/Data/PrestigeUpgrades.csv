@@ -1,9 +1,9 @@
 ﻿---,DisplayName,MaxLevel,BaseCost,CostGrowth,BaseValue,ValueGrowth
-WallHP,壁の硬さ,0,1,1.5,1,1.5
+WallHP,壁の硬さ,0,1,1.5,1,2
 Treasure,お宝の宝石,0,2,1.6,1,1
 SmokeDuration,煙幕ダッシュ,4,2,1.6,1,2
 SmokeCount,煙幕の数,3,2,2,1,1
-Climb,よじ登る,1,2,1,1,1
+Climb,よじ登る,5,2,1.6,1,1.3
 QuietHP,消音壁の丈夫さ,0,1,1.5,1,1.5
 MashIncome,連打のお金アップ,0,1,1.5,1,1.5
 TimeIncome,時間のお金アップ,0,1,1.5,1,1.5

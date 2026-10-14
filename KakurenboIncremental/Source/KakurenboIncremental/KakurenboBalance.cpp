@@ -20,6 +20,27 @@ FKakurenboStageRow KakurenboBalance::ResolveStage(const TArray<FKakurenboStageRo
 	Row.OniDamage *= FMath::Pow(Growth.OniDamageGrowth, static_cast<double>(Steps));
 	Row.OniHearingRadius += Growth.OniHearingRadiusPerStage * Steps;
 	Row.OniSpeedBonus += Growth.OniSpeedBonusPerStage * Steps;
+	// 鬼の数に上限は無い（ユーザーの希望：後半の上限を取り払う）
+	if (Growth.ExtraOniEveryStages > 0 && Steps > 0)
+	{
+		TArray<EOniType> Pool;
+		for (const EOniType Type : Row.OniTypes)
+		{
+			if (Type != EOniType::Detector)
+			{
+				Pool.Add(Type);
+			}
+		}
+		if (Pool.Num() == 0)
+		{
+			Pool.Add(EOniType::Balanced);
+		}
+		const int32 Extra = Steps / Growth.ExtraOniEveryStages;
+		for (int32 k = 0; k < Extra; ++k)
+		{
+			Row.OniTypes.Add(Pool[k % Pool.Num()]);
+		}
+	}
 	return Row;
 }
 

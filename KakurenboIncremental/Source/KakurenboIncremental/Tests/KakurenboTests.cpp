@@ -245,6 +245,10 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("stage 4 hearing"), S4.OniHearingRadius, 1500.f);
 	TestEqual(TEXT("stage 4 speed bonus"), S4.OniSpeedBonus, 45.f);
 	TestEqual(TEXT("stage 4 keeps last row's oni types"), S4.OniTypes.Num(), 3);
+	// 鬼の数に上限は無い：表より後は 3 ステージごとに 1 体（最後の行の種類を順に。探知鬼は増やさない）
+	const FKakurenboStageRow S8 = KakurenboBalance::ResolveStage(Rows, 8, Growth);
+	TestTrue(TEXT("stage 8 has two more onis, taken from the last row in order"), S8.OniTypes.Num() == 5 && S8.OniTypes[3] == EOniType::Scout && S8.OniTypes[4] == EOniType::Breaker);
+	TestEqual(TEXT("stage 50 keeps growing"), KakurenboBalance::ResolveStage(Rows, 50, Growth).OniTypes.Num(), 3 + 48 / 3);
 
 	// 表が空ならステージ 1 の既定値から伸ばす
 	const FKakurenboStageRow S3 = KakurenboBalance::ResolveStage({}, 3, Growth);
@@ -311,7 +315,7 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			}
 		}
 		const FKakurenboPrestigeUpgradeRow* Climb = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Climb"), TEXT("Test"));
-		TestTrue(TEXT("climbing is a one-time unlock"), Climb && Climb->MaxLevel == 1);
+		TestTrue(TEXT("climbing unlocks at Lv1 and has more levels that make it faster"), Climb && Climb->MaxLevel > 1 && Climb->ValueGrowth > 1.0);
 		// 煙幕ダッシュは回数制（足し算）。最初から 1 回は使えて、レベルで増える
 		const FKakurenboPrestigeUpgradeRow* Smoke = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("SmokeCount"), TEXT("Test"));
 		TestTrue(TEXT("smoke uses start at 1 or more and grow"), Smoke && Smoke->BaseValue >= 1.0 && Smoke->ValueGrowth >= 1.0 && Smoke->MaxLevel > 0);
@@ -489,11 +493,12 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("stage 1 oni types parsed"), Rows.Num() > 1 && Rows[0]->OniTypes.Num() >= 1 && Rows[1]->OniTypes.Num() >= 2);
 		for (int32 i = 0; i < Rows.Num(); ++i)
 		{
-			// 鬼の出入り口のマスは 6 つ。マップは Maps.csv にあるもの
-			TestTrue(FString::Printf(TEXT("stage %d has at most 6 onis"), i + 1), Rows[i]->OniTypes.Num() <= 6);
+			// 鬼の数に上限は無い（ユーザーの希望）が、ステージが進んで減ることはない。マップは Maps.csv にあるもの
+			TestTrue(FString::Printf(TEXT("stage %d does not have fewer onis than stage %d"), i + 1, i), i == 0 || Rows[i]->OniTypes.Num() >= Rows[i - 1]->OniTypes.Num() - 1);
 			TestTrue(FString::Printf(TEXT("stage %d map '%s' exists"), i + 1, *Rows[i]->Map.ToString()), Rows[i]->Map.IsNone() || MapNames.Contains(Rows[i]->Map));
 		}
 		TestTrue(TEXT("stage 1 names a map"), Rows.Num() > 0 && !Rows[0]->Map.IsNone());
+		TestTrue(TEXT("the last stages have more than 6 onis (no cap)"), Rows.Num() >= 25 && Rows[24]->OniTypes.Num() > 6);
 		// M12：ステージごとに違うマップ（表の中は全部違う）。転生しないときついステージ（鬼の数と攻撃力が跳ね上がる）がある
 		TSet<FName> Used;
 		for (const FKakurenboStageRow* Row : Rows)
@@ -784,6 +789,28 @@ bool FKakurenboEnclosureDampingTest::RunTest(const FString& Parameters)
 	// 1 か所開けると囲まれていないので効かない
 	Grid.SetExtra(FIntPoint(6, 5), 0.f);
 	TestEqual(TEXT("opened ring: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Grid, FIntPoint(5, 5), Damping), 0.f);
+
+	// 囲んだ中の家具（ベッド）の上に乗っていても効く（ユーザーの指摘：この状態でもクリックの音が小さくならない）
+	FKakurenboPathGrid Room;
+	Room.Init(12, 12);
+	TArray<float> RoomDamping;
+	RoomDamping.Init(0.f, 144);
+	for (int32 Y = 3; Y <= 7; ++Y)
+	{
+		for (int32 X = 3; X <= 7; ++X)
+		{
+			if (X == 3 || X == 7 || Y == 3 || Y == 7)
+			{
+				Room.SetExtra(FIntPoint(X, Y), -1.f);
+				RoomDamping[Room.ToIndex(FIntPoint(X, Y))] = 0.8f; // 消音壁の輪
+			}
+		}
+	}
+	Room.SetExtra(FIntPoint(5, 5), -1.f);
+	RoomDamping[Room.ToIndex(FIntPoint(5, 5))] = -1.f; // 真ん中に家具
+	const float OnBed = KakurenboPathfinding::ComputeEnclosureDamping(Room, FIntPoint(5, 5), RoomDamping);
+	TestTrue(FString::Printf(TEXT("on furniture inside the ring: damped (%.3f)"), OnBed), FMath::IsNearlyEqual(OnBed, 0.8f, 0.001f));
+	TestEqual(TEXT("on the ring wall itself: no damping"), KakurenboPathfinding::ComputeEnclosureDamping(Room, FIntPoint(3, 5), RoomDamping), 0.f);
 	return true;
 }
 

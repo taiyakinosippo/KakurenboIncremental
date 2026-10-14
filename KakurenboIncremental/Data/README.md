@@ -87,7 +87,7 @@
 | Treasure | お宝の価値の倍率 |
 | SmokeDuration | 煙幕が残る時間（秒）。**Lv0 は煙幕ダッシュを使えない**（Lv1 で解放）。**足し算**：時間 = BaseValue + ValueGrowth × (レベル − 1)（1, 3, 5, 7 秒。1〜7 秒に収める） |
 | SmokeCount | 1 ラウンドに煙幕ダッシュを使える回数。**ここだけ足し算**：回数 = BaseValue + ValueGrowth × レベル（1, 2, 3, 4 回） |
-| Climb | **Lv0 はよじ登れない**（Lv1 で解放。クライミング壁も買えるようになる）。値は使わない（M14 でジャンプの行を置き換え） |
+| Climb | **Lv0 はよじ登れない**（Lv1 で解放。クライミング壁も買えるようになる）。Lv2 から登る速さ = 値(Lv) ÷ 値(1)（ValueGrowth 1.3 ずつ）。GameMode の ClimbTwoTierLevel（3）から 2 段の高さにも登れる |
 | QuietHP | 消音壁が音を消せる回数（Walls.csv の SoundHP）の倍率 |
 | MashIncome | 連打で稼げるコインの倍率（Upgrades.csv の連打コイン強化の上に掛かる） |
 | TimeIncome | 時間で稼げるコインの倍率（Upgrades.csv の時間コイン強化の上に掛かる） |

@@ -229,6 +229,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float ScanDegreesPerSecond = 50.f;
 
+	/** 探知鬼：連打の音が聞こえたら、その方を向いて見張る秒数（ユーザーの希望：探知鬼に耳を。動きはしない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float GuardNoiseLookSeconds = 4.f;
+
+	/** 探知鬼が今、聞こえた音の方を向いているか（テスト用） */
+	bool IsLookingAtNoise() const { return GuardNoiseLookTimer > 0.f; }
+
 	/** 慎重鬼：歩きながら見渡して「調べた」ことにする距離（マス。壁・家具の向こうは見えない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	int32 CarefulLookCells = 4;
@@ -713,6 +720,8 @@ private:
 	bool bHasGuardCell = false;
 	bool bAtGuardPost = false;
 	float GuardLookYaw = 0.f;
+	float GuardNoiseLookTimer = 0.f;
+	FVector GuardNoiseLocation = FVector::ZeroVector;
 	float SummonTimer = 0.f;
 	float LastSummonTime = -1.f;
 
