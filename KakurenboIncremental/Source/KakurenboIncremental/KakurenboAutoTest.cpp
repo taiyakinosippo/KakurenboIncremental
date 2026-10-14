@@ -2347,11 +2347,16 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.6f, [=, this]
 		{
+			// 宝石と宝石の道具を持っておく（転生で宝石はなくなり、道具は残る）
+			GS()->Gems = 7;
+			const int32 GoldType = GM->FindTrapTypeOfKind(ETrapKind::GoldRush);
+			GS()->TrapStock[GoldType] = 2;
 			SimulateKey(EKeys::P, IE_Pressed);
 			SimulateKey(EKeys::P, IE_Released);
 			NextTick([=, this]
 			{
 				const AKakurenboGameState* S = GS();
+				Check(FString::Printf(TEXT("gems are not carried over, gem items are (gems %d, gold rush %d)"), S->Gems, S->TrapStock[GoldType]), S->Gems == 0 && S->TrapStock[GoldType] == 2);
 				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
 					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
 				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));
@@ -5388,6 +5393,63 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("caught fake hider disappears (design stays)"), !TheFake() && !Grid()->GetTrap(T->Cell) && Grid()->GetTrapDesign(T->Cell) == T->Type);
 			Check(FString::Printf(TEXT("the oni gives up and the player is safe (phase %s, intent %s)"), *UEnum::GetValueAsString(GS()->Phase), *UEnum::GetValueAsString(Oni->GetIntent())),
 				GS()->Phase == EKakurenboPhase::Hide && Oni->GetIntent() != EOniState::Chase);
+		} });
+	}
+	// ================================================================ DetectorDoll（探知鬼が身代わり人形を見つけても、画面に「見つかった」を出さない）
+	else if (Scenario.Equals(TEXT("DetectorDoll"), ESearchCase::IgnoreCase))
+	{
+		struct FDollTest { FIntPoint Cell; int32 Type = INDEX_NONE; int32 Popups = 0; int32 Summons = 0; };
+		TSharedRef<FDollTest> T = MakeShared<FDollTest>();
+		auto TheFake = [GM]() -> AFakeHiderCharacter* { const TArray<AHiderCharacter*> F = GM->GetFakeHiders(); return F.Num() > 0 ? Cast<AFakeHiderCharacter>(F[0]) : nullptr; };
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Detector }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::FakeHider);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			// 人形は門（東）から見えない隅に置く（出てきた探知鬼がすぐ見つけないように）
+			T->Cell = FIntPoint(3, Grid()->GetSizeY() - 3);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(TEXT("the fake hider stands on its cell"), TheFake() != nullptr);
+		} });
+		Steps.Add({ 0.3f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.15f, [=, this]
+		{
+			// 出てきた探知鬼は、見張りの場所へ行く途中で人形を見つけないよう、いったん目を閉じる
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->SightRadius = 0.f;
+			}
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			// 探知鬼を人形の 4 マス東に置いて、そこを見張りの場所にし、人形の方を向かせる（プレイヤーは遠い隅）
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			const FIntPoint Post(T->Cell.X + 4, T->Cell.Y);
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Watcher->SetGuardCell(Post);
+			Watcher->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			Watcher->SightRadius = 1500.f;
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			T->Popups = HUD ? HUD->GetPopupCount() : 0;
+			T->Summons = GS()->SummonsThisRound;
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			Check(FString::Printf(TEXT("the detector spots the fake hider and calls (summons %d -> %d, doll %d)"), T->Summons, GS()->SummonsThisRound, Watcher->WasLastSummonForDoll()),
+				GS()->SummonsThisRound > T->Summons && Watcher->WasLastSummonForDoll());
+			Check(TEXT("the summon sound plays"), Sound()->GetPlayCount(EKakurenboSfx::Summon) >= 1);
+			Check(FString::Printf(TEXT("no 'spotted' popup and no '!' for the doll (popups %d -> %d)"), T->Popups, HUD ? HUD->GetPopupCount() : -1),
+				HUD && HUD->GetPopupCount() <= T->Popups && Watcher->GetChaseStartTime() < 0.f);
+			Shot(TEXT("detectordoll_01"));
 		} });
 	}
 	// ================================================================ Daruma（M15：だるまさんがころんだ）

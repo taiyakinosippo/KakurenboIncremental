@@ -1014,7 +1014,12 @@ void AOniCharacter::HandleGuardSighting()
 	}
 	SummonTimer = SummonCooldown;
 	LastSummonTime = GetWorld()->GetTimeSeconds();
-	ChaseStartTime = LastSummonTime; // HUD の「！」
+	// 見つけたのが身代わり人形なら、仲間は呼ぶ（音も鳴る）が、画面の「！」・「見張りに見つかった」は出さない（ユーザーの希望）
+	bLastSummonForDoll = GetChaseTarget()->bIsDecoyDoll;
+	if (!bLastSummonForDoll)
+	{
+		ChaseStartTime = LastSummonTime; // HUD の「！」
+	}
 	UE_LOG(LogTemp, Log, TEXT("Detector %s spotted the hider and calls others within %.0f cm"), *GetName(), SummonRadius);
 	OnSummon.Broadcast(this, GetChaseTarget()->GetActorLocation());
 }

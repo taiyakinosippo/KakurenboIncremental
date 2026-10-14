@@ -429,12 +429,15 @@ public:
 	void Summon(const FVector& Location);
 
 	/** 探知鬼：見張る場所（Activate の前に設定する。そこへ行ったら動かない） */
-	void SetGuardCell(const FIntPoint& Cell) { GuardCell = Cell; bHasGuardCell = true; }
+	void SetGuardCell(const FIntPoint& Cell) { GuardCell = Cell; bHasGuardCell = true; bAtGuardPost = false; bHasGoal = false; } // 見張りの場所を変えたら、そこへ向かい直す
 	bool IsAtGuardPost() const { return bAtGuardPost; }
 	FIntPoint GetGuardCell() const { return GuardCell; }
 
 	/** 最後に仲間を呼んだワールド時刻（まだなら負の値） */
 	float GetLastSummonTime() const { return LastSummonTime; }
+
+	/** 探知鬼が最後に見つけて仲間を呼んだのは身代わり人形だったか（そのときは画面に「見つかった」を出さない） */
+	bool WasLastSummonForDoll() const { return bLastSummonForDoll; }
 
 	/** 慎重鬼：担当の区画（舞台を Y 方向に Count 等分した Index 番目）。GameMode が出現時に決める */
 	void SetCarefulSector(int32 Index, int32 Count) { CarefulSector = Index; CarefulSectorCount = FMath::Max(1, Count); }
@@ -671,6 +674,7 @@ private:
 	bool bTargetInSight = false;
 	float ChaseRepathTimer = 0.f;
 	float ChaseStartTime = -1.f;
+	bool bLastSummonForDoll = false;
 
 	/** 最後にプレイヤーが見えた場所（見えない間はここへ向かう） */
 	FVector LastKnownTargetLocation = FVector::ZeroVector;

@@ -2171,7 +2171,11 @@ void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& T
 	{
 		F->Ring(Caller->GetActorLocation(), 60.f, Caller->SummonRadius, 0.9f, FLinearColor(0.75f, 0.3f, 1.f), 18.f);
 	}
-	ShowPopup(Count > 0 ? FString::Printf(TEXT("見張りに見つかった…　鬼が %d 体あつまってくる"), Count) : FString(TEXT("見張りに見つかった…")), FLinearColor(0.8f, 0.5f, 1.f));
+	// 身代わり人形が見つかったときは、プレイヤーが見つかったと思わないよう文は出さない（音と輪だけ）
+	if (!Caller->WasLastSummonForDoll())
+	{
+		ShowPopup(Count > 0 ? FString::Printf(TEXT("見張りに見つかった…　鬼が %d 体あつまってくる"), Count) : FString(TEXT("見張りに見つかった…")), FLinearColor(0.8f, 0.5f, 1.f));
+	}
 }
 
 void AKakurenboGameMode::CollectTreasure(ATreasureActor* Treasure)
@@ -3560,6 +3564,7 @@ bool AKakurenboGameMode::Prestige()
 	State->WallReinforceLevel = 0;
 	State->WallStock.Init(0, WallTypes.Num());
 	State->TrapStock = GemStock;
+	State->Gems = 0; // ユーザーの希望：宝石は転生で引き継がない（宝石で買った道具は残る）
 	State->LastRepairedWalls = 0;
 	State->LastUnrepairedWalls = 0;
 	State->LastRefilledTraps = 0;
