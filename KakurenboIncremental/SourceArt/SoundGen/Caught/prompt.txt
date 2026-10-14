@@ -1,0 +1,2 @@
+Comedic descending trombone fail sound, game over, caught, short cartoon sting
+seconds=3.0 steps=100

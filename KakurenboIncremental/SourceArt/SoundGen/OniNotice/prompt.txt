@@ -1,0 +1,2 @@
+Low curious grunt of a big monster, hm?, short creature vocalization
+seconds=1.5 steps=100

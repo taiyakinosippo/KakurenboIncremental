@@ -1,0 +1,2 @@
+Old wooden door creaking open, then a low bell toll, spooky mansion, game start sound
+seconds=2.5 steps=100

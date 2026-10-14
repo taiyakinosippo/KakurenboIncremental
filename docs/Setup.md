@@ -90,4 +90,5 @@ Claude に「**音の AI の環境を作って音を作って**」と頼めば�
 3. `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1 -Current`（今の音を WAV に。ビルド済みのこと）→
    `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1`（全部の候補。初回はモデル約 5GB のダウンロード）
 
-できた音と一覧（`index.html`）は `KakurenboIncremental/SourceArt/SoundGen/`。Git には入らない（パソコンごとに作る。シード値が同じなら同じ音になる）。
+できた音と一覧（`index.html`）は `KakurenboIncremental/SourceArt/SoundGen/`。作った候補は Git（LFS）に入れるので、**聞く・採用するだけなら上の 1〜3 は要らない**（`git pull` するだけ）。
+候補の一覧・聞くページ（スマホからも聞ける）・採用した音は [Sounds.md](Sounds.md)。

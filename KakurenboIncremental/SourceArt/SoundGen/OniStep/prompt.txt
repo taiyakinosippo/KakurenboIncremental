@@ -1,0 +1,2 @@
+Single heavy stomping footstep on an old wooden floor, big creature, thud, close mic
+seconds=1.0 steps=100

@@ -1,0 +1,2 @@
+Cute house cat meow, single short meow, close mic
+seconds=2.0 steps=100

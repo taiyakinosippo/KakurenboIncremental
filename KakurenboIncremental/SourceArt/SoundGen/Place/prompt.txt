@@ -1,0 +1,2 @@
+Wooden block placed down on a wooden floor, solid soft clack, short sound effect
+seconds=1.0 steps=100

@@ -1,0 +1,2 @@
+Smoke bomb poof, soft burst of gas with a hiss, short sound effect
+seconds=2.0 steps=100

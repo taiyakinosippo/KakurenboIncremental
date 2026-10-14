@@ -1,0 +1,2 @@
+Bright magical chime, sparkling coin pickup jingle, cheerful, video game item collect sound effect
+seconds=2.5 steps=100

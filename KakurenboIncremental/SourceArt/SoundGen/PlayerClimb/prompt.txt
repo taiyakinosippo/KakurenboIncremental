@@ -1,0 +1,2 @@
+Person climbing onto furniture, cloth rustle and hands grabbing wood, short sound effect
+seconds=1.5 steps=100

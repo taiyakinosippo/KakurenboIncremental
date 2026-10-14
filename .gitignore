@@ -24,6 +24,7 @@ KakurenboIncremental/Content/low_poly_cat/
 # FBX を取り込むと、埋め込まれた画像が <名前>.fbm フォルダに書き出される（取り込みのたびにできる）
 *.fbm/
 
-# 音を作る AI（Tools/SoundGen.ps1）：Python の環境（約 6GB）と作った音の候補（パソコンごとに作る）
+# 音を作る AI（Tools/SoundGen.ps1）：Python の環境（約 6GB）と、聞き比べのページ用に MP3 にしたもの（MakeWebPage.py が作り直す）。
+# 作った音の候補（SourceArt/SoundGen/<名前>/*.wav）と今の音（_Current）は Git（LFS）に入れる（別のパソコンでも聞けて、採用できるように。docs/Sounds.md）
 Tools/SoundGen/.venv/
-KakurenboIncremental/SourceArt/SoundGen/
+KakurenboIncremental/SourceArt/SoundGen/_web/

@@ -1,0 +1,2 @@
+Single deep heartbeat thump, lub dub, low and tense, close
+seconds=1.5 steps=100

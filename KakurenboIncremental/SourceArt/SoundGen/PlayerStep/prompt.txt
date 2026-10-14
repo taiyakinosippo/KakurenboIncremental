@@ -1,0 +1,2 @@
+Single soft barefoot footstep on an old wooden floor, quiet, close mic
+seconds=1.0 steps=100

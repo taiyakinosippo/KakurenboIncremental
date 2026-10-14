@@ -1,0 +1,2 @@
+Single short soft electronic countdown beep, clean sine tone, game UI
+seconds=1.0 steps=100

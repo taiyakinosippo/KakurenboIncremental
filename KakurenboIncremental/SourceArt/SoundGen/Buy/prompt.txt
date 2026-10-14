@@ -1,0 +1,2 @@
+Cash register ding with coins clinking, cheerful shop purchase sound effect, game UI
+seconds=1.5 steps=100

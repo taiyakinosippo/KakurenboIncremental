@@ -1,0 +1,2 @@
+Small plastic toy breaking with a crack and spring boing, short cartoon sound effect
+seconds=2.0 steps=100

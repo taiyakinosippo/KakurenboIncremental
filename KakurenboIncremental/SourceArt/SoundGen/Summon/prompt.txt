@@ -1,0 +1,2 @@
+Eerie horn call echoing in a big hall, monster calling allies, spooky sound effect
+seconds=3.0 steps=100

@@ -1,0 +1,2 @@
+Soft high twinkling sparkle, tiny glittering chimes, magical shimmer, quiet
+seconds=2.0 steps=100

@@ -1,0 +1,2 @@
+Cartoon poof, quick puff of smoke disappearing with a soft pop
+seconds=1.0 steps=100

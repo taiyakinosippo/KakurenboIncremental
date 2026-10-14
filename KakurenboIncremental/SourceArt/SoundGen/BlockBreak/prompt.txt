@@ -1,0 +1,2 @@
+Wooden boards breaking and splintering, wall crashing apart, debris falling, impact sound effect
+seconds=2.5 steps=100
