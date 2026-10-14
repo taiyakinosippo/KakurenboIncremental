@@ -11,6 +11,7 @@
 import argparse
 import csv
 import html
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +20,40 @@ CSV_PATH = Path(__file__).with_name("Sounds.csv")
 OUT_DIR = ROOT / "KakurenboIncremental" / "SourceArt" / "SoundGen"
 MODEL_ID = "stabilityai/stable-audio-open-1.0"
 NEGATIVE = "Low quality, distorted, noise"  # 入ってほしくない音
+
+# Windows はシンボリックリンクを作れないことが多い（その警告は出さない。キャッシュは少し大きくなるだけ）
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
+
+def choose_model_cache():
+    """モデル（約 10GB）を置く場所。ふだんは ~/.cache/huggingface。そこのドライブの空きが 12GB より少なければ、
+    いちばん空いているドライブの KakurenboHFCache（ログインのトークンは ~/.cache/huggingface のまま）"""
+    import shutil
+    import string
+
+    if "HF_HUB_CACHE" in os.environ or "HF_HOME" in os.environ:
+        return
+    need = 12 * 1024 ** 3
+    default = Path.home() / ".cache" / "huggingface" / "hub"
+    if (default / "models--stabilityai--stable-audio-open-1.0" / "blobs").exists() and \
+            any(p.stat().st_size > 1024 ** 3 for p in (default / "models--stabilityai--stable-audio-open-1.0" / "blobs").iterdir()):
+        return  # もうダウンロードしてある
+    if shutil.disk_usage(Path.home().anchor).free >= need:
+        return
+    best, best_free = None, 0
+    for letter in string.ascii_uppercase:
+        root = f"{letter}:\\"
+        try:
+            free = shutil.disk_usage(root).free
+        except OSError:
+            continue
+        if free > best_free:
+            best, best_free = root, free
+    if best and best_free >= need:
+        os.environ["HF_HUB_CACHE"] = os.path.join(best, "KakurenboHFCache")
+
+
+choose_model_cache()
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -62,9 +97,10 @@ def load_pipeline():
 
     if not torch.cuda.is_available():
         log("GPU（CUDA）が使えません。CPU で動かすのでとても遅くなります")
-        return StableAudioPipeline.from_pretrained(MODEL_ID, torch_dtype=torch.float32), "cpu"
-    log(f"モデルを読み込み中（初回は約 5GB をダウンロード）… GPU: {torch.cuda.get_device_name(0)}")
-    pipe = StableAudioPipeline.from_pretrained(MODEL_ID, torch_dtype=torch.float16).to("cuda")
+        return StableAudioPipeline.from_pretrained(MODEL_ID, dtype=torch.float32), "cpu"
+    cache = os.environ.get("HF_HUB_CACHE", "~/.cache/huggingface/hub")
+    log(f"モデルを読み込み中（初回は約 10GB を {cache} にダウンロード）… GPU: {torch.cuda.get_device_name(0)}")
+    pipe = StableAudioPipeline.from_pretrained(MODEL_ID, dtype=torch.float16).to("cuda")
     return pipe, "cuda"
 
 
@@ -88,22 +124,37 @@ def clean_up(audio, rate, is_music):
     return audio * (10 ** (-1 / 20) / peak)
 
 
-def generate(pipe, device, name, prompt, seconds, seeds, steps):
+def generate(pipe, device, name, prompt, seconds, seeds, steps, overwrite):
+    import math
+    import time
+
     import soundfile as sf
     import torch
 
     rate = pipe.vae.sampling_rate
     folder = OUT_DIR / name
     folder.mkdir(parents=True, exist_ok=True)
-    for seed in seeds:
-        generator = torch.Generator(device).manual_seed(seed)
-        result = pipe(prompt, negative_prompt=NEGATIVE, num_inference_steps=steps,
-                      audio_end_in_s=float(seconds), num_waveforms_per_prompt=1, generator=generator)
-        audio = clean_up(result.audios[0].float().cpu().numpy(), rate, name.startswith("Music_"))
-        path = folder / f"{name}_s{seed}.wav"
-        sf.write(str(path), audio.T, rate, subtype="PCM_16")
-        log(f"{path.relative_to(ROOT)}（{audio.shape[1] / rate:.2f} 秒）")
     (folder / "prompt.txt").write_text(f"{prompt}\nseconds={seconds} steps={steps}\n", encoding="utf-8")
+    for seed in seeds:
+        path = folder / f"{name}_s{seed}.wav"
+        if path.exists() and not overwrite:
+            log(f"{path.relative_to(ROOT)} はもうあるので飛ばす")
+            continue
+        started = time.time()
+        generator = torch.Generator(device).manual_seed(seed)
+        # モデルはいつも 47 秒ぶんを作る。音にする（VAE）ときに全部を音にすると GPU のメモリをたくさん使うので、
+        # 欲しい長さ（＋少し）だけ切り出して音にする
+        latents = pipe(prompt, negative_prompt=NEGATIVE, num_inference_steps=steps, audio_end_in_s=float(seconds),
+                       num_waveforms_per_prompt=1, generator=generator, output_type="latent").audios
+        frames = min(latents.shape[-1], math.ceil(seconds * rate / pipe.vae.hop_length) + 4)
+        with torch.no_grad():
+            wave = pipe.vae.decode(latents[:, :, :frames]).sample[:, :, : int(seconds * rate)]
+        audio = clean_up(wave[0].float().cpu().numpy(), rate, name.startswith("Music_"))
+        del latents, wave
+        if device == "cuda":
+            torch.cuda.empty_cache()  # ほかのアプリ（UE など）と GPU のメモリを分け合うので、使い終わったら返す
+        sf.write(str(path), audio.T, rate, subtype="PCM_16")
+        log(f"{path.relative_to(ROOT)}（{audio.shape[1] / rate:.2f} 秒・{time.time() - started:.0f} 秒かかった）")
 
 
 def write_index():
@@ -153,6 +204,7 @@ def main():
     parser.add_argument("--name", default="Custom")
     parser.add_argument("--seconds", type=float, default=2.0)
     parser.add_argument("--check", action="store_true", help="ログインとモデルの使用許可だけ確かめる")
+    parser.add_argument("--overwrite", action="store_true", help="同じシード値の WAV があっても作り直す（ふだんは飛ばすので、止まっても続きから）")
     parser.add_argument("--index-only", action="store_true", help="一覧（index.html）だけ作り直す")
     args = parser.parse_args()
 
@@ -180,7 +232,7 @@ def main():
     seeds = list(range(args.seed, args.seed + max(args.variations, 1)))
     for i, (name, prompt, seconds) in enumerate(jobs, 1):
         log(f"({i}/{len(jobs)}) {name}: {prompt}")
-        generate(pipe, device, name, prompt, seconds, seeds, args.steps)
+        generate(pipe, device, name, prompt, seconds, seeds, args.steps, args.overwrite)
     write_index()
     return 0
 
