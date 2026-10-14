@@ -1,6 +1,6 @@
 # KakurenboIncremental
 
-UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリメンタルゲーム。
+UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリメンタルゲーム。題名は「**かせぐんぼ**」（プロジェクト名・フォルダ名は KakurenboIncremental のまま）。
 ゲーム仕様は [docs/GameDesign.md](docs/GameDesign.md) を参照し、仕様が変わったら更新すること。
 これまでのユーザーの依頼と決めたことは [docs/History.md](docs/History.md)。大きな依頼や決定があったら追記すること。
 
@@ -78,6 +78,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   `.uasset` は LFS の lockable で読み取り専用になる（ImportSourceArt.ps1 は自分が作るフォルダの読み取り専用を外す）
 - FBX（プレイヤー・宝石・猫）の取り込みは `Tools\ImportSourceArt.ps1`（エディタの Python をコマンドラインで動かす。PythonScriptPlugin は uproject で有効）。
   煙幕のマテリアルだけ作り直すときは `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script="Tools/ImportSourceArt.py --smoke-only"`。
+  タイトルロゴは `SourceArt/Logo/TitleLogo.html` を `Tools\MakeLogo.ps1`（Edge のヘッドレスで透明な PNG に）→ `--logo-only` で `/Game/Kakurenbo/UI/T_TitleLogo`（HUD の `TitleLogoAsset`。無ければ文字）。
   猫は `--cat-only`（取り込み直し）・`--cat-materials-only`（マテリアルだけ）。猫（Low Poly Cat）はスタティックメッシュ。向きは DefaultGame.ini の `CatMeshYaw`。
   **スケルタルメッシュに使うマテリアルは `used_with_skeletal_mesh` を付ける**（無いとゲームでは灰色の既定のマテリアルになる）。
   Python で書き換えたアセットは `save_loaded_asset(..., only_if_is_dirty=False)` で保存する（変更の印が付かず保存されないことがある）。

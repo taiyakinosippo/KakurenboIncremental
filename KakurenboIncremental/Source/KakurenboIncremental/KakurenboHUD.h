@@ -11,6 +11,7 @@
 class AKakurenboGameMode;
 class AKakurenboGameState;
 class UFont;
+class UTexture2D;
 struct FSlateFontInfo;
 
 /** マウスでクリックできる UI の種類 */
@@ -296,6 +297,18 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UFont> HUDFont;
+
+	/**
+	 * タイトルロゴ「かせぐんぼ」（Tools/MakeLogo.ps1 で作った PNG を ImportSourceArt.py --logo-only で取り込んだもの）。
+	 * 無ければタイトル画面は文字で題名を描く
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Kakurenbo|UI")
+	TSoftObjectPtr<UTexture2D> TitleLogoAsset = TSoftObjectPtr<UTexture2D>(FSoftObjectPath(TEXT("/Game/Kakurenbo/UI/T_TitleLogo.T_TitleLogo")));
+
+	/** 読み込んだタイトルロゴ（1 回だけ探す） */
+	UPROPERTY()
+	TObjectPtr<UTexture2D> TitleLogo;
+	bool bTitleLogoSearched = false;
 
 private:
 	struct FMashPopup

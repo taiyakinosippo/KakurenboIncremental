@@ -20,6 +20,7 @@
 | 共通のマテリアル | 自作（Tools/ImportSourceArt.ps1 が作る） | `Content/Kakurenbo/Materials/M_KakuSurface`・`M_KakuProp`（家具）・`M_KakuGlass`（額のガラス）・`T_KakuDefaultORM` |
 | 館の家具・窓・松明・柱・出入り口のアーチ・石の床と壁（M14） | Fab「[Medieval Room Kit](https://www.fab.com/listings/52610433-0210-40e5-884b-abc12cf8901e)」（無料・**CC BY 4.0**。配布するときは作者名をクレジットに書く）の FBX と、4K のテクスチャを **1K に縮めたもの** | `Content/Kakurenbo/Mansion/Medieval`（元 `SourceArt/MedievalRoomKit`） |
 | 館の家具（たんす・机・ソファ・浴槽・洗面台・小さな台）・額・出入り口の枠・壁紙・しっくい・タイル・植木（M14） | Fab「Stylized House Interior」（StylizedKitchen）・「Isometric Interiors」から**使う 13 個のメッシュと模様だけ**取り出し、テクスチャを 1K に縮めたもの | `Content/Kakurenbo/Mansion/Props`（元 `SourceArt/FabProps`。`Tools/ExtractFabProps.py` が作る） |
+| タイトルロゴ「かせぐんぼ」 | 自作（`SourceArt/Logo/TitleLogo.html` を `Tools/MakeLogo.ps1` が Edge で PNG にする。文字は Google Fonts の Dela Gothic One・SIL Open Font License）。`Tools/ImportSourceArt.py --logo-only` で取り込む | `Content/Kakurenbo/UI/T_TitleLogo`（元 `SourceArt/Logo/TitleLogo.png`） |
 | 煙幕の半透明のマテリアル | 自作（Tools/ImportSourceArt.ps1 が作る。`--smoke-only` でこれだけ作り直せる） | `Content/Kakurenbo/Materials/M_KakuSmoke` |
 
 - 見た目のテクスチャの指定は `Data/Surfaces.csv`、プレイヤー・宝石・鬼のパスは `Config/DefaultGame.ini`、家具は `Data/Furniture.csv`、壁の飾り（窓・絵・松明・枠）は `Data/Decor.csv`

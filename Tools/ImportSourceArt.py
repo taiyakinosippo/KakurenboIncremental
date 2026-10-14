@@ -7,6 +7,7 @@
 #   KakurenboIncremental/SourceArt/Cat/*.fbx（Fab「Low Poly Cat」。骨なしのモデル。色はマテリアルの色）→ /Game/Cat（--cat-only でこれだけ）
 #   KakurenboIncremental/SourceArt/MedievalRoomKit（FBX＋1K の画像）→ /Game/Kakurenbo/Mansion/Medieval（--medieval-only でこれだけ）
 #   KakurenboIncremental/SourceArt/FabProps（Tools/ExtractFabProps.py が取り出した FBX＋1K の画像＋manifest.json）→ /Game/Kakurenbo/Mansion/Props（--props-only でこれだけ）
+#   KakurenboIncremental/SourceArt/Logo/TitleLogo.png（Tools/MakeLogo.ps1 が作るタイトルロゴ）→ /Game/Kakurenbo/UI/T_TitleLogo（--logo-only でこれだけ）
 #
 # どちらも Fab のアセットなので Git には入れない（.gitignore 済み）。別のパソコンでは FBX を同じ場所に置いてからこのスクリプトを動かす。
 import os
@@ -544,6 +545,31 @@ def import_fab_props():
     log("fab props done")
 
 
+def import_logo():
+    # タイトルロゴ（Tools/MakeLogo.ps1 が SourceArt/Logo/TitleLogo.html から作る PNG。背景は透明）→ /Game/Kakurenbo/UI/T_TitleLogo
+    # 自分で作った絵なので Git に入れる。HUD がタイトル画面に描く（無ければ文字で題名を出す）
+    path = os.path.join(SOURCE, "Logo", "TitleLogo.png")
+    if not os.path.exists(path):
+        log("no logo source")
+        return
+    dest = "/Game/Kakurenbo/UI"
+    tex = None
+    for p in import_file(path, dest, "T_TitleLogo"):
+        asset = unreal.load_asset(p)
+        if isinstance(asset, unreal.Texture2D):
+            tex = asset
+    if not tex:
+        log("logo: import failed")
+        return
+    # UI 用：縮小の段階（ミップ）を作らず、圧縮で色が崩れないように UserInterface2D にする
+    tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
+    tex.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
+    tex.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+    tex.set_editor_property("never_stream", True)
+    eal.save_loaded_asset(tex, only_if_is_dirty=False)
+    log("logo done")
+
+
 def report():
     for folder in ("/Game/Gem", "/Game/Player", "/Game/QuietWall", "/Game/Cat"):
         for path in eal.list_assets(folder, recursive=True):
@@ -564,7 +590,10 @@ elif "--cat-only" in sys.argv:
     import_cat()
 elif "--cat-materials-only" in sys.argv:
     apply_cat_materials(unreal.load_asset("/Game/Cat/SM_Cat"), "/Game/Cat")
+elif "--logo-only" in sys.argv:
+    import_logo()
 else:
+    import_logo()
     import_gem()
     import_cat()
     import_player()

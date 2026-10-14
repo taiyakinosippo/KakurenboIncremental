@@ -13,7 +13,9 @@
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboOniStudio.h"
+#include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Misc/PackageName.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSettings.h"
 #include "OniCharacter.h"
@@ -756,10 +758,30 @@ void AKakurenboHUD::DrawTitle(AKakurenboGameState* State, AKakurenboGameMode* GM
 		Panel(i * 70.f, 0, 70, CanvasH, FLinearColor(0.02f, 0.f, 0.05f, 0.82f * (1.f - i / 12.f)));
 	}
 
-	// 題名
-	Text(TEXT("かくれんぼ"), 110, 150, 100, FLinearColor(1.f, 0.88f, 0.95f));
-	Text(TEXT("インクリメンタル"), 118, 290, 40, Gold);
-	Text(TEXT("夜の館で、鬼から隠れて稼ぐ"), 120, 352, 22, PaleText);
+	// 題名「かせぐんぼ」のロゴ。アセットが無ければ（別のパソコンで取り込む前など）文字で描く
+	if (!bTitleLogoSearched)
+	{
+		bTitleLogoSearched = true;
+		// 無いパッケージを LoadObject すると警告が出るので、あるときだけ読む
+		if (!TitleLogoAsset.IsNull() && FPackageName::DoesPackageExist(TitleLogoAsset.ToSoftObjectPath().GetLongPackageName()))
+		{
+			TitleLogo = TitleLogoAsset.LoadSynchronous();
+		}
+	}
+	if (TitleLogo && TitleLogo->GetResource())
+	{
+		// 幅 760（1080p 基準）。高さは絵の縦横比から
+		const float LogoW = 760.f;
+		const float LogoH = LogoW * TitleLogo->GetSizeY() / FMath::Max(1, TitleLogo->GetSizeX());
+		FCanvasTileItem Tile(FVector2D(80.f, 116.f) * UIScale, TitleLogo->GetResource(), FVector2D(LogoW, LogoH) * UIScale, FLinearColor::White);
+		Tile.BlendMode = SE_BLEND_Translucent; // 背景が透明な PNG
+		Canvas->DrawItem(Tile);
+	}
+	else
+	{
+		Text(TEXT("かせぐんぼ"), 110, 170, 110, Gold);
+	}
+	Text(TEXT("夜の館で、鬼から隠れて稼ぐ"), 120, 362, 22, PaleText);
 
 	// メニュー
 	struct FItem { EKakurenboTitleItem Item; FString Label; };
