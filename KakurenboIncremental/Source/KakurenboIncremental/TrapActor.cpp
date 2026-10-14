@@ -555,7 +555,12 @@ void ATrapActor::TickCat(float DeltaSeconds)
 	}
 	if (!IsArmed())
 	{
-		// かくれんぼ以外：置いた場所で座っている（鬼の頭から下りる）
+		if (bTakenByOni)
+		{
+			Destroy(); // 鬼に当たって壊れた猫は、かくれんぼが終わったら消える（グリッドからはもう外れている）
+			return;
+		}
+		// かくれんぼ以外：置いた場所で座っている
 		SetCatMotion(0);
 		CatRoot->SetWorldLocation(GetActorLocation());
 		CatRoot->SetWorldScale3D(FVector::OneVector);
@@ -590,17 +595,27 @@ void ATrapActor::TickCat(float DeltaSeconds)
 		return;
 	}
 
-	// 寄ってきた鬼は猫をなでる（どの鬼も猫には弱い。追いかけている鬼と探知鬼はなでない）
+	// 寄ってきた鬼は猫をなでる（どの鬼も猫には弱い。探知鬼はなでない）。鬼に当たった猫は壁と同じように壊れた扱い（HandleCatTaken）
 	const float Now = GetWorld()->GetTimeSeconds();
 	const FVector CatAt = CatRoot->GetComponentLocation();
 	for (AOniCharacter* Oni : GM->GetOnis())
 	{
-		if (!Oni || !Oni->IsActive() || Oni->GetOniState() == EOniState::Stunned || Oni->GetIntent() == EOniState::Chase || Oni->OniType == EOniType::Detector)
+		if (!Oni || !Oni->IsActive() || Oni->GetOniState() == EOniState::Stunned || Oni->OniType == EOniType::Detector
+			|| FVector::Dist2D(Oni->GetActorLocation(), CatAt) > CatPetRadius)
 		{
 			continue;
 		}
+		if (Oni->GetIntent() == EOniState::Chase)
+		{
+			// 追いかけている鬼はなでずに走り抜ける。猫はそのまま頭に飛び乗る
+			RideOni = Oni;
+			bTakenByOni = true;
+			GM->HandleCatTaken(this, Oni);
+			UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Meow, CatAt + FVector(0.f, 0.f, 40.f), 0.9f, 1.4f);
+			return;
+		}
 		const float* Until = PetCooldownUntil.Find(Oni);
-		if ((Until && Now < *Until) || FVector::Dist2D(Oni->GetActorLocation(), CatAt) > CatPetRadius)
+		if (Until && Now < *Until)
 		{
 			continue;
 		}
@@ -610,6 +625,8 @@ void ATrapActor::TickCat(float DeltaSeconds)
 		PetTimer = Seconds;
 		PettingOni = Oni;
 		++PetCount;
+		bTakenByOni = true;
+		GM->HandleCatTaken(this, Oni);
 		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::Meow, CatAt + FVector(0.f, 0.f, 40.f), 0.9f, 1.25f);
 		return;
 	}

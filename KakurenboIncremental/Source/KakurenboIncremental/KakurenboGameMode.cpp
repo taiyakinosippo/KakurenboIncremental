@@ -1329,7 +1329,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarkDesc", "かくれんぼの間、館じゅうが真っ暗（鬼は {0}m 先までしか見えない・自分も見えにくい）。1 回で壊れる"), Fmt(Def.Radius / 100.0));
 			break;
 		case ETrapKind::Cat:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemCatDesc", "近くをうろうろして「にゃーん」と鳴く猫。寄ってきた鬼は猫をなでて {0} 秒動かない（どの鬼も猫には弱い）"), Fmt(Def.Duration));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemCatDesc", "近くをうろうろして「にゃーん」と鳴く猫。寄ってきた鬼は猫をなでて {0} 秒動かない（どの鬼も猫には弱い）。鬼に当たると壊れる"), Fmt(Def.Duration));
 			break;
 		case ETrapKind::Daruma:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。使った瞬間に自分（キャラクター）の視界にいた鬼が {0} 秒動けなくなる（ぶつかれば見つかる）"), Fmt(Def.Duration));
@@ -1346,10 +1346,12 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 		if (Missing > 0)
 		{
 			const int32 Short = FMath::Max(0, Missing - Stock);
+			// 迷い猫は鬼に当たると壁と同じように「壊れた」
+			const FText Verb = TrapTypes[i].Kind == ETrapKind::Cat ? NSLOCTEXT("Kakurenbo", "ShopBroken", "壊れた") : NSLOCTEXT("Kakurenbo", "ShopUsed", "使った");
 			Item.bNeedsMoreForRepair = Short > 0;
 			Item.RepairText = Short > 0
-				? FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairShort", "{0} {1} 個（直すにはあと {2} 個）"), NSLOCTEXT("Kakurenbo", "ShopUsed", "使った"), Missing, Short)
-				: FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairOk", "{0} {1} 個（在庫で直せる）"), NSLOCTEXT("Kakurenbo", "ShopUsed", "使った"), Missing);
+				? FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairShort", "{0} {1} 個（直すにはあと {2} 個）"), Verb, Missing, Short)
+				: FText::Format(NSLOCTEXT("Kakurenbo", "ShopRepairOk", "{0} {1} 個（在庫で直せる）"), Verb, Missing);
 		}
 	}
 	return Items;
@@ -2392,10 +2394,10 @@ void AKakurenboGameMode::ConsumeRoundGadgets()
 		return;
 	}
 	// 真っ暗ブロックは 1 ラウンドで壊れる（ユーザーの希望：1 プレイで壊れる代わりに館じゅうを暗くする）。
-	// 迷い猫は 1 回なでられたら使い切り（ユーザーの希望。そのラウンドの終わりまでは鬼の頭の上にいる）
+	// 迷い猫は鬼に当たった時点で壊れた扱い（HandleCatTaken）。頭の上の猫は、かくれんぼが終わると自分で消える
 	for (ATrapActor* Trap : Grid->GetAllTraps())
 	{
-		if (Trap && (Trap->GetKind() == ETrapKind::Darkness || (Trap->GetKind() == ETrapKind::Cat && Trap->GetPetCount() > 0)))
+		if (Trap && Trap->GetKind() == ETrapKind::Darkness)
 		{
 			State->TrapsTriggeredThisRound++;
 			Grid->ConsumeTrap(Trap);
@@ -2542,6 +2544,20 @@ void AKakurenboGameMode::HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni
 	ShowPopup(FString::Printf(TEXT("%s が %s を壊した！"), Oni ? *Oni->TypeDisplayName.ToString() : TEXT("鬼"), *Trap->Def.DisplayName.ToString()), Trap->Def.Color);
 	UE_LOG(LogKakurenbo, Log, TEXT("Trap %s at (%d,%d) disarmed by %s"), *Trap->Def.DisplayName.ToString(), Trap->Cell.X, Trap->Cell.Y, Oni ? *Oni->GetName() : TEXT("none"));
 	Grid->ConsumeTrap(Trap); // 設計図は残るので、次の設置パートで在庫から置き直される
+}
+
+void AKakurenboGameMode::HandleCatTaken(ATrapActor* Cat, AOniCharacter* Oni)
+{
+	UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	AKakurenboGameState* State = GS();
+	if (!State || !Grid || !Cat || State->Phase != EKakurenboPhase::Hide)
+	{
+		return;
+	}
+	State->TrapsTriggeredThisRound++;
+	ShowPopup(FString::Printf(TEXT("%s が %s を連れていった！"), Oni ? *Oni->TypeDisplayName.ToString() : TEXT("鬼"), *Cat->Def.DisplayName.ToString()), Cat->Def.Color);
+	UE_LOG(LogKakurenbo, Log, TEXT("Cat at (%d,%d) taken by %s"), Cat->Cell.X, Cat->Cell.Y, Oni ? *Oni->GetName() : TEXT("none"));
+	Grid->ReleaseTrap(Cat); // 壊れた壁と同じ：設計図は残るので、在庫があれば次の設置パートで置き直される
 }
 
 void AKakurenboGameMode::HandleBlockHit(const FVector& Location, const FLinearColor& Color, bool bDestroyed)

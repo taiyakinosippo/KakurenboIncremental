@@ -315,13 +315,17 @@ public:
 
 	/**
 	 * 勘（0〜1）：見えず聞こえずでも、うろうろの次の行き先をこの確率でプレイヤーの本当の場所のそばにする（近づいて来やすい）。
-	 * そばの広さは IntuitionRadiusCells マス（勘 1 なら半分。勘が高いほど近く）
+	 * そばの広さは IntuitionRadiusCells マス（勘 1 なら半分。勘が高いほど近く）。勘は最後の駆け引きなので、たまにしか働かない（下の IntuitionCooldown）
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float Intuition = 0.3f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	int32 IntuitionRadiusCells = 6;
+
+	/** 勘が一度働いたら、この秒数は働かない（ずっとプレイヤーへ寄ってこないように） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float IntuitionCooldown = 15.f;
 
 	/** 勘でプレイヤーのそばへ向かった回数（テスト用） */
 	int32 GetHunchCount() const { return HunchCount; }
@@ -593,6 +597,7 @@ private:
 	/** 勘：Intuition の確率で、プレイヤーの本当の場所のそばを行き先にする */
 	bool ChooseHunchTarget();
 	int32 HunchCount = 0;
+	float LastHunchTime = -1.e6f;
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
 	bool ChooseCarefulPatrolTarget();

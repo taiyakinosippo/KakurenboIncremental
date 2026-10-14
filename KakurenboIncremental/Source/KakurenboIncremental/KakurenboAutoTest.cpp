@@ -2810,7 +2810,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			AOniCharacter* Oni = GM->GetOnis()[0];
 			Check(FString::Printf(TEXT("treasure oni: ignores mashing and decoys, very sensitive to footsteps (hearing %.0f / decoy %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->DecoyHearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
-				Oni->OniType == EOniType::Treasure && Oni->HearingRadius <= 0.f && Oni->DecoyHearingRadius <= 0.f && Oni->StepHearingRadius >= GM->GetOniHearingRadius() * 2.5f);
+				Oni->OniType == EOniType::Treasure && Oni->HearingRadius <= 0.f && Oni->DecoyHearingRadius <= 0.f && Oni->StepHearingRadius >= GM->GetOniHearingRadius() * 1.f);
 			Check(FString::Printf(TEXT("treasure oni is weak at breaking walls (damage %.2f) and does not inspect hollows"), Oni->AttackDamage),
 				Oni->AttackDamage < GM->GetOniAttackDamage() && Oni->PocketInspectChance <= 0.f);
 			Oni->SightRadius = 0.f;
@@ -5097,9 +5097,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Cat（M15：迷い猫）
 	else if (Scenario.Equals(TEXT("Cat"), ESearchCase::IgnoreCase))
 	{
-		struct FCatTest { FIntPoint Cell; int32 Type = INDEX_NONE; FVector PlayerStart = FVector::ZeroVector; };
+		struct FCatTest { FIntPoint Cell; int32 Type = INDEX_NONE; FVector PlayerStart = FVector::ZeroVector; TWeakObjectPtr<ATrapActor> Cat; };
 		TSharedRef<FCatTest> T = MakeShared<FCatTest>();
-		auto TheCat = [T, Grid]() { return Grid()->GetTrap(T->Cell); };
+		// 鬼に当たった猫はグリッドから外れる（壊れた扱い）ので、置いた猫を覚えておく
+		auto TheCat = [T]() { return T->Cat.Get(); };
 		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Treasure }); KakuSkipTime(1000.f); } });
 		Steps.Add({ 1.f, [=, this]
 		{
@@ -5114,11 +5115,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
 			T->Cell = FIntPoint(FMath::Clamp(Me.X - 7, 2, Grid()->GetSizeX() - 3), Me.Y);
 			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			T->Cat = Grid()->GetTrap(T->Cell);
 			Check(TEXT("cat placed"), TheCat() != nullptr);
 		} });
 		Steps.Add({ 0.4f, [=, this]
 		{
 			KakuNext(); // → かくれんぼ
+			T->Cat = Grid()->GetTrap(T->Cell); // かくれんぼの始めに置き直されていても追えるように
 			// 鬼が出てくる前に、猫を近くから写す（見た目の確認）
 			const FVector Cat = TheCat()->GetGadgetLocation();
 			T->PlayerStart = GetPawn()->GetActorLocation();
@@ -5157,6 +5160,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("the cat meows (%d)"), TheCat() ? TheCat()->GetMeowCount() : -1), TheCat() && TheCat()->GetMeowCount() >= 1);
 			Check(FString::Printf(TEXT("even the treasure oni comes and pets the cat (pets %d, intent %s)"), TheCat() ? TheCat()->GetPetCount() : -1, *UEnum::GetValueAsString(Oni->GetIntent())),
 				TheCat() && TheCat()->GetPetCount() >= 1);
+			// 鬼に当たった猫は、壊れた壁と同じでその場でグリッドから外れる（設計図は残る）
+			Check(FString::Printf(TEXT("a cat touched by an oni counts as broken right away (on grid %d, design %d)"), Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell)),
+				Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type && Grid()->GetMissingTrapCount(T->Type) == 1);
 			LookAtOni();
 			ShotLater(TEXT("cat_01_petting"));
 		} });
@@ -5187,9 +5193,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 1.f, [=, this]
 		{
-			// 1 回なでられた猫は使い切り（在庫が無ければ、次の設置パートで赤い枠）
-			Check(FString::Printf(TEXT("a petted cat is used up after the round (live %d, design %d, stock %d)"), TheCat() != nullptr, Grid()->GetTrapDesign(T->Cell), GS()->TrapStock[T->Type]),
-				TheCat() == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
+			// 壊れた猫はかくれんぼが終わると消える（在庫が無ければ、次の設置パートで赤い枠）
+			Check(FString::Printf(TEXT("a broken cat is gone after the round (live %d, on grid %d, design %d, stock %d)"), TheCat() != nullptr, Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell), GS()->TrapStock[T->Type]),
+				TheCat() == nullptr && Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
 		} });
 	}
 	// ================================================================ FakeHider（M15：身代わり人形）
@@ -5618,14 +5624,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
 		Steps.Add({ 0.3f, [=, this]
 		{
-			// 種類ごとの勘：スピード鬼は低め・慎重鬼は高め・ほかは普通
+			// 種類ごとの勘：スピード鬼は低め・慎重鬼は高め・宝物鬼は無し・ほかは普通
 			const float Balanced = GM->GetOniTypeRow(EOniType::Balanced).Intuition;
 			const float Scout = GM->GetOniTypeRow(EOniType::Scout).Intuition;
 			const float Careful = GM->GetOniTypeRow(EOniType::Careful).Intuition;
 			Check(FString::Printf(TEXT("intuition: scout %.2f < balanced %.2f < careful %.2f; breaker / treasure / detector are normal (%.2f %.2f %.2f)"), Scout, Balanced, Careful,
 				GM->GetOniTypeRow(EOniType::Breaker).Intuition, GM->GetOniTypeRow(EOniType::Treasure).Intuition, GM->GetOniTypeRow(EOniType::Detector).Intuition),
 				Scout < Balanced && Balanced < Careful && GM->GetOniTypeRow(EOniType::Breaker).Intuition == Balanced
-				&& GM->GetOniTypeRow(EOniType::Treasure).Intuition == Balanced && GM->GetOniTypeRow(EOniType::Detector).Intuition == Balanced);
+				&& GM->GetOniTypeRow(EOniType::Treasure).Intuition == 0.f && GM->GetOniTypeRow(EOniType::Detector).Intuition == Balanced);
+			// 勘は最後の駆け引き：たまにしか働かない（確率が低く、働いたらしばらく働かない）
+			Check(FString::Printf(TEXT("intuition is rare: careful %.2f <= 0.3, cooldown %.0f s"), Careful, GetMutableDefault<AOniCharacter>()->IntuitionCooldown),
+				Careful <= 0.3f && GetMutableDefault<AOniCharacter>()->IntuitionCooldown >= 10.f);
 			SetStageOniTypes({ EOniType::Careful });
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(2, 2)));
 		} });
@@ -5651,7 +5660,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		for (int32 Phase = 0; Phase < 2; ++Phase)
 		{
-			const bool bWith = Phase == 0;
+			const bool bWith = Phase == 0; // 勘 1 は待ち時間も 0 にして、毎回プレイヤーのそばへ行かせる
 			Steps.Add({ 0.2f, [=, this]
 			{
 				// 鬼を門の前（プレイヤーと反対の隅）へ戻して、勘を決める
@@ -5659,6 +5668,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				const TArray<FIntPoint> Gate = GM->GetArena()->GetOniGateCells();
 				Oni->SetActorLocation(Grid()->CellFloorCenter(Gate[0]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
 				Oni->Intuition = bWith ? 1.f : 0.f;
+				Oni->IntuitionCooldown = 0.f;
 				Oni->DebugGoTo(Gate[0] + FIntPoint(-1, 0)); // 今の行き先を捨てて、すぐ次の行き先を決めさせる
 				T->SumDist = 0.0;
 				T->Samples = 0;
@@ -5692,6 +5702,22 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				}
 			} });
 		}
+		// 待ち時間：勘 1 でも、一度働いたら IntuitionCooldown の間は働かない
+		Steps.Add({ 0.2f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Oni->Intuition = 1.f;
+			Oni->IntuitionCooldown = 15.f; // 勘 1 の最後の勘は 20 秒以上前なので、すぐ 1 回は働く
+			const TArray<FIntPoint> Gate = GM->GetArena()->GetOniGateCells();
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Gate[0]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->DebugGoTo(Gate[0] + FIntPoint(-1, 0));
+			T->HunchesBefore = Oni->GetHunchCount();
+		} });
+		Steps.Add({ 14.f, [=, this]
+		{
+			const int32 Hunches = TheOni()->GetHunchCount() - T->HunchesBefore;
+			Check(FString::Printf(TEXT("after a hunch the intuition rests for the cooldown (%d hunches in 14 s)"), Hunches), Hunches == 1);
+		} });
 	}
 	// ================================================================ PowerBox（M15：パワー鬼は前方 2×2×2 の壁に当たる）
 	else if (Scenario.Equals(TEXT("PowerBox"), ESearchCase::IgnoreCase))

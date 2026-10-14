@@ -1074,7 +1074,7 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		break;
 	case EOniType::Treasure:
 		Lines.Add(TEXT("お宝（取られた場所も）へまっすぐ向かって、まわりを回る。じゃまな壁は壊す"));
-		Lines.Add(FString::Printf(TEXT("連打もおとりも聞かない。でも足音にはとても敏感（%s 倍遠くから）"), *UKakurenboLibrary::FormatStatNumber(Row.StepHearingScale)));
+		Lines.Add(TEXT("連打もおとりも聞かない。でも足音には敏感（ふつうの鬼の 2 倍くらい遠くから）"));
 		Lines.Add(TEXT("壁を壊すのは苦手。壁で囲んだ場所は調べない"));
 		Lines.Add(TEXT("対策：隠れたら動かずに連打。お宝はしのび足で取りに行く"));
 		break;

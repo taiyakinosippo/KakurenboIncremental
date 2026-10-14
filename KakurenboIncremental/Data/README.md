@@ -35,7 +35,7 @@
 | SightRadius / SightHalfAngle | 見える距離（cm）/ 見える角度の半分（度。40 なら正面 80 度） |
 | HearingScale | プレイヤーの音（連打・煙幕ダッシュ）が聞こえる距離の倍率。0 なら気にしない（スピード鬼は 1.5＝音に敏感、宝物鬼・パワー鬼・探知鬼は 0）。聞こえる距離の基準は Stages.csv の OniHearingRadius × 館の大きさの倍率（下の Maps.csv） |
 | DecoyHearingScale | おとりの音が聞こえる距離の倍率。0 ならおとりにだまされない（スピード鬼・宝物鬼）。大きいほど遠くから寄っていく（パワー鬼 1.6） |
-| StepHearingScale | プレイヤーの足音・よじ登る音が聞こえる距離の倍率（足音の大きさは連打の 0.5、よじ登る音は 0.6）。0 なら気にしない。宝物鬼は 3.0＝足音にとても敏感 |
+| StepHearingScale | プレイヤーの足音・よじ登る音が聞こえる距離の倍率（足音の大きさは連打の 0.5、よじ登る音は 0.6）。0 なら気にしない。宝物鬼は 1.2＝ふつうの鬼（0.6）の 2 倍 |
 | SummonRadius | プレイヤーを見つけたとき、この距離（cm）以内の鬼を呼び寄せる。0 なら呼ばない（探知鬼 2400） |
 | StunScale | トリモチで動けない時間の倍率（スピード鬼 1.5＝弱い、パワー鬼 0.4＝強い） |
 | bDisarmTraps | True なら、トリモチから抜け出した直後（3 秒間）に踏んだトリモチを壊す（パワー鬼） |
@@ -43,7 +43,7 @@
 | AttackRadius / AttackWindup | 範囲攻撃の半径（cm）/ 攻撃の溜め時間（秒） |
 | AttackBoxWidth / AttackBoxDepth / AttackBoxLevels | 前方の箱の攻撃（M15。パワー鬼 2 / 2 / 2）：目の前の壁から横・奥（マス）・下から何段に当たるか。0 なら範囲攻撃（AttackRadius） |
 | PocketInspectChance | うろうろ中に「壁で囲まれた空洞」を見つけたとき、調べに行く（壊して入る）確率（0〜1） |
-| Intuition | 勘（0〜1。隠しステータスで画面には出ない）。うろうろの次の行き先を決めるとき、この確率でプレイヤーの本当の場所のそばにする（見えていなくても近づいて来やすい） |
+| Intuition | 勘（0〜1。隠しステータスで画面には出ない）。うろうろの次の行き先を決めるとき、この確率でプレイヤーの本当の場所のそばにする（見えていなくても近づいて来やすい）。一度働いたら 15 秒は働かない（鬼の IntuitionCooldown）。宝物鬼は 0 |
 | Color | 体の色（円柱のとき）・頭の上の玉の色・画面の一覧の色 |
 | BodyScale | 体の大きさの倍率 |
 | MeshTint | モデルの縁の光の色（Cute Creature のマテリアルの ReflectionColor）。A=0 なら変えない |
@@ -243,4 +243,4 @@ DefaultGame.ini の PlayerSurface・TreasureSurface に書きます。
 今の行：Wood01〜16（Fab「Substance Materials Vol 01 - Wood」を 1K に縮めたもの。`/Game/Kakurenbo/Wood`）、Metal（Fab「Stylized Metallic Floor」）、Gem（Fab の宝石）、Player（プレイヤーの服の色の表）、
 置く壁用の WoodWall（通常壁）・QuietWall（消音壁）・ClimbWall（クライミング壁）・StoneWall・IronWall（今は使っていない）、Stone（Fab「Stylized Hand-Painted Stone Wall」）、
 M14 の館用：MedStone・MedStoneFloor・MedWoodFloor（Medieval Room Kit）、Tile・WallpaperA・WallpaperB・Plaster・Stucco（Stylized House Interior から取り出したもの。`/Game/Kakurenbo/Mansion/Props/Textures`）。
-粗さのテクスチャが無い行は RoughnessScale の値のまま（マテリアルの既定のテクスチャは使わない）
+粗さのテクスチャが無い行は RoughnessScale の値のまま（マテリアルの既定のテクスチャは使わない）

@@ -682,15 +682,20 @@ void UKakurenboGridSubsystem::ConsumeTrap(ATrapActor* Trap)
 	{
 		return;
 	}
-	if (IsInside(Trap->Cell) && Columns[ToIndex(Trap->Cell)].Trap == Trap)
-	{
-		Columns[ToIndex(Trap->Cell)].Trap = nullptr; // 設計図は残す（あとで置き直せるように）
-	}
+	ReleaseTrap(Trap);
 	const bool bChangesPaths = Trap->GetKind() == ETrapKind::OneWay;
 	Trap->Destroy();
 	if (bChangesPaths)
 	{
 		MarkChanged(); // のれんが無くなったので、鬼の経路を作り直させる
+	}
+}
+
+void UKakurenboGridSubsystem::ReleaseTrap(ATrapActor* Trap)
+{
+	if (Trap && IsInside(Trap->Cell) && Columns[ToIndex(Trap->Cell)].Trap == Trap)
+	{
+		Columns[ToIndex(Trap->Cell)].Trap = nullptr; // 設計図は残す（あとで置き直せるように）
 	}
 }
 

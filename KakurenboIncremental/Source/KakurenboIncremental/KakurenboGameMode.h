@@ -976,6 +976,9 @@ public:
 	/** パワー鬼が、抜け出した直後にトリモチを踏んで壊した。罠はここで消える */
 	void HandleTrapDisarmed(ATrapActor* Trap, AOniCharacter* Oni);
 
+	/** 迷い猫に鬼が当たった：壊れた壁と同じ扱いで、その場で在庫から外れる（設計図は残る）。猫はラウンドの終わりまで鬼の頭の上にいる */
+	void HandleCatTaken(ATrapActor* Cat, AOniCharacter* Oni);
+
 	// ===== パート遷移 =====
 
 	UFUNCTION(BlueprintCallable, Category = "Kakurenbo")

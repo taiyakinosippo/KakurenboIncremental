@@ -211,6 +211,9 @@ public:
 	/** 罠が発動して消える（設計図は残る） */
 	void ConsumeTrap(ATrapActor* Trap);
 
+	/** 罠をグリッドから外す（壊れた扱い。設計図は残る）。アクターは消さない（迷い猫は鬼の頭の上に残る） */
+	void ReleaseTrap(ATrapActor* Trap);
+
 	/** 今ある罠の数（種類ごと） */
 	int32 GetLiveTrapCount(int32 TrapTypeIndex) const;
 

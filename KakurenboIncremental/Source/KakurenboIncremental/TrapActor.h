@@ -194,4 +194,6 @@ private:
 	/** なでられた後は、その鬼の頭の上に乗る（ラウンドが終わるまで） */
 	TWeakObjectPtr<AOniCharacter> PettingOni;
 	TWeakObjectPtr<AOniCharacter> RideOni;
+	/** 鬼に当たって壊れた扱い（グリッドから外れている）。かくれんぼが終わったら自分で消える */
+	bool bTakenByOni = false;
 };

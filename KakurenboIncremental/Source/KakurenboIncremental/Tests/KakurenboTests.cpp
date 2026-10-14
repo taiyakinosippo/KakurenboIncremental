@@ -385,11 +385,13 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale == 0.f && Scout->StunScale > 1.f);
 		TestTrue(TEXT("power oni: lured by decoys, strong against sticky and disarms it"),
 			Breaker && Breaker->DecoyHearingScale > 1.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
-		// 宝物鬼：連打・おとりには一切反応しない代わりに足音にとても敏感（M14）・壁を壊すのが苦手。探知鬼：仲間を呼ぶ
+		// 宝物鬼：連打・おとりには一切反応しない代わりに足音に敏感（M14。標準鬼の 2 倍。3 倍だと歩けなかった）・壁を壊すのが苦手・勘は無い。探知鬼：仲間を呼ぶ
+		const FKakurenboOniTypeRow* BalancedRow = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Balanced"), TEXT("Test"));
 		const FKakurenboOniTypeRow* Treasure = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Treasure"), TEXT("Test"));
 		const FKakurenboOniTypeRow* Detector = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Detector"), TEXT("Test"));
 		TestTrue(TEXT("treasure oni: deaf to mashing, sensitive to footsteps, weak at walls"),
-			Treasure && Treasure->HearingScale == 0.f && Treasure->DecoyHearingScale == 0.f && Treasure->StepHearingScale >= 2.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f);
+			Treasure && Treasure->HearingScale == 0.f && Treasure->DecoyHearingScale == 0.f && BalancedRow && Treasure->StepHearingScale >= BalancedRow->StepHearingScale * 1.5f
+			&& Treasure->StepHearingScale <= 1.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f && Treasure->Intuition == 0.f);
 		TestTrue(TEXT("detector: summons others from far"), Detector && Detector->SummonRadius >= 1500.f && Detector->SightRadius > 1000.f);
 		TestTrue(TEXT("enum has Treasure and Detector"), StaticEnum<EOniType>()->GetValueByNameString(TEXT("Treasure")) != INDEX_NONE && StaticEnum<EOniType>()->GetValueByNameString(TEXT("Detector")) != INDEX_NONE);
 		// M15：パワー鬼は前方 2×2×2 の壁に当たる代わりに、溜めが長く・目が近い

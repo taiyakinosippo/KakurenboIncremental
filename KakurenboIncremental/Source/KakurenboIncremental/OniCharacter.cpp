@@ -1360,7 +1360,8 @@ bool AOniCharacter::ChooseRandomTarget(int32 MaxDistanceCells)
 bool AOniCharacter::ChooseHunchTarget()
 {
 	UKakurenboGridSubsystem* G = Grid();
-	if (!G || !Target || Intuition <= 0.f || FMath::FRand() >= Intuition)
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (!G || !Target || Intuition <= 0.f || Now - LastHunchTime < IntuitionCooldown || FMath::FRand() >= Intuition)
 	{
 		return false;
 	}
@@ -1374,6 +1375,7 @@ bool AOniCharacter::ChooseHunchTarget()
 		if (Cell != Here && G->IsWalkable(Cell) && RequestPathTo(Cell, EPathMode::WalkOnly))
 		{
 			++HunchCount;
+			LastHunchTime = Now;
 			if (bDrawDebug)
 			{
 				UE_LOG(LogTemp, Log, TEXT("Oni %s: hunch -> (%d,%d) near the player (%d,%d), intuition %.2f"), *GetName(), Cell.X, Cell.Y, PlayerCell.X, PlayerCell.Y, Intuition);
