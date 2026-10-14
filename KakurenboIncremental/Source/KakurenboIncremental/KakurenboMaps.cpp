@@ -176,3 +176,58 @@ TArray<KakurenboMaps::FPiece> KakurenboMaps::FindPieces(const FLayout& Layout)
 	}
 	return Pieces;
 }
+
+bool KakurenboMaps::ParseCutout(const FString& Text, FBox2D& OutCutout)
+{
+	TArray<FString> Parts;
+	Text.ParseIntoArrayWS(Parts);
+	if (Parts.Num() != 4)
+	{
+		return false;
+	}
+	float V[4];
+	for (int32 i = 0; i < 4; ++i)
+	{
+		if (!Parts[i].IsNumeric())
+		{
+			return false;
+		}
+		V[i] = FMath::Clamp(FCString::Atof(*Parts[i]), 0.f, 1.f);
+	}
+	if (V[2] - V[0] <= 0.01f || V[3] - V[1] <= 0.01f)
+	{
+		return false;
+	}
+	OutCutout = FBox2D(FVector2D(V[0], V[1]), FVector2D(V[2], V[3]));
+	return true;
+}
+
+TArray<FBox2D> KakurenboMaps::SplitFootprint(const FBox2D& Bounds, const FBox2D& Cutout)
+{
+	const FVector2D Size = Bounds.GetSize();
+	if (!Bounds.bIsValid || !Cutout.bIsValid || Size.X <= 0.0 || Size.Y <= 0.0)
+	{
+		return { Bounds };
+	}
+	// 割合 → 長さ（外形の中に収める）
+	const FVector2D CutMin = Bounds.Min + Size * FVector2D(FMath::Clamp(Cutout.Min.X, 0.0, 1.0), FMath::Clamp(Cutout.Min.Y, 0.0, 1.0));
+	const FVector2D CutMax = Bounds.Min + Size * FVector2D(FMath::Clamp(Cutout.Max.X, 0.0, 1.0), FMath::Clamp(Cutout.Max.Y, 0.0, 1.0));
+	if (CutMax.X - CutMin.X <= 0.5 || CutMax.Y - CutMin.Y <= 0.5)
+	{
+		return { Bounds };
+	}
+	// 抜いた長方形の左右は端から端まで、上下は抜いた長方形の幅だけ（重ならない）
+	TArray<FBox2D> Parts;
+	auto Add = [&Parts](const FVector2D& Min, const FVector2D& Max)
+	{
+		if (Max.X - Min.X > 0.5 && Max.Y - Min.Y > 0.5)
+		{
+			Parts.Add(FBox2D(Min, Max));
+		}
+	};
+	Add(Bounds.Min, FVector2D(CutMin.X, Bounds.Max.Y));
+	Add(FVector2D(CutMax.X, Bounds.Min.Y), Bounds.Max);
+	Add(FVector2D(CutMin.X, Bounds.Min.Y), FVector2D(CutMax.X, CutMin.Y));
+	Add(FVector2D(CutMin.X, CutMax.Y), FVector2D(CutMax.X, Bounds.Max.Y));
+	return Parts;
+}

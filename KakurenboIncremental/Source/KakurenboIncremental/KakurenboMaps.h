@@ -70,4 +70,17 @@ namespace KakurenboMaps
 	 * 床の種類（"[floor]" の区切り）を SizeX × SizeY で読む。書いていないマスは DefaultFloorChar
 	 */
 	KAKURENBOINCREMENTAL_API FLayout ParseFloorLayer(const FString& Text, int32 SizeX, int32 SizeY);
+
+	/**
+	 * 家具のメッシュを上から見て空いている長方形（Furniture.csv の MeshCutout / AltMeshCutout）を読む。
+	 * "最小X 最小Y 最大X 最大Y" を、メッシュの外形（バウンディングボックス）に対する割合 0〜1 で書く（例: L 字の本棚の手前の角 "0.4 0.44 1 1"）。
+	 * @return 空・書き間違い・広さが無いときは false（抜かない）
+	 */
+	KAKURENBOINCREMENTAL_API bool ParseCutout(const FString& Text, FBox2D& OutCutout);
+
+	/**
+	 * 家具の当たり判定の形：外形 Bounds から Cutout（Bounds に対する割合）を抜いた残りを、重ならない長方形に分ける
+	 * （L 字なら 2 つ・コの字なら 3 つ・真ん中の穴なら 4 つ）。Cutout が無効なら Bounds そのもの 1 つ
+	 */
+	KAKURENBOINCREMENTAL_API TArray<FBox2D> SplitFootprint(const FBox2D& Bounds, const FBox2D& Cutout);
 }

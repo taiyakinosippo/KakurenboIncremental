@@ -48,6 +48,28 @@ public:
 	/** 家具の当たり判定の箱に付けるタグ（箱は隠してあるが、見えている家具と同じ形。設置パートのレイはこれには当てる） */
 	static const FName FurnitureCollisionTag;
 
+	/** L 字の本棚の空いている角に体が入るか調べるとき、この高さ（cm）より下にある当たり判定だけを見る（出入り口の上の壁は除く） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float NotchBodyHeight = 150.f;
+
+	/** 今のマップの L 字の本棚の空いている角の数と、体が入らないので箱で埋めた数（テスト用） */
+	int32 GetFurnitureNotchCount() const { return FurnitureNotches.Num(); }
+	int32 GetFilledFurnitureNotchCount() const { return FilledFurnitureNotches; }
+
+	/** 体が入れる（埋めなかった）L 字の本棚の空いている角（上から見た形。テスト用） */
+	TArray<FBox2D> GetOpenFurnitureNotches() const
+	{
+		TArray<FBox2D> Out;
+		for (const FFurnitureNotch& Notch : FurnitureNotches)
+		{
+			if (!Notch.bFilled)
+			{
+				Out.Add(Notch.Area);
+			}
+		}
+		return Out;
+	}
+
 	/** グリッドのマス数（X 方向） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
 	int32 GridSizeX = 24;
@@ -341,4 +363,22 @@ private:
 	int32 FurniturePieces = 0;
 	int32 FurnitureMeshes = 0;
 	float BorderThickness = 50.f;
+
+	/** マップの当たり判定の箱（上から見た形。NotchBodyHeight より下にある物だけ） */
+	TArray<FBox2D> MapBlockers;
+
+	/** L 字の本棚（Furniture.csv の MeshCutout）の空いている角。全部の家具を置いた後、体が入らなければ箱で埋める */
+	struct FFurnitureNotch
+	{
+		FBox2D Area;
+		float Height = 0.f;
+		FLinearColor Color;
+		float FloorZ = 0.f;
+		bool bFilled = false;
+	};
+	TArray<FFurnitureNotch> FurnitureNotches;
+	int32 FilledFurnitureNotches = 0;
+
+	/** 体（上から見て半径 Radius の円）の中心を Area の中のどこかに置けるか（MapBlockers と外周の壁に重ならない） */
+	bool CanBodyEnter(const FBox2D& Area, float Radius) const;
 };

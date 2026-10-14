@@ -625,6 +625,28 @@ bool FKakurenboMapLayoutTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("measure a layout"), KakurenboMaps::MeasureLayout(TEXT("; memo\n.....\n...\n\n.......\n"), SX, SY) && SX == 7 && SY == 3);
 	SX = 24;
 	TestTrue(TEXT("an empty layout keeps the size"), !KakurenboMaps::MeasureLayout(TEXT("; only memo\n"), SX, SY) && SX == 24);
+
+	// 家具の当たり判定の形：L 字の本棚（手前の角が空いている）は 2 つの長方形
+	FBox2D Cut;
+	TestFalse(TEXT("an empty cutout is none"), KakurenboMaps::ParseCutout(TEXT(""), Cut));
+	TestFalse(TEXT("a cutout needs 4 numbers"), KakurenboMaps::ParseCutout(TEXT("0.5 0.5 1"), Cut));
+	TestFalse(TEXT("a cutout needs an area"), KakurenboMaps::ParseCutout(TEXT("0.5 0.5 0.5 1"), Cut));
+	TestTrue(TEXT("read a cutout"), KakurenboMaps::ParseCutout(TEXT(" 0.5  0.25 1 1 "), Cut) && Cut.Min.Equals(FVector2D(0.5, 0.25)) && Cut.Max.Equals(FVector2D(1.0, 1.0)));
+	const FBox2D Footprint(FVector2D(-100.0, -100.0), FVector2D(100.0, 100.0));
+	const TArray<FBox2D> LShape = KakurenboMaps::SplitFootprint(Footprint, Cut);
+	double Area = 0.0;
+	bool bInsideCut = false;
+	for (const FBox2D& Part : LShape)
+	{
+		Area += Part.GetArea();
+		bInsideCut |= Part.IsInside(FVector2D(50.0, 50.0));
+	}
+	TestEqual(TEXT("L shape is 2 boxes"), LShape.Num(), 2);
+	TestTrue(TEXT("L shape area is the bounds minus the cutout (200x200 - 100x150)"), FMath::IsNearlyEqual(Area, 200.0 * 200.0 - 100.0 * 150.0));
+	TestFalse(TEXT("nothing in the cutout"), bInsideCut);
+	TestTrue(TEXT("a hole in the middle is 4 boxes"), KakurenboMaps::SplitFootprint(Footprint, FBox2D(FVector2D(0.25, 0.25), FVector2D(0.75, 0.75))).Num() == 4);
+	const TArray<FBox2D> NoCut = KakurenboMaps::SplitFootprint(Footprint, FBox2D(ForceInit));
+	TestTrue(TEXT("no cutout keeps one box"), NoCut.Num() == 1 && NoCut[0].Min.Equals(Footprint.Min) && NoCut[0].Max.Equals(Footprint.Max));
 	return true;
 }
 

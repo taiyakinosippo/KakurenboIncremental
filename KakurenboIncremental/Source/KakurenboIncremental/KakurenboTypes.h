@@ -724,6 +724,16 @@ struct FKakurenboFurnitureRow : public FTableRowBase
 	/** メッシュの正面の向きの補正（度）。家具は正面を部屋の空いている側へ向けて置く。後ろを向いてしまうメッシュは 180 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
 	float MeshYaw = 0.f;
+
+	/**
+	 * メッシュを上から見て空いている長方形（当たり判定の箱から抜く）。"最小X 最小Y 最大X 最大Y" をメッシュの外形に対する割合 0〜1 で。
+	 * 例: L 字の本棚の手前の角 "0.4 0.44 1 1"。空なら外形そのままの箱。AltMeshCutout は AltMesh の分
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FString MeshCutout;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FString AltMeshCutout;
 };
 
 /** 壁の飾りの種類（Data/Decor.csv の Kind 列） */

@@ -5719,6 +5719,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 							FVector Mid = (L.GetCenter() + R.GetCenter()) * 0.5;
 							Mid[Axis] = (L.Max[Axis] + R.Min[Axis]) * 0.5;
 							Mid[Other] = (FMath::Max(L.Min[Other], R.Min[Other]) + FMath::Min(L.Max[Other], R.Max[Other])) * 0.5;
+							// すき間の真ん中が別の箱（L 字の本棚の奥の板など）で埋まっていれば、すき間ではない
+							if (GetWorld()->OverlapBlockingTestByChannel(FVector(Mid.X, Mid.Y, G->CellFloorCenter(G->WorldToCell(Mid)).Z + 30.f), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(6.f), Params))
+							{
+								continue;
+							}
 							bool bFits = false;
 							for (int32 k = -4; k <= 4 && !bFits; ++k)
 							{
@@ -5821,6 +5826,73 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 		} });
 		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_01_in_gap")); } });
+
+		// L 字の本棚（角の本棚）の空いている角に入る（ユーザーの依頼：「この本棚の当たり判定を L 字に」。居間の写真）
+		TSharedRef<FVector> CornerSpot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->bMapOverride = true;
+			GM->MapOverride = FName(TEXT("Parlor"));
+			GM->SwitchToMap(GM->MapOverride);
+			KeepOnlyOni(-1);
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			const TArray<FBox2D> Notches = Arena->GetOpenFurnitureNotches();
+			Check(FString::Printf(TEXT("the parlor has open corners of L-shaped bookshelves (%d, %d filled)"), Notches.Num(), Arena->GetFilledFurnitureNotchCount()), Notches.Num() > 0);
+			const float Radius = GetHider()->GetSimpleCollisionRadius();
+			const float HalfHeight = GetHider()->GetSimpleCollisionHalfHeight();
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuCornerShelf), false, GetPawn());
+			int32 EmptyCorners = 0;
+			for (const FBox2D& Notch : Notches)
+			{
+				// 角の真ん中には当たり判定が無い（前は外形の箱で入れなかった）
+				const FVector2D Mid = Notch.GetCenter();
+				const float FloorZ = G->CellFloorCenter(G->WorldToCell(FVector(Mid.X, Mid.Y, 0.0))).Z;
+				EmptyCorners += GetWorld()->OverlapBlockingTestByChannel(FVector(Mid.X, Mid.Y, FloorZ + 30.f), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(6.f), Params) ? 0 : 1;
+				// 体の中心を角の中に置ける所（立った大きさ）
+				for (float X = Notch.Min.X; X <= Notch.Max.X && CornerSpot->IsZero(); X += 5.f)
+				{
+					for (float Y = Notch.Min.Y; Y <= Notch.Max.Y && CornerSpot->IsZero(); Y += 5.f)
+					{
+						const FVector At(X, Y, FloorZ + HalfHeight + 2.f);
+						if (!GetWorld()->OverlapBlockingTestByChannel(At, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeCapsule(Radius, HalfHeight), Params))
+						{
+							*CornerSpot = At;
+						}
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("no collision in the open corners (%d of %d)"), EmptyCorners, Notches.Num()), EmptyCorners == Notches.Num());
+			Check(TEXT("the player fits standing in an open corner of an L-shaped bookshelf"), !CornerSpot->IsZero());
+			if (!CornerSpot->IsZero())
+			{
+				TeleportPlayer(*CornerSpot);
+				float BestYaw = 0.f;
+				for (const float Yaw : { 0.f, 90.f, 180.f, 270.f })
+				{
+					const FVector Dir = FRotator(0.f, Yaw, 0.f).Vector();
+					if (!GetWorld()->OverlapBlockingTestByChannel(*CornerSpot + Dir * 150.f, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(30.f), Params))
+					{
+						BestYaw = Yaw + 180.f; // カメラは空いている側に置き、角の方を向く
+						break;
+					}
+				}
+				SetControlRotation(FRotator(-35.f, BestYaw, 0.f));
+				GetHider()->ThirdPersonDistance = 320.f;
+			}
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_02_in_corner_shelf")); } });
+		// 上から：並べた L 字の本棚は 2 個ずつ向かい合わせ（片方は左右反転）。反転した方も裏返らずに見えるか
+		Steps.Add({ 0.1f, [=, this]
+		{
+			SetControlRotation(FRotator(-75.f, GetControlRotation().Yaw, 0.f));
+			GetHider()->ThirdPersonDistance = 650.f;
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_03_corner_shelves_above")); } });
 	}
 	// ================================================================ ShelfGap（M15：家具のすき間。床が見えているのに体が入らないマスを全部の館で数える）
 	else if (Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase))
