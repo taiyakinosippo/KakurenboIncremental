@@ -409,3 +409,9 @@
 - 「**BGM・連打から歩く音まですべて一旦作らせてみて**」「**今の音は残す**」「**作った音はリスト化して見れるように**」→ 効果音 31・BGM 2 の英語の説明を
   `Tools/SoundGen/Sounds.csv` に。1 つにつき 3 候補を `SourceArt/SoundGen/` に作る（Git に入れない）。ゲームの音はまだ差し替えていない（プログラムの音のまま）。
   今の音は `KakuTools.ExportSynthSounds`（テストの仕組み）で `_Current` に WAV で書き出し、`index.html` で今の音と候補を並べて聞き比べる
+
+## 一晩のテストプレイ（2026-10-15）
+
+- 「**ひたすら実際のステージをプレイしまくって。初心者の想定で。難しかったところ・操作が詰まったところ・難易度・お金と宝石のカーブを確認**」→
+  初心者のつもりで本物の館を遊ぶ自動プレイヤー `KakuPlaytest`（`KakurenboPlaytest.cpp`・`Tools\RunPlaytest.ps1`。疑似キーで遊び、1 ラウンドごとに Saved/Playtest/rounds.csv に記録）を作って 01:52〜07:50 に 425 ラウンド遊んだ。
+  結果は [PlaytestReport.md](PlaytestReport.md)（ステージ 8 で長く止まる・閉じこもると前半が簡単・宝石がほぼ手に入らない など）

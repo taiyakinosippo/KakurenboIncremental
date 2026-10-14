@@ -354,6 +354,14 @@ public:
 	UFUNCTION(Exec)
 	void KakuAutoTest(const FString& Scenario);
 
+	/**
+	 * テストプレイの自動プレイヤー（初心者のつもりで本物のステージを遊び続ける）。
+	 * 入力は本物と同じ経路（疑似キー・数字キーの購入・設置）で行い、1 ラウンドごとの記録を Saved/Playtest に書く。
+	 * 例: -ExecCmds="KakuPlaytest Until=08:00"（その時刻になったら終わる）。実装は KakurenboPlaytest.cpp
+	 */
+	UFUNCTION(Exec)
+	void KakuPlaytest(const FString& Options);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void PlayerTick(float DeltaTime) override;
@@ -501,6 +509,22 @@ public:
 	bool CanTurnOniIntroPage() const;
 
 private:
+
+	/** テストプレイの自動プレイヤーの状態（KakurenboPlaytest.cpp。動いていなければ空） */
+	TSharedPtr<struct FKakurenboPlaytest> Playtest;
+	/** 自動プレイヤーを 1 フレーム進める（実時間で毎フレーム。一時停止中も呼ぶ） */
+	void TickPlaytest(float RealDeltaSeconds);
+	void PlaytestTitle();
+	void PlaytestShop();
+	void PlaytestBuild();
+	void PlaytestHide(float RealDeltaSeconds);
+	void PlaytestResult();
+	/** 本物と同じ経路でキーを押す・離す・1 回押す */
+	void PlaytestKey(EKakurenboAction Action, bool bDown);
+	void PlaytestTap(EKakurenboAction Action);
+	/** スクリーンショット（決めた枚数まで） */
+	void PlaytestShot(const FString& Name);
+	void PlaytestLog(const FString& Line);
 
 	/** 設置パートのカメラの高さを最後に合わせた館の大きさ */
 	FIntPoint LastTopDownFitSize = FIntPoint::ZeroValue;
