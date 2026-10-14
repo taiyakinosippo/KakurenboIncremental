@@ -313,6 +313,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float PocketInspectChance = 0.5f;
 
+	/**
+	 * 勘（0〜1）：見えず聞こえずでも、うろうろの次の行き先をこの確率でプレイヤーの本当の場所のそばにする（近づいて来やすい）。
+	 * そばの広さは IntuitionRadiusCells マス（勘 1 なら半分。勘が高いほど近く）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float Intuition = 0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	int32 IntuitionRadiusCells = 6;
+
+	/** 勘でプレイヤーのそばへ向かった回数（テスト用） */
+	int32 GetHunchCount() const { return HunchCount; }
+
 	/** 慎重鬼：調べたマスを覚えておく時間（秒）。これより前に調べたマスはまた調べる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CarefulMemorySeconds = 60.f;
@@ -577,6 +590,9 @@ private:
 	// うろうろの行き先（種類ごと）
 	bool ChooseWanderTarget();
 	bool ChooseRandomTarget(int32 MaxDistanceCells);
+	/** 勘：Intuition の確率で、プレイヤーの本当の場所のそばを行き先にする */
+	bool ChooseHunchTarget();
+	int32 HunchCount = 0;
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
 	bool ChooseCarefulPatrolTarget();

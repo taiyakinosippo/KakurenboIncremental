@@ -1066,7 +1066,7 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 
 void AKakurenboHUD::GetOniRatings(const FKakurenboOniTypeRow& Row, int32& OutSpeed, int32& OutSight, int32& OutHearing, int32& OutPower)
 {
-	// 星 1〜5（0 は「しない」）。標準鬼がだいたい 3
+	// 星 1〜5（0 は「しない」）。標準鬼がだいたい 3。勘（Intuition）は隠しステータスなので出さない
 	OutSpeed = FMath::Clamp(FMath::RoundToInt((Row.SpeedScale - 0.55f) / 0.15f), 1, 5);
 	OutSight = FMath::Clamp(FMath::RoundToInt(Row.SightRadius / 300.f), 1, 5);
 	OutHearing = Row.HearingScale <= 0.f ? 0 : FMath::Clamp(FMath::RoundToInt(Row.HearingScale * 3.f), 1, 5);

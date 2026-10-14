@@ -93,6 +93,16 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		GM->SwitchToMap(NAME_None);
 	}
 
+	// 鬼の勘（見えなくてもプレイヤーのそばへ向かう）は、うろうろの行き先をプレイヤーに寄せて他のテストの結果を変えるので切る。Intuition シナリオだけ使う
+	GM->bOniIntuition = Scenario.Equals(TEXT("Intuition"), ESearchCase::IgnoreCase);
+	for (AOniCharacter* Oni : GM->GetOnis())
+	{
+		if (Oni && !GM->bOniIntuition)
+		{
+			Oni->Intuition = 0.f;
+		}
+	}
+
 	// ---------------------------------------------------------------- 共通の道具
 
 	auto GS = [this]() { return GetWorld()->GetGameState<AKakurenboGameState>(); };
@@ -5349,6 +5359,90 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Check(FString::Printf(TEXT("bumping into a frozen oni still gets you found (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Result && !GS()->bLastRoundCleared);
 		} });
+	}
+	// ================================================================ Intuition（鬼の勘：見えず聞こえずでも、プレイヤーのそばへ来やすい）
+	else if (Scenario.Equals(TEXT("Intuition"), ESearchCase::IgnoreCase))
+	{
+		// 目も耳も使わない鬼を、勘 1（毎回プレイヤーのそばへ）と勘 0（でたらめにうろうろ）で 20 秒ずつ歩かせ、プレイヤーとの距離の平均を比べる
+		struct FIntuitionTest { FVector Player; double SumDist = 0.0; int32 Samples = 0; int32 HunchesBefore = 0; double AvgWith = 0.0; int32 HunchesWith = 0; };
+		TSharedRef<FIntuitionTest> T = MakeShared<FIntuitionTest>();
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 種類ごとの勘：スピード鬼は低め・慎重鬼は高め・ほかは普通
+			const float Balanced = GM->GetOniTypeRow(EOniType::Balanced).Intuition;
+			const float Scout = GM->GetOniTypeRow(EOniType::Scout).Intuition;
+			const float Careful = GM->GetOniTypeRow(EOniType::Careful).Intuition;
+			Check(FString::Printf(TEXT("intuition: scout %.2f < balanced %.2f < careful %.2f; breaker / treasure / detector are normal (%.2f %.2f %.2f)"), Scout, Balanced, Careful,
+				GM->GetOniTypeRow(EOniType::Breaker).Intuition, GM->GetOniTypeRow(EOniType::Treasure).Intuition, GM->GetOniTypeRow(EOniType::Detector).Intuition),
+				Scout < Balanced && Balanced < Careful && GM->GetOniTypeRow(EOniType::Breaker).Intuition == Balanced
+				&& GM->GetOniTypeRow(EOniType::Treasure).Intuition == Balanced && GM->GetOniTypeRow(EOniType::Detector).Intuition == Balanced);
+			SetStageOniTypes({ EOniType::Careful });
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(2, 2)));
+		} });
+		Steps.Add({ 3.5f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("a spawned careful oni has its intuition (%.2f)"), Oni ? Oni->Intuition : -1.f), Oni && FMath::IsNearlyEqual(Oni->Intuition, GM->GetOniTypeRow(EOniType::Careful).Intuition));
+			// 目も耳も気配も使わない。プレイヤーは舞台の上の空中に止める（触れられてラウンドが終わらないように）。距離は上から見た距離で測る
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Oni->HearingRadius = 0.f;
+			Oni->StepHearingRadius = 0.f;
+			Oni->DecoyHearingRadius = 0.f;
+			Oni->PocketInspectChance = 0.f;
+			Oni->bDrawDebug = true;
+			if (ACharacter* P = Cast<ACharacter>(GetPawn()))
+			{
+				P->GetCharacterMovement()->DisableMovement();
+				P->SetActorLocation(P->GetActorLocation() + FVector(0.f, 0.f, 1500.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			T->Player = GetPawn()->GetActorLocation();
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		for (int32 Phase = 0; Phase < 2; ++Phase)
+		{
+			const bool bWith = Phase == 0;
+			Steps.Add({ 0.2f, [=, this]
+			{
+				// 鬼を門の前（プレイヤーと反対の隅）へ戻して、勘を決める
+				AOniCharacter* Oni = TheOni();
+				const TArray<FIntPoint> Gate = GM->GetArena()->GetOniGateCells();
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Gate[0]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->Intuition = bWith ? 1.f : 0.f;
+				Oni->DebugGoTo(Gate[0] + FIntPoint(-1, 0)); // 今の行き先を捨てて、すぐ次の行き先を決めさせる
+				T->SumDist = 0.0;
+				T->Samples = 0;
+				T->HunchesBefore = Oni->GetHunchCount();
+			} });
+			for (int32 i = 0; i < 20; ++i)
+			{
+				Steps.Add({ 1.f, [=, this]
+				{
+					T->SumDist += FVector::Dist2D(TheOni()->GetActorLocation(), T->Player);
+					++T->Samples;
+				} });
+			}
+			Steps.Add({ 0.f, [=, this]
+			{
+				const double Avg = T->SumDist / FMath::Max(1, T->Samples);
+				const int32 Hunches = TheOni()->GetHunchCount() - T->HunchesBefore;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] intuition %s: average distance %.0f cm, %d hunches, phase %s"), bWith ? TEXT("1.0") : TEXT("0.0"), Avg, Hunches, *UEnum::GetValueAsString(GS()->Phase));
+				if (bWith)
+				{
+					T->AvgWith = Avg;
+					T->HunchesWith = Hunches;
+					Check(FString::Printf(TEXT("with intuition the oni heads near the player without seeing or hearing (%d hunches)"), Hunches), Hunches >= 3);
+					LookAtOni();
+					Shot(TEXT("intuition_01_near"));
+				}
+				else
+				{
+					Check(FString::Printf(TEXT("without intuition no hunches (%d)"), Hunches), Hunches == 0);
+					Check(FString::Printf(TEXT("with intuition the oni stays much closer to the player (avg %.0f cm vs %.0f cm without)"), T->AvgWith, Avg), T->AvgWith < Avg * 0.6);
+				}
+			} });
+		}
 	}
 	// ================================================================ PowerBox（M15：パワー鬼は前方 2×2×2 の壁に当たる）
 	else if (Scenario.Equals(TEXT("PowerBox"), ESearchCase::IgnoreCase))

@@ -242,6 +242,7 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	AttackBoxDepth = Row.AttackBoxDepth;
 	AttackBoxLevels = Row.AttackBoxLevels;
 	PocketInspectChance = Row.PocketInspectChance;
+	Intuition = Row.Intuition;
 	StunScale = Row.StunScale;
 	bDisarmTraps = Row.bDisarmTraps;
 	SummonRadius = Row.SummonRadius;
@@ -939,6 +940,11 @@ void AOniCharacter::TickWander(float DeltaSeconds)
 	if (IdleTimer <= 0.f)
 	{
 		bool bFound = TryEscapeEnclosure();
+		// 勘：見えず聞こえずでも、ときどきプレイヤーのそばへ向かう（探知鬼は見張りから動かないので使わない）
+		if (!bFound && OniType != EOniType::Detector)
+		{
+			bFound = ChooseHunchTarget();
+		}
 		if (!bFound && OniType == EOniType::Careful)
 		{
 			// 慎重鬼：まず広い場所を手分けして見渡す。壁に囲まれた場所（空洞）は、広い場所をほぼ調べ終わってから
@@ -1345,6 +1351,33 @@ bool AOniCharacter::ChooseRandomTarget(int32 MaxDistanceCells)
 		}
 		if (Cell != Here && RequestPathTo(Cell, EPathMode::WalkOnly))
 		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AOniCharacter::ChooseHunchTarget()
+{
+	UKakurenboGridSubsystem* G = Grid();
+	if (!G || !Target || Intuition <= 0.f || FMath::FRand() >= Intuition)
+	{
+		return false;
+	}
+	// プレイヤーの本当の場所のそば（勘が高いほど狭い範囲＝近く）の歩いて行けるマス。閉じこもっていて歩いて行けなければ、勘は外れ（いつものうろうろ）
+	const FIntPoint PlayerCell = ClampToGrid(G->WorldToCell(Target->GetActorLocation()));
+	const int32 Radius = FMath::Max(1, FMath::RoundToInt(IntuitionRadiusCells * (1.f - 0.5f * FMath::Clamp(Intuition, 0.f, 1.f))));
+	const FIntPoint Here = GetCurrentCell();
+	for (int32 Try = 0; Try < 12; ++Try)
+	{
+		const FIntPoint Cell = ClampToGrid(PlayerCell + FIntPoint(FMath::RandRange(-Radius, Radius), FMath::RandRange(-Radius, Radius)));
+		if (Cell != Here && G->IsWalkable(Cell) && RequestPathTo(Cell, EPathMode::WalkOnly))
+		{
+			++HunchCount;
+			if (bDrawDebug)
+			{
+				UE_LOG(LogTemp, Log, TEXT("Oni %s: hunch -> (%d,%d) near the player (%d,%d), intuition %.2f"), *GetName(), Cell.X, Cell.Y, PlayerCell.X, PlayerCell.Y, Intuition);
+			}
 			return true;
 		}
 	}

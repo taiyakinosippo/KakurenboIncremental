@@ -118,7 +118,8 @@ powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     #
   GemShop / OneWay / Darkness / Cat / FakeHider / Daruma / PowerBox / BuildRay / Heartbeat / ShelfGap（M15：宝石とまとめ買い / 宝石のお店の道具 5 つ / パワー鬼の前方 2×2×2 /
   設置パートのレイが見えない壁に当たらない（本物の館）/ 心臓の音が距離で大きく / 25 の館の背の高い家具の前のすき間に体が入る）、SideGap（本棚を並べた間のすき間は体が入る 78cm 以上か無いか）、
   OniIntro（初めて出てくる鬼のチュートリアル・図鑑。止まっている間のテストは RealDelay で進め、キーを押した結果はフレーム数で待って確かめる）、
-  StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）。
+  StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）、
+  Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、
   プレイヤーの近くで試したいときは鬼を `SetActorLocation` で動かす。行き先を決めたいときは `DebugGoTo`

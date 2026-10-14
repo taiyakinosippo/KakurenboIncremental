@@ -185,6 +185,9 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
 	AddOniType(EOniType::Treasure, TEXT("宝物鬼"), 0.9f, 0.4, 900.f, 45.f, 0.f, false, 140.f, 1.0f, 0.f, FLinearColor(1.f, 0.85f, 0.2f), 1.0f, 0.f, 1.f, false, 3.0f, 0.f);
 	AddOniType(EOniType::Detector, TEXT("探知鬼"), 0.9f, 1.0, 1500.f, 32.f, 0.f, false, 160.f, 0.8f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 0.f, 1.f, false, 0.f, 2400.f);
+	// 勘：スピード鬼は低め・慎重鬼は高め・ほかは普通（0.3）
+	OniTypeRows[EOniType::Scout].Intuition = 0.1f;
+	OniTypeRows[EOniType::Careful].Intuition = 0.6f;
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
@@ -2730,6 +2733,7 @@ void AKakurenboGameMode::SpawnOnis()
 			continue;
 		}
 		Oni->ApplyTypeSettings(Type, TypeRow);
+		Oni->Intuition = bOniIntuition ? TypeRow.Intuition : 0.f; // 自動テストでは既定で切る（うろうろの行き先がプレイヤーに寄って結果が変わらないように）
 		Oni->WanderSpeed = OniWanderSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
 		Oni->InvestigateSpeed = OniInvestigateSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;
 		Oni->ChaseSpeed = OniChaseSpeedBase * TypeRow.SpeedScale + Settings.OniSpeedBonus;

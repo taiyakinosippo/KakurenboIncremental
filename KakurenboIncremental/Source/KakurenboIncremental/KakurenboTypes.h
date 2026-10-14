@@ -528,6 +528,13 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float PocketInspectChance = 0.5f;
 
+	/**
+	 * 勘（0〜1）：プレイヤーが見えず音も聞こえていないのに、近づいて来やすい。うろうろの次の行き先を決めるとき、この確率で
+	 * プレイヤーの本当の場所のそば（勘が高いほど近く）を行き先にする。スピード鬼は低め・慎重鬼は高め
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float Intuition = 0.3f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	FLinearColor Color = FLinearColor(0.9f, 0.1f, 0.08f);
 

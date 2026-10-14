@@ -899,6 +899,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarknessExposureBias = -1.8f;
 
+	/** 鬼の勘（OniTypes.csv の Intuition）を使うか。自動テストは Intuition シナリオ以外では切る（鬼の動きが変わらないように） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	bool bOniIntuition = true;
+
 	/** だるまさんがころんだ：使った瞬間に、プレイヤーの体が向いている方からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる（カメラの向きではない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarumaViewHalfAngle = 38.f;

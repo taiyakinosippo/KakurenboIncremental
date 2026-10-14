@@ -43,6 +43,7 @@
 | AttackRadius / AttackWindup | 範囲攻撃の半径（cm）/ 攻撃の溜め時間（秒） |
 | AttackBoxWidth / AttackBoxDepth / AttackBoxLevels | 前方の箱の攻撃（M15。パワー鬼 2 / 2 / 2）：目の前の壁から横・奥（マス）・下から何段に当たるか。0 なら範囲攻撃（AttackRadius） |
 | PocketInspectChance | うろうろ中に「壁で囲まれた空洞」を見つけたとき、調べに行く（壊して入る）確率（0〜1） |
+| Intuition | 勘（0〜1。隠しステータスで画面には出ない）。うろうろの次の行き先を決めるとき、この確率でプレイヤーの本当の場所のそばにする（見えていなくても近づいて来やすい） |
 | Color | 体の色（円柱のとき）・頭の上の玉の色・画面の一覧の色 |
 | BodyScale | 体の大きさの倍率 |
 | MeshTint | モデルの縁の光の色（Cute Creature のマテリアルの ReflectionColor）。A=0 なら変えない |
