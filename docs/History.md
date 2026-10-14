@@ -415,3 +415,5 @@
 - 「**ひたすら実際のステージをプレイしまくって。初心者の想定で。難しかったところ・操作が詰まったところ・難易度・お金と宝石のカーブを確認**」→
   初心者のつもりで本物の館を遊ぶ自動プレイヤー `KakuPlaytest`（`KakurenboPlaytest.cpp`・`Tools\RunPlaytest.ps1`。疑似キーで遊び、1 ラウンドごとに Saved/Playtest/rounds.csv に記録）を作って 01:52〜07:50 に 425 ラウンド遊んだ。
   結果は [PlaytestReport.md](PlaytestReport.md)（ステージ 8 で長く止まる・閉じこもると前半が簡単・宝石がほぼ手に入らない など）
+- 全部作った（101 個。エディタと GPU を分け合うので、必要な長さだけ音にしてメモリを減らした）。「**作ってくれたサイト音聞けません**」→ アプリのプレビューは中身だけ写すので横の音を読めない。
+  MP3 にした聞き比べのページを Artifact で公開（`Tools/SoundGen/MakeWebPage.py`・`WebPage.html`。音ごとに「これにする」を選んでコピーして Claude に送れる）

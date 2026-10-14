@@ -1,0 +1,205 @@
+<title>かせぐんぼの音えらび</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 夜の館の音の棚。音ごとに 1 行（名前と説明 → 今の音と候補のボタン）。下に「決めた音」の帯 */
+:root {
+  --bg: #eceef5; --surface: #ffffff; --ink: #1d2040; --muted: #5d6286; --line: #d4d8e6;
+  --accent: #b86e0c; --accent-soft: #f6e6cc; --now: #2f7565; --now-soft: #d9eee8;
+  --display: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
+  --body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11132a; --surface: #1a1d37; --ink: #e8e9f6; --muted: #9a9ec2; --line: #2c3056;
+  --accent: #f0ac43; --accent-soft: #3a2f22; --now: #6cc4ae; --now-soft: #1d3833; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11132a; --surface: #1a1d37; --ink: #e8e9f6; --muted: #9a9ec2; --line: #2c3056;
+  --accent: #f0ac43; --accent-soft: #3a2f22; --now: #6cc4ae; --now-soft: #1d3833; color-scheme: dark; }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 120px; }
+header { display: grid; gap: 8px; margin-bottom: 20px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(26px, 5vw, 36px); line-height: 1.25; margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); max-width: 62ch; margin: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend b { font-weight: 500; color: var(--ink); }
+
+nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--bg); padding-block: 10px;
+  display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+nav a { font-family: var(--display); font-weight: 500; font-size: 14px; color: var(--ink); text-decoration: none;
+  padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+nav a:hover, nav a:focus-visible { border-color: var(--accent); outline: none; }
+
+h2 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 28px 0 4px; scroll-margin-top: 64px; }
+.sound { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 10px 20px; padding-block: 14px; border-top: 1px solid var(--line); }
+.sound:first-of-type { border-top: 0; }
+.info { min-width: 0; display: grid; gap: 2px; align-content: start; }
+.name { font-family: var(--mono); font-weight: 600; font-size: 14px; }
+.desc { font-weight: 500; }
+.prompt { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.clips { display: flex; flex-wrap: wrap; gap: 8px; align-content: start; min-width: 0; }
+
+.clip { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center;
+  width: 9.5rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  color: var(--ink); font: inherit; text-align: left; cursor: pointer; position: relative; }
+.clip:hover { border-color: var(--muted); }
+.clip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.clip .play { grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.clip.now .play { background: var(--now-soft); color: var(--now); }
+.clip .play svg { width: 11px; height: 11px; fill: currentColor; }
+.clip .top { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 500; }
+.clip .sec { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.clip .wave { display: flex; align-items: center; gap: 1px; height: 18px; }
+.clip .wave i { flex: 1; background: var(--muted); opacity: .45; border-radius: 1px; min-height: 1px; }
+.clip.playing { border-color: var(--accent); }
+.clip.playing .wave i.done { background: var(--accent); opacity: 1; }
+.clip.now.playing { border-color: var(--now); }
+.clip.now.playing .wave i.done { background: var(--now); }
+
+.pick { font: inherit; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pick[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.cell .pick { margin-left: 4px; }
+
+.tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: var(--surface); border-top: 1px solid var(--line);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.tray .in { max-width: 1080px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.tray .count { font-family: var(--display); font-weight: 700; white-space: nowrap; }
+.tray .list { flex: 1 1 16rem; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; max-height: 3.2em; overflow: auto; }
+.tray button { font: inherit; font-weight: 500; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--surface); cursor: pointer; }
+.tray button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.tray button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.tray textarea { width: 100%; font-family: var(--mono); font-size: 12px; }
+
+@media (max-width: 640px) {
+  .sound { grid-template-columns: minmax(0, 1fr); }
+  .clip { width: calc(50% - 4px); }
+  .cell { width: calc(50% - 4px); }
+  .cell .clip { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>かせぐんぼの音えらび</h1>
+    <p class="lead">ゲームで鳴る効果音 31 種類と BGM 2 曲の候補です。「今の音」はプログラムで作っている、いま鳴っている音。ほかは Stable Audio Open が作った候補で、s の後ろの数字がシード値です（同じ数字で同じ音を作り直せます）。気に入った音は「これにする」を押すと下の帯にたまるので、コピーして Claude に送ってください。</p>
+    <div class="legend"><span><b>今の音</b>：緑の丸</span><span><b>AI の候補</b>：橙の丸</span><span>決めた音はこのブラウザに覚えておきます</span></div>
+  </header>
+  <nav id="nav" aria-label="音の種類"></nav>
+  <main id="list"></main>
+</div>
+
+<div class="tray" role="region" aria-label="決めた音">
+  <div class="in">
+    <span class="count" id="count">0 / 33 決定</span>
+    <span class="list" id="picked">まだ決めていません</span>
+    <button type="button" id="copy">コピー</button>
+    <button type="button" class="ghost" id="clear">選び直す</button>
+    <textarea id="fallback" rows="2" readonly hidden aria-label="コピー用の文"></textarea>
+  </div>
+</div>
+
+<script>
+const DATA = /*SOUND_DATA*/[];
+const PLAY = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>';
+const STOP = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2h6v6H2z"/></svg>';
+const KEY = "kasegunbo-sound-picks";
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { picks = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch (e) {} };
+const total = DATA.reduce((n, g) => n + g.items.length, 0);
+
+const nav = document.getElementById("nav"), list = document.getElementById("list");
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+DATA.forEach((group, gi) => {
+  const a = el("a", null, group.title); a.href = "#g" + gi; nav.append(a);
+  const h = el("h2", null, group.title); h.id = "g" + gi; list.append(h);
+  const section = el("section");
+  group.items.forEach(item => {
+    const row = el("div", "sound");
+    const info = el("div", "info");
+    info.append(el("span", "name", item.name), el("span", "desc", item.desc), el("span", "prompt", item.prompt));
+    const clips = el("div", "clips");
+    item.clips.forEach(c => {
+      const cell = el("div", "cell");
+      const b = el("button", "clip" + (c.now ? " now" : ""));
+      b.type = "button"; b.dataset.src = c.src; b.dataset.id = c.id;
+      b.setAttribute("aria-label", `${item.name} ${c.label} を再生（${c.sec} 秒）`);
+      const play = el("span", "play"); play.innerHTML = PLAY;
+      const top = el("span", "top"); top.append(el("span", null, c.label), el("span", "sec", c.sec.toFixed(c.sec < 10 ? 2 : 0) + " 秒"));
+      const wave = el("span", "wave"); c.bars.forEach(v => { const i = document.createElement("i"); i.style.height = Math.max(6, v * 100) + "%"; wave.append(i); });
+      b.append(play, top, wave);
+      const p = el("button", "pick", c.now ? "今のままにする" : "これにする");
+      p.type = "button"; p.dataset.sound = item.name; p.dataset.id = c.now ? item.name + "（今のまま）" : c.id;
+      p.setAttribute("aria-pressed", String(picks[item.name] === p.dataset.id));
+      cell.append(b, p); clips.append(cell);
+    });
+    row.append(info, clips); section.append(row);
+  });
+  list.append(section);
+});
+
+// 再生：1 つの audio を使い回す。同じボタンをもう一度押すと止める
+const audio = new Audio();
+let current = null;
+function stop() {
+  if (!current) return;
+  current.classList.remove("playing"); current.querySelector(".play").innerHTML = PLAY;
+  current.querySelectorAll(".wave i").forEach(i => i.classList.remove("done"));
+  current = null;
+}
+list.addEventListener("click", e => {
+  const pick = e.target.closest(".pick");
+  if (pick) {
+    const name = pick.dataset.sound, id = pick.dataset.id;
+    picks[name] = picks[name] === id ? undefined : id;
+    if (!picks[name]) delete picks[name];
+    document.querySelectorAll(`.pick[data-sound="${name}"]`).forEach(x => x.setAttribute("aria-pressed", String(picks[name] === x.dataset.id)));
+    save(); renderTray(); return;
+  }
+  const b = e.target.closest(".clip");
+  if (!b) return;
+  const same = current === b;
+  audio.pause(); stop();
+  if (same) return;
+  current = b; b.classList.add("playing"); b.querySelector(".play").innerHTML = STOP;
+  audio.src = b.dataset.src; audio.currentTime = 0;
+  audio.play().catch(() => stop());
+});
+audio.addEventListener("ended", stop);
+audio.addEventListener("timeupdate", () => {
+  if (!current || !audio.duration) return;
+  const bars = current.querySelectorAll(".wave i"), done = Math.round(audio.currentTime / audio.duration * bars.length);
+  bars.forEach((i, n) => i.classList.toggle("done", n < done));
+});
+
+// 決めた音の帯
+const countEl = document.getElementById("count"), pickedEl = document.getElementById("picked"), fallback = document.getElementById("fallback");
+function pickText() {
+  const order = DATA.flatMap(g => g.items.map(i => i.name));
+  return order.filter(n => picks[n]).map(n => picks[n]).join(", ");
+}
+function renderTray() {
+  const n = Object.keys(picks).length;
+  countEl.textContent = `${n} / ${total} 決定`;
+  pickedEl.textContent = n ? pickText() : "まだ決めていません";
+}
+document.getElementById("copy").addEventListener("click", () => {
+  const text = "使う音: " + (pickText() || "（なし）");
+  const show = () => { fallback.hidden = false; fallback.value = text; fallback.focus(); fallback.select(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => { const b = document.getElementById("copy"); b.textContent = "コピーしました"; setTimeout(() => b.textContent = "コピー", 1600); }, show);
+  } else show();
+});
+document.getElementById("clear").addEventListener("click", () => {
+  picks = {}; save(); renderTray();
+  document.querySelectorAll(".pick").forEach(x => x.setAttribute("aria-pressed", "false"));
+});
+renderTray();
+</script>

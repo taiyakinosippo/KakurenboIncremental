@@ -54,7 +54,9 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   言われたら、**確認せずに** `-Setup`（環境。数分〜十数分なので裏で）→ `Tools\Build.ps1` → `-Current`（今の音を `_Current` に WAV で）→ 引数なし（全部 × 3 候補。約 1 時間なので裏で）の順に動かす。
   `-Setup` の最後の確認でログインしていない・規約に同意していないと出たら、そこだけユーザーに頼む（`Tools\SoundGen\.venv\Scripts\hf.exe auth login` と
   https://huggingface.co/stabilityai/stable-audio-open-1.0 の同意。トークンは Claude が入れない）。
-  できた音と一覧 `index.html`（今の音と候補を並べて聞ける）は `KakurenboIncremental/SourceArt/SoundGen/`（Git に入れない）。ゲームの音はまだプログラムの音のまま（差し替えはしていない）
+  できた音と一覧 `index.html`（今の音と候補を並べて聞ける）は `KakurenboIncremental/SourceArt/SoundGen/`（Git に入れない）。ゲームの音はまだプログラムの音のまま（差し替えはしていない）。
+  `index.html` はアプリの中のプレビューでは音が鳴らないので、ユーザーに見せるときは `Tools/SoundGen/MakeWebPage.py`（MP3 にして `_web/` に聞き比べのページ）を作り、
+  Artifact ツールで `_web/index.html` を `root` = `_web`、`files` = `audio/` の MP3 全部で公開する（今のページ: https://claude.ai/artifact/SQq8ZzW6ZMYY9dEFoamWR6 。同じ URL に出し直す）
 - バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture / Surfaces / FloorKinds / Decor）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - **間取りは `python Tools/GenerateMansion.py` で作る**（25 個全部を上書き。玄関ホール・廊下・部屋・家具・`[floor]`）。作り直したら `Maps` / `Mood` / 単体テストを流す
 - 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ（連打・時間・壁の補強）→ 壁 → コインの罠）。
