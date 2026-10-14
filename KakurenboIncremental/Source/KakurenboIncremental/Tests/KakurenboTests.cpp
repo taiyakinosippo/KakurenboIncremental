@@ -14,6 +14,8 @@
 #include "UObject/Package.h"
 #include "KakurenboLibrary.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/Paths.h"
+#include "Audio.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -915,6 +917,37 @@ bool FKakurenboLegacyWallsTest::RunTest(const FString& Parameters)
 	AKakurenboGameMode::RemapLegacyWallTypes(Stock, Columns);
 	TestTrue(TEXT("stock: wood + stone + iron become normal walls, soundproof walls stay"), Stock.Num() == 3 && Stock[0] == 6 && Stock[1] == 4 && Stock[2] == 0);
 	TestTrue(TEXT("layout: wood / stone / iron -> 0 (normal), soundproof -> 1"), Columns[0].Design == TArray<int32>({ 0, 0, 1 }) && Columns[0].Live == TArray<int32>({ 0, 1 }));
+	return true;
+}
+
+// ===== テストではない道具（名前が "Kakurenbo" で始まらないので RunUnitTests.ps1 の全部の実行には入らない） =====
+
+// 今の効果音・BGM（KakurenboSynth が作る波形）を SourceArt/SoundGen/_Current/<名前>.wav に書き出す。
+// AI で作った音の候補と聞き比べるため（Tools\SoundGen.ps1 -Current）
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakuExportSynthSounds, "KakuTools.ExportSynthSounds", TestFlags)
+bool FKakuExportSynthSounds::RunTest(const FString& Parameters)
+{
+	const FString Folder = FPaths::ProjectDir() / TEXT("SourceArt/SoundGen/_Current");
+	auto WriteWav = [this, &Folder](const FString& Name, const TArray<int16>& Samples, int32 SampleRate)
+	{
+		TArray<uint8> File;
+		// SerializeWaveFile: 16bit の波形に WAV の見出しを付ける（エンジンの関数。Audio.h）
+		SerializeWaveFile(File, reinterpret_cast<const uint8*>(Samples.GetData()), Samples.Num() * sizeof(int16), 1, SampleRate);
+		const FString Path = Folder / (Name + TEXT(".wav"));
+		TestTrue(FString::Printf(TEXT("wrote %s"), *Path), Samples.Num() > 0 && FFileHelper::SaveArrayToFile(File, *Path));
+	};
+	for (int32 i = 0; i < static_cast<int32>(EKakurenboSfx::Count); ++i)
+	{
+		const EKakurenboSfx Sfx = static_cast<EKakurenboSfx>(i);
+		WriteWav(UEnum::GetValueAsName(Sfx).ToString().RightChop(FString(TEXT("EKakurenboSfx::")).Len()), KakurenboSynth::RenderSfx(Sfx), KakurenboSynth::DefaultSampleRate);
+	}
+	// BGM は 1 周ぶんを 2 回つなげる（くり返したときのつなぎ目も聞けるように）
+	for (const EKakurenboMusic Music : { EKakurenboMusic::Calm, EKakurenboMusic::Hide })
+	{
+		TArray<int16> Samples = KakurenboSynth::RenderMusic(Music);
+		Samples.Append(TArray<int16>(Samples));
+		WriteWav(TEXT("Music_") + UEnum::GetValueAsName(Music).ToString().RightChop(FString(TEXT("EKakurenboMusic::")).Len()), Samples, KakurenboSynth::MusicSampleRate);
+	}
 	return true;
 }
 

@@ -29,6 +29,7 @@ ATreasureActor::ATreasureActor()
 	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 取得は距離で判定する
 	Mesh->SetRelativeRotation(FRotator(45.f, 0.f, 45.f));
 	Mesh->SetRelativeScale3D(FVector(0.35f));
+	Mesh->SetCastShadow(false); // 明かりは宝石の中にあるので、宝石が影を落とすとまわりが真っ暗になる
 
 	Glow = CreateDefaultSubobject<UPointLightComponent>(TEXT("Glow"));
 	Glow->SetupAttachment(Spin);
@@ -36,7 +37,9 @@ ATreasureActor::ATreasureActor()
 	Glow->SetIntensityUnits(ELightUnits::Candelas);
 	Glow->SetIntensity(12.f); // M15：館の暖かい明かりに埋もれないよう明るく（3 → 12）
 	Glow->SetAttenuationRadius(420.f);
-	Glow->SetCastShadows(false);
+	// 影を落とす明かりにする（影が無いと光が壁をすり抜けて、壁の向こうのお宝の場所がわかってしまう）。
+	// お宝は 1 ラウンドに数個で照らす範囲も狭いので、重さは気にならない
+	Glow->SetCastShadows(true);
 
 	// 足元の光る輪（薄い円柱。宝石の色で光る）
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));

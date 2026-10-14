@@ -23,3 +23,7 @@ KakurenboIncremental/Content/cat-long-haired/
 KakurenboIncremental/Content/low_poly_cat/
 # FBX を取り込むと、埋め込まれた画像が <名前>.fbm フォルダに書き出される（取り込みのたびにできる）
 *.fbm/
+
+# 音を作る AI（Tools/SoundGen.ps1）：Python の環境（約 6GB）と作った音の候補（パソコンごとに作る）
+Tools/SoundGen/.venv/
+KakurenboIncremental/SourceArt/SoundGen/

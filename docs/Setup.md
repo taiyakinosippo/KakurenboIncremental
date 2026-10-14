@@ -78,3 +78,16 @@ setx UE_ROOT "D:\Epic Games\UE_5.8"
 git pull するだけでそろうので、エディタの Fab から追加し直す必要はない。
 
 - Claude との会話の履歴と、コマンドの許可の設定はパソコンごと。ルールと仕様は CLAUDE.md と docs/GameDesign.md に書いてあるので、別のパソコンの Claude もそこから続けられる
+
+## 音を作る AI（なくてもゲームは作れる）
+
+Stable Audio Open 1.0 で効果音・BGM の候補を作る道具（`Tools\SoundGen.ps1`）。NVIDIA の GPU（VRAM 8GB くらい）があると速い。
+Claude に「**音の AI の環境を作って音を作って**」と頼めば、下の 1〜3 を確認なしでやる（CLAUDE.md に手順がある）。
+
+1. `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1 -Setup`（Python の環境。PyTorch など約 3GB）
+2. **自分で**：Hugging Face のアカウントで https://huggingface.co/stabilityai/stable-audio-open-1.0 の規約に同意（アカウントに 1 回）し、
+   このパソコンで `Tools\SoundGen\.venv\Scripts\hf.exe auth login`（トークンを貼る。パソコンごとに 1 回）
+3. `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1 -Current`（今の音を WAV に。ビルド済みのこと）→
+   `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1`（全部の候補。初回はモデル約 5GB のダウンロード）
+
+できた音と一覧（`index.html`）は `KakurenboIncremental/SourceArt/SoundGen/`。Git には入らない（パソコンごとに作る。シード値が同じなら同じ音になる）。

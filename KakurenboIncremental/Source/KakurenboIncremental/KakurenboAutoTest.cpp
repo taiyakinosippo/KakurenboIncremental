@@ -1016,8 +1016,37 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("treasure at free cell (%d,%d), %.1f cells from player"), Cell.X, Cell.Y, DistCells),
 					Grid()->GetColumnHeight(Cell) == 0 && DistCells >= GM->TreasureMinDistanceCells - 0.01f);
 			}
+			int32 Leaky = 0;
+			for (const ATreasureActor* T : Treasures)
+			{
+				Leaky += (!T->Glow->CastShadows || T->Mesh->CastShadow) ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("treasure light is blocked by walls (casts shadows, the gem itself does not; %d wrong)"), Leaky), Leaky == 0);
 			ShotLater(TEXT("treasure_01_spawned"));
 		} });
+		// 見た目：お宝のまわりを 3 段の壁で囲み、壁の外の床に光がもれていないか撮る
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const FIntPoint Cell = Grid()->WorldToCell(GM->GetTreasures()[0]->GetActorLocation());
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					const FIntPoint C(Cell.X + DX, Cell.Y + DY);
+					if ((DX != 0 || DY != 0) && Grid()->CanPlaceBlock(C))
+					{
+						for (int32 Level = 0; Level < 3; ++Level)
+						{
+							PlaceTestWall(C);
+						}
+					}
+				}
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(Cell + FIntPoint(3, 0)));
+			GetHider()->SetOverheadYaw(270.f);
+		} });
+		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("treasure_01b_walled")); } });
+		Steps.Add({ 0.2f, [=, this] { Grid()->ClearAllBlocks(); } });
 		// お宝に 1 個ずつ触れていく。「触れる → 確認 → 次へ」の順番を守るため、確認が終わってから次へ進む
 		TSharedRef<TFunction<void(int32)>> CollectNext = MakeShared<TFunction<void(int32)>>();
 		*CollectNext = [=, this](int32 Remaining)
