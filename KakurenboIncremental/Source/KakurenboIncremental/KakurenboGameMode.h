@@ -899,7 +899,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarknessExposureBias = -1.8f;
 
-	/** だるまさんがころんだ：画面の真ん中からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる */
+	/** だるまさんがころんだ：プレイヤーの体が向いている方からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる（カメラの向きではない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")
 	float DarumaViewHalfAngle = 38.f;
 

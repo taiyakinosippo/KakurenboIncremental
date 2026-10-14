@@ -1600,7 +1600,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	if (GM->IsDarumaActive())
 	{
 		Text(FString::Printf(TEXT("だるまさんが ころんだ　%d"), FMath::CeilToInt(GM->GetDarumaTimeLeft())), 0, 92, 26, FLinearColor(1.f, 0.5f, 0.45f), true);
-		Text(TEXT("見ている間だけ鬼が止まる（ぶつかれば見つかる）"), 0, 128, 17, PaleText, true);
+		Text(TEXT("キャラクターが向いている方の鬼だけ止まる（ぶつかれば見つかる）"), 0, 128, 17, PaleText, true);
 	}
 
 	if (State->HideStartCountdown > 0.f)

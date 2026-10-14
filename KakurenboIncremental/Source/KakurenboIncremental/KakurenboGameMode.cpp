@@ -1329,7 +1329,7 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemCatDesc", "近くをうろうろして「にゃーん」と鳴く猫。寄ってきた鬼は猫をなでて {0} 秒動かない（どの鬼も猫には弱い）"), Fmt(Def.Duration));
 			break;
 		case ETrapKind::Daruma:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。{0} 秒、自分が見ている間だけ鬼が止まる（目をそらすと動く・ぶつかれば見つかる）"), Fmt(Def.Duration));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "GemDarumaDesc", "かくれんぼ中に使う。{0} 秒、自分（キャラクター）が向いている方の鬼だけ止まる（よそを向くと動く・ぶつかれば見つかる）"), Fmt(Def.Duration));
 			break;
 		default:
 			Item.Description = FText::GetEmpty();
@@ -2473,24 +2473,25 @@ void AKakurenboGameMode::TickDaruma(float DeltaSeconds)
 bool AKakurenboGameMode::IsOniWatchedByPlayer(const AOniCharacter* Oni) const
 {
 	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
-	if (!Oni || !PC || !PC->PlayerCameraManager || !IsDarumaActive())
+	const APawn* Player = PC ? PC->GetPawn() : nullptr;
+	if (!Oni || !Player || !IsDarumaActive())
 	{
 		return false;
 	}
-	// 画面の真ん中あたり（カメラの向きから DarumaViewHalfAngle 度以内）に見えていて、間に壁・家具が無い鬼
-	const FVector Eye = PC->PlayerCameraManager->GetCameraLocation();
-	const FVector Forward = PC->PlayerCameraManager->GetCameraRotation().Vector();
+	// プレイヤー（の体）が向いている方（DarumaViewHalfAngle 度以内・上から見た向き）にいて、間に壁・家具が無い鬼。
+	// （ユーザーの希望：「カメラが見ているではなく、プレイヤーが見ているときに」。カメラだけ鬼に向けても止まらない）
+	const FVector Head = Player->GetActorLocation() + FVector(0.f, 0.f, 50.f);
+	const FVector Forward = Player->GetActorForwardVector().GetSafeNormal2D();
 	const FVector Body = Oni->GetActorLocation() + FVector(0.f, 0.f, 40.f);
-	const FVector To = Body - Eye;
-	if (To.Size() > DarumaViewDistance || FVector::DotProduct(To.GetSafeNormal(), Forward) < FMath::Cos(FMath::DegreesToRadians(DarumaViewHalfAngle)))
+	const FVector To = Body - Head;
+	if (To.Size() > DarumaViewDistance || FVector::DotProduct(To.GetSafeNormal2D(), Forward) < FMath::Cos(FMath::DegreesToRadians(DarumaViewHalfAngle)))
 	{
 		return false;
 	}
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuDarumaSight), false, PC->GetPawn());
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuDarumaSight), false, Player);
 	Params.AddIgnoredActor(Oni);
 	FHitResult Hit;
-	// 自分の頭から鬼の体まで（カメラは置いた壁をすり抜けるので、頭から見る）
-	const FVector Head = PC->GetPawn() ? PC->GetPawn()->GetActorLocation() + FVector(0.f, 0.f, 50.f) : Eye;
+	// 自分の頭から鬼の体まで
 	return !GetWorld()->LineTraceSingleByChannel(Hit, Head, Body, ECC_Visibility, Params);
 }
 
