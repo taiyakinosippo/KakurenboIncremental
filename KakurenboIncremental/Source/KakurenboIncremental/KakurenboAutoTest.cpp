@@ -2347,7 +2347,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.6f, [=, this]
 		{
-			// 宝石と宝石の道具を持っておく（転生で宝石はなくなり、道具は残る）
+			// 宝石と宝石の道具を持っておく（転生でどちらもなくなる）
 			GS()->Gems = 7;
 			const int32 GoldType = GM->FindTrapTypeOfKind(ETrapKind::GoldRush);
 			GS()->TrapStock[GoldType] = 2;
@@ -2356,7 +2356,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				const AKakurenboGameState* S = GS();
-				Check(FString::Printf(TEXT("gems are not carried over, gem items are (gems %d, gold rush %d)"), S->Gems, S->TrapStock[GoldType]), S->Gems == 0 && S->TrapStock[GoldType] == 2);
+				Check(FString::Printf(TEXT("neither gems nor gem items are carried over (gems %d, gold rush %d)"), S->Gems, S->TrapStock[GoldType]), S->Gems == 0 && S->TrapStock[GoldType] == 0);
 				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
 					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
 				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));

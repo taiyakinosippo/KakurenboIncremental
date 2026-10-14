@@ -3581,13 +3581,7 @@ bool AKakurenboGameMode::Prestige()
 	// 壁が硬くなる代わりに、ほかは最初から（置いた壁と罠は消えるが、設計図は残る）
 	DespawnOnis();
 	ClearTreasures();
-	// 宝石の道具は宝石で買ったものなので、転生してもなくならない（置いてあった分は在庫に戻す）
-	TArray<int32> GemStock;
-	GemStock.Init(0, TrapTypes.Num());
-	for (const int32 Type : GetTrapTypesInShop(true))
-	{
-		GemStock[Type] = (State->TrapStock.IsValidIndex(Type) ? State->TrapStock[Type] : 0) + Grid->GetLiveTrapCount(Type);
-	}
+	// ユーザーの希望：宝石も宝石で買った道具も転生で引き継がない（置いてあった道具も消える。設計図は残る）
 	Grid->ClearLiveKeepDesign();
 	// はじめのコインは転生した回数ぶん増える（強化ではなく自動）
 	State->Coins = GetPrestigeStartCoins(State->PrestigeCount);
@@ -3596,8 +3590,8 @@ bool AKakurenboGameMode::Prestige()
 	State->TimeIncomeLevel = 0;
 	State->WallReinforceLevel = 0;
 	State->WallStock.Init(0, WallTypes.Num());
-	State->TrapStock = GemStock;
-	State->Gems = 0; // ユーザーの希望：宝石は転生で引き継がない（宝石で買った道具は残る）
+	State->TrapStock.Init(0, TrapTypes.Num());
+	State->Gems = 0;
 	State->GoldRushBoughtThisRun = 0; // ゴールドラッシュの値段は、転生したら元に戻る
 	State->LastRepairedWalls = 0;
 	State->LastUnrepairedWalls = 0;

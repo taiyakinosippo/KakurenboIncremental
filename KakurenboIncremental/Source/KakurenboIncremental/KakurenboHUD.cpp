@@ -1417,7 +1417,7 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const FString CoinsPerPrestige = Big(GM->PrestigeSettings.StartCoinsPerPrestige);
 	if (bGemTab)
 	{
-		TextFit(FString::Printf(TEXT("宝石はお宝 1 個で %d つ（ラウンドのお宝を全部取るとボーナス +%d）。宝石は転生するとなくなる（宝石の道具は残る）"), GM->GetGemsPerTreasure(), GM->GetAllTreasureBonusGems()),
+		TextFit(FString::Printf(TEXT("宝石はお宝 1 個で %d つ（ラウンドのお宝を全部取るとボーナス +%d）。宝石と宝石の道具は転生するとなくなる"), GM->GetGemsPerTreasure(), GM->GetAllTreasureBonusGems()),
 			0, InfoY, 16, InfoW, GemTextColor, true);
 	}
 	else if (bPrestigeTab)
@@ -1427,7 +1427,7 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 	else if (bCanPrestige)
 	{
-		TextFit(FString::Printf(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなり、%s コインから始まる（設計図・転生のお店の強化・宝石の道具は残る。宝石はなくなる）"), *StartCoins),
+		TextFit(FString::Printf(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなり、%s コインから始まる（設計図・転生のお店の強化は残る。宝石と宝石の道具もなくなる）"), *StartCoins),
 			0, InfoY, 16, InfoW, Gray, true);
 	}
 	else

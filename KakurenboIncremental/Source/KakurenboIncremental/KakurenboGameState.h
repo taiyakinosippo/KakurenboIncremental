@@ -119,7 +119,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	double TreasureCoinsThisRound = 0.0;
 
-	// ---- 宝石（M15：お宝を取るともらえる。宝石のお店で、ふしぎな道具と交換する。転生してもなくならない） ----
+	// ---- 宝石（M15：お宝を取るともらえる。宝石のお店で、ふしぎな道具と交換する。転生するとなくなる。宝石で買った道具も） ----
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 Gems = 0;
 
