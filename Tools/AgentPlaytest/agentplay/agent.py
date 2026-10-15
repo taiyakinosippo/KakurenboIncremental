@@ -3,8 +3,8 @@
 考え方（ユーザーの指定）：
   1. まずステージ全体（上から見た見取り図）を見渡し、隠れやすい場所を見つける
   2. そこを拠点にして（壁で囲む・罠を置く）、長く隠れる・逃げる
-  3. 性格は 4 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）・
-     建築大好き（builder：壁と罠を優先して買い、鬼を足止めして稼ぐ）
+  3. 性格は 5 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）・
+     建築大好き（builder：壁と罠を優先して買い、鬼を足止めして稼ぐ）・壁なし（nowall：壁を一切置かない・買わない。煙幕ダッシュで逃げる）
   4. かくれんぼはマップの中央から始める。隠れ場所に着くまでは、お宝を優先して取りつつ、鬼の足音から遠ざかる（どの性格も）
   5. 鬼の足音が近いときは連打をやめる。お宝の音がしたら、その方角・距離にお宝があると見当をつける（音の聞き分けは学ぶ）
   5b. 床の輪（クリックの輪・足音の輪）：自分の足元に出る輪の見た目・大きさと、輪の中の鬼が気づいて来るかを学ぶ。
@@ -42,6 +42,10 @@ PERSONAS = {
     "builder": {"ja": "建築大好き（壁と罠で足止め）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
                 "templates": ["door_far", "double", "decoy_far"], "travel_treasure": 6, "build": True,
                 "prestige": [["よじ登る", "登"], ["硬さ"], ["時間のお金"]]},
+    # 壁なし（ユーザーの指定）：壁を一切置かない（買わない・壁の補強も買わない）。罠と宝石の道具は使う。転生はダッシュ系（煙幕ダッシュ・煙幕の数）を先に
+    "nowall": {"ja": "壁なし（ダッシュで逃げる）", "move": True, "fetch_radius": 8, "treasure_bonus": 1.0, "coin_weight": 1.0,
+               "templates": ["open"], "travel_treasure": 12, "no_walls": True,
+               "prestige": [["煙幕ダッシュ", "ダッシュ"], ["煙幕の数", "煙幕"], ["お宝"]]},
 }
 
 
@@ -531,6 +535,8 @@ class Agent:
         for i in items:
             if i["cost"] is None or i["cost"] > budget:
                 continue
+            if self.P.get("no_walls") and i["roles"] & {"blocker", "toughen"}:
+                continue  # 壁なし：壁も壁の補強も買わない
             v = self.brain.item_value(i["name"], i["roles"], self.item_prior(i))
             v -= 0.02 * math.log10(max(1.0, i["cost"]))  # 同じくらいなら安い方
             if v > best_v:

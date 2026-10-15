@@ -4,7 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1                   # 3 つの性格を同時に 8 時間（既定）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Hours 2          # 2 時間
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Until 07:30      # その時刻まで
-#   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy / builder をカンマで）
+#   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy / builder / nowall をカンマで）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Fresh            # セーブと学習を消して、はじめから
 #   -Speed 2（ゲームの時間の速さ。既定 2。1 なら人と同じ）・-Watch（ウィンドウを大きく）・-Sound（音を出す）・-Open（終わったら報告書を開く）
 #   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
@@ -21,7 +21,7 @@
 param(
     [double]$Hours = 8,
     [string]$Until = "",
-    [string]$Personas = "stay,near,greedy,builder",
+    [string]$Personas = "stay,near,greedy,builder,nowall",
     [double]$Speed = 2,
     [switch]$Fresh,
     [switch]$Watch,

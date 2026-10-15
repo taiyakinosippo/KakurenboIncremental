@@ -65,7 +65,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   候補は `KakurenboIncremental/SourceArt/MusicGen/`（Git LFS に入れてコミット）。採用は docs/Sounds.md の表。
   **ゲームの BGM は `Data/Sounds/Music_<Title|Calm|Hide|Chase>.wav`**（`Tools/MusicGen/ExportForGame.py` でくり返せる形にする。無ければプログラムの曲）。`UKakurenboSoundSubsystem::LoadMusicWav`
 - **テストプレイ AI**（M16。`Tools\AgentPlaytest.bat`・`Tools\AgentPlaytest.ps1`・Python は `Tools/AgentPlaytest/`・説明は [docs/AgentPlaytest.md](docs/AgentPlaytest.md)）。
-  パッケージ版を 4 つの性格（stay 動かない慎重型・near 近くのお宝だけ・greedy 強欲型・builder 建築大好き）で同時に遊び、強化学習で上達し、報告書（`Saved/AgentPlaytest/<日時>/report.html`）を作る。
+  パッケージ版を 5 つの性格（stay 動かない慎重型・near 近くのお宝だけ・greedy 強欲型・builder 建築大好き・nowall 壁なし）で同時に遊び、強化学習で上達し、報告書（`Saved/AgentPlaytest/<日時>/report.html`）を作る。
   **一度作った後は Claude のトークンを使わない**（ユーザーの要件。AI は手元の Python・標準ライブラリだけ）。**AI はゲームの仕様を知らない**（要件）：AI のコードに鬼・道具の効果・数値を書かない。
   知っていてよいのは一般的な言葉の辞書（`reader.py`）だけで、それ以外は画面の文・見えた物・結果から学ぶ。`TEL`（本当の値）は `recorder.py` だけが読む。
   HUD に文を足すときは `Text` / `TextFit` / `RichText` / `DrawButton` を使う（窓口が読める。直接 `Canvas->DrawItem` で描いた文は AI に見えない）。

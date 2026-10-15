@@ -18,8 +18,8 @@ import math
 import os
 import time
 
-PERSONAS = ["stay", "near", "greedy", "builder"]
-PERSONA_JA = {"stay": "慎重型（動かない）", "near": "慎重型（近くのお宝）", "greedy": "強欲型", "builder": "建築大好き"}
+PERSONAS = ["stay", "near", "greedy", "builder", "nowall"]
+PERSONA_JA = {"stay": "慎重型（動かない）", "near": "慎重型（近くのお宝）", "greedy": "強欲型", "builder": "建築大好き", "nowall": "壁なし"}
 ONI_JA = {"Balanced": "標準鬼", "Scout": "スピード鬼", "Breaker": "パワー鬼", "Careful": "慎重鬼", "Treasure": "宝物鬼", "Detector": "探知鬼"}
 
 
@@ -147,7 +147,7 @@ def fmt_num(v):
 
 def _features(stage, prestige, persona):
     return [1.0, float(stage), float(min(prestige, 12)), 1.0 if persona == "near" else 0.0, 1.0 if persona == "greedy" else 0.0,
-            1.0 if persona == "builder" else 0.0]
+            1.0 if persona == "builder" else 0.0, 1.0 if persona == "nowall" else 0.0]
 
 
 # ---------------------------------------------------------------- 分析
@@ -324,7 +324,7 @@ def markdown(A, root):
         L.append(f"| {PERSONA_JA[p]} | {len(rs)} | {hours:.1f} 時間 | {max(r.get('prestige') or 0 for r in rs)} | {max(r['stage'] for r in rs)} |")
     L.append("")
     w, se = A["logit"]
-    a, b, c, dn, dg, db = w
+    a, b, c, dn, dg, db, dw = w
     # ---- 推論のまとめ（先頭に）
     L.append("## 推論のまとめ")
     L.append("")
@@ -334,7 +334,7 @@ def markdown(A, root):
     # ---- Level カーブ
     L.append("## Level カーブ（全体の傾き）")
     L.append("")
-    L.append(f"クリア率 = σ({a:+.2f} {b:+.3f}×ステージ {c:+.3f}×転生の回数 ＋ 性格（近くのお宝 {dn:+.2f}・強欲 {dg:+.2f}・建築大好き {db:+.2f}））"
+    L.append(f"クリア率 = σ({a:+.2f} {b:+.3f}×ステージ {c:+.3f}×転生の回数 ＋ 性格（近くのお宝 {dn:+.2f}・強欲 {dg:+.2f}・建築大好き {db:+.2f}・壁なし {dw:+.2f}））"
              f"　※ σ はロジスティック関数。係数のばらつき（±1 標準誤差）：ステージ ±{se[1]:.3f}・転生 ±{se[2]:.3f}")
     L.append("")
     L.append("ステージ・転生の回数ごとのクリア率の推論（慎重型（動かない）。太字は遊んだことのある組み合わせ。カッコは 1 回クリアするのに要る挑戦の回数の目安）：")
@@ -377,13 +377,13 @@ def markdown(A, root):
         oni = "・".join(f"{ONI_JA.get(t, t)}" for t, _ in sorted(B["onis"].items(), key=lambda p: -p[1])[:4]) or "-"
         catcher = max(B["catchers"].items(), key=lambda p: p[1])[0] if B["catchers"] else None
         earned = sorted(B["earned"])[len(B["earned"]) // 2] if B["earned"] else None
-        per = "・".join(f"{p[0]}{pr[1] * 100 // max(1, pr[0])}%" for p, pr in ((q, B["personas"][q]) for q in PERSONAS if q in B["personas"]))
+        per = "・".join(f"{'w' if p == 'nowall' else p[0]}{pr[1] * 100 // max(1, pr[0])}%" for p, pr in ((q, B["personas"][q]) for q in PERSONAS if q in B["personas"]))
         L.append(f"| {s} | {n} | {pct(B['clear'] / n)} | {1.0 / rate:.1f} 回 | {diff * 100:+.0f}{tag} | {pct(B['surv'] / n)} | {pct(B['chased'] / n)} | "
                  f"{B['broken'] / n:.1f} | {fmt_num(earned)} | {pct(B['tgot'] / B['ttot']) if B['ttot'] else '-'} | {oni} | "
                  f"{ONI_JA.get(catcher, catcher) if catcher else '-'} | {per} |")
     A["spikes"] = spikes
     L.append("")
-    L.append("性格の記号：s＝慎重型（動かない）・n＝慎重型（近くのお宝）・g＝強欲型・b＝建築大好き")
+    L.append("性格の記号：s＝慎重型（動かない）・n＝慎重型（近くのお宝）・g＝強欲型・b＝建築大好き・w＝壁なし")
     L.append("")
     # ---- 転生
     L.append("## 転生による強化幅")
@@ -449,7 +449,7 @@ def conclusions(A):
     """推論した結論を文にする（数字の裏付け付き）"""
     out = []
     w, se = A["logit"]
-    a, b, c, dn, dg, db = w
+    a, b, c, dn, dg, db, dw = w
     rounds = A["rounds"]
     # 難しくなる速さ
     if b < 0:
@@ -484,7 +484,7 @@ def conclusions(A):
     if easy:
         out.append("全体の傾きより簡単なステージ：" + "、".join(f"{s}（{d * 100:+.0f} ポイント・{n} 回）" for s, d, n, _ in sorted(easy, key=lambda x: -x[1])[:5]))
     # 性格
-    out.append(f"性格の差（慎重型（動かない）とくらべた対数オッズ）：近くのお宝 {dn:+.2f}・強欲 {dg:+.2f}・建築大好き {db:+.2f}。"
+    out.append(f"性格の差（慎重型（動かない）とくらべた対数オッズ）：近くのお宝 {dn:+.2f}・強欲 {dg:+.2f}・建築大好き {db:+.2f}・壁なし {dw:+.2f}。"
                + ("お宝を取りに動くほど見つかりやすい。" if dg < -0.3 else "お宝を取りに動いても不利になっていない。"))
     # 稼ぎ
     el = A.get("earn_lin")
