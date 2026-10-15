@@ -19,12 +19,17 @@
 
 選んだ印はそのブラウザにだけ残る（別のパソコン・スマホには引き継がれない）。決めたことはこの表が正。
 
-### ゲームへの組み込み（まだ作っていない・予定）
+### ゲームへの組み込み（2026-10-15 から）
 
-今の音は GameMode の `SoundOverrides` にアセットを入れると差し替わるが、そうするとプログラムの音で付けている
+GameMode の `SoundOverrides` に音アセットを入れる方法だと、プログラムの音で付けている
 「左右の聞こえ方・壁の向こうのこもり方・距離での大きさ」（鬼を音で探す遊びの中心）が無くなる。
-そこで、採用した WAV を `KakurenboIncremental/Data/Sounds/<名前>.wav`（モノラル）にコピーし、起動時に読み込んで今と同じ処理を通して鳴らす形にする予定。
-WAV が無い音は今のプログラムの音のまま。
+そこで、採用した効果音は `KakurenboIncremental/Data/Sounds/<名前>.wav`（モノラル・44100Hz・16bit）にして、ゲームはその音を初めて鳴らすときに読み、
+今と同じ左右・こもり・距離の処理を通して鳴らす（`UKakurenboSoundSubsystem::GetSfxSamples`）。高さを変えて鳴らす所（購入の音など）は読む速さを変える（長さも変わる）。
+WAV が無い音は今のプログラムの音のまま。WAV にするのは次（表の採用をそのまま並べる。大きさは今のプログラムの音にそろえる。割れるものは少し小さめになる）：
+```
+Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=Buy_s13 BuyFail=BuyFail_s12 PickUp=PickUp_s12 Gem=Gem_s13 RoundStart=RoundStart_s13 Alert=Alert_s11 Caught=Caught_s12 PlayerStep=PlayerStep_s3 PlayerClimb=PlayerClimb_s12 Dash=Dash_s1 Smoke=Smoke_s11 Heartbeat=Heartbeat_s1 OniStep=OniStep_s13 Treasure=Treasure_s1 Meow=Meow_s12
+```
+「（今のまま）」と — の音は WAV を作らない（プログラムの音）。採用をやめるときは `Data/Sounds/<名前>.wav` を消す。
 
 ## 一覧
 
@@ -34,36 +39,36 @@ WAV が無い音は今のプログラムの音のまま。
 | 音の名前 | どこで鳴る | 候補 | 採用 |
 |---|---|---|---|
 | Mash | 連打 | s1, s2, s3, s900, **s11, s12, s13** | — |
-| Treasure | お宝を取った | s1, s2, s3, **s11, s12, s13** | — |
-| Alert | 鬼に見つかって追いかけられ始めた | s1, s2, s3, **s11, s12, s13** | — |
+| Treasure | お宝を取った | s1, s2, s3, **s11, s12, s13** | **Treasure_s1** |
+| Alert | 鬼に見つかって追いかけられ始めた | s1, s2, s3, **s11, s12, s13** | **Alert_s11** |
 | BlockHit | 壁が攻撃された（壊れていない） | s1, s2, s3, **s11, s12, s13** | — |
 | BlockBreak | 壁が壊れた | s1, s2, s3, **s11, s12, s13** | — |
-| Caught | 見つかった（アウト） | s1, s2, s3, **s11, s12, s13** | — |
+| Caught | 見つかった（アウト） | s1, s2, s3, **s11, s12, s13** | **Caught_s12** |
 | Clear | 逃げ切った | s1, s2, s3, **s11, s12, s13** | — |
 | TrapSticky | トリモチにかかった | s1, s2, s3, **s11, s12, s13** | — |
 | DecoyPing | おとりが音を出した | s1, s2, s3, **s11, s12, s13** | — |
 | DecoyBreak | おとりが壊された | s1, s2, s3, **s11, s12, s13** | — |
-| CountdownBeep | 開始前のカウントダウン | s1, s2, s3, **s11, s12, s13** | — |
-| RoundStart | 鬼が出てきた | s1, s2, s3, **s11, s12, s13** | — |
+| CountdownBeep | 開始前のカウントダウン | s1, s2, s3, **s11, s12, s13** | （今のまま） |
+| RoundStart | 鬼が出てきた | s1, s2, s3, **s11, s12, s13** | **RoundStart_s13** |
 | TimeTick | 残り 5 秒からの秒読み | s1, s2, s3, **s11, s12, s13** | — |
-| Buy | 購入できた | s1, s2, s3, **s11, s12, s13** | — |
-| BuyFail | コインが足りない | s1, s2, s3, **s11, s12, s13** | — |
+| Buy | 購入できた | s1, s2, s3, **s11, s12, s13** | **Buy_s13** |
+| BuyFail | コインが足りない | s1, s2, s3, **s11, s12, s13** | **BuyFail_s12** |
 | Place | 壁・罠を置いた | s1, s2, s3, **s11, s12, s13** | — |
-| PickUp | 壁・罠を回収した | s1, s2, s3, **s11, s12, s13** | — |
-| Dash | ダッシュした（大きな音） | s1, s2, s3, **s11, s12, s13** | — |
+| PickUp | 壁・罠を回収した | s1, s2, s3, **s11, s12, s13** | **PickUp_s12** |
+| Dash | ダッシュした（大きな音） | s1, s2, s3, **s11, s12, s13** | **Dash_s1** |
 | Prestige | 転生した | s1, s2, s3, **s11, s12, s13** | — |
-| PlayerStep | プレイヤーの足音 | s1, s2, s3, **s11, s12, s13** | — |
-| PlayerClimb | プレイヤーがよじ登った（ガサッ） | s1, s2, s3, **s11, s12, s13** | — |
-| OniStep | 鬼の足音（どたどた） | s1, s2, s3, **s11, s12, s13** | — |
-| TreasureSparkle | お宝のキラキラ | s1, s2, s3, **s11, s12, s13** | — |
+| PlayerStep | プレイヤーの足音 | s1, s2, s3, **s11, s12, s13** | **PlayerStep_s3** |
+| PlayerClimb | プレイヤーがよじ登った（ガサッ） | s1, s2, s3, **s11, s12, s13** | **PlayerClimb_s12** |
+| OniStep | 鬼の足音（どたどた） | s1, s2, s3, **s11, s12, s13** | **OniStep_s13** |
+| TreasureSparkle | お宝のキラキラ | s1, s2, s3, **s11, s12, s13** | （今のまま） |
 | Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, **s11, s12, s13** | — |
-| Smoke | 煙幕を投げた（ボフッ） | s1, s2, s3, **s11, s12, s13** | — |
-| Heartbeat | 鬼が近い（ドクン） | s1, s2, s3, **s11, s12, s13** | — |
+| Smoke | 煙幕を投げた（ボフッ） | s1, s2, s3, **s11, s12, s13** | **Smoke_s11** |
+| Heartbeat | 鬼が近い（ドクン） | s1, s2, s3, **s11, s12, s13** | **Heartbeat_s1** |
 | OniNotice | 鬼が音に気づいた（「ン？」） | s1, s2, s3, **s11, s12, s13** | — |
-| Meow | 迷い猫の鳴き声 | s1, s2, s3, **s11, s12, s13** | — |
+| Meow | 迷い猫の鳴き声 | s1, s2, s3, **s11, s12, s13** | **Meow_s12** |
 | Daruma | だるまさんがころんだ（かけ声のメロディ） | s1, s2, s3, **s11, s12, s13** | — |
 | Poof | 身代わり人形が消えた・のれんが壊れた（ポン） | s1, s2, s3, **s11, s12, s13** | — |
-| Gem | 宝石を全部集めた（ボーナス） | s1, s2, s3, **s11, s12, s13** | — |
+| Gem | 宝石を全部集めた（ボーナス） | s1, s2, s3, **s11, s12, s13** | **Gem_s13** |
 | Music_Title | BGM：タイトル | ACE s1, s2, s3 | **MusicGen:Music_Title_s2** |
 | Music_Calm | BGM：購入・設置・リザルト（のんびり） | s1, s2, s3, s900 / ACE s1, s2, s3 | **MusicGen:Music_Calm_s2** |
 | Music_Hide | BGM：かくれんぼ中（速くて少し怖い） | s1, s2, s3 / ACE s1, s2, s3 | **MusicGen:Music_Hide_s2** |
@@ -91,5 +96,5 @@ BGM は Stable Audio Open より曲作りに向いた ACE-Step 1.5 でも作れ�
 Tools\MusicGen\ACE-Step-1.5\.venv\Scripts\python.exe -I Tools\MusicGen\ExportForGame.py Music_Title=Music_Title_s2 Music_Calm=Music_Calm_s2 Music_Hide=Music_Hide_s2 Music_Chase=Music_Chase_s3
 ```
 （曲の終わり方の手前で小節の切れ目に切り、続きの 1 小節を頭に重ねてくり返せるようにし、大きさを今までのプログラムの BGM にそろえる。numpy と soundfile があればどの Python でもよい）。
-ゲームは WAV があればそれ、無ければプログラムの曲を流す（Data/README.md）。効果音はまだプログラムの音のまま。
+ゲームは WAV があればそれ、無ければプログラムの曲を流す（Data/README.md）。
 AI の曲は終わりと始まりがつながっていないので、くり返すときは組み込みのときに継ぎ目を重ねる（クロスフェード）予定。

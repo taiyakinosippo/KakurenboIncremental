@@ -3503,6 +3503,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const bool bHasWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/Music_Hide.wav")));
 			Check(FString::Printf(TEXT("the hide BGM comes from Data/Sounds when the WAV exists (wav=%d)"), bHasWav ? 1 : 0),
 				Sound()->IsMusicFromFile(EKakurenboMusic::Hide) == bHasWav);
+			// 効果音も同じ（採用した AI の音。鬼の足音はもう鳴った）
+			const bool bHasStepWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/OniStep.wav")));
+			Check(FString::Printf(TEXT("oni steps come from Data/Sounds when the WAV exists (wav=%d)"), bHasStepWav ? 1 : 0),
+				Sound()->IsSfxFromFile(EKakurenboSfx::OniStep) == bHasStepWav);
 			// 鬼に見つけさせて追わせる（ゆっくり歩かせて、つかまらないように）
 			AOniCharacter* Chaser = GM->GetOnis()[0];
 			Chaser->SightRadius = 3000.f;

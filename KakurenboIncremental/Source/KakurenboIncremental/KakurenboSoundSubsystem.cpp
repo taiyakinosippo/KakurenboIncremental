@@ -246,9 +246,14 @@ bool UKakurenboSoundSubsystem::LoadMusicWav(EKakurenboMusic Music, TArray<int16>
 {
 	// 曲の名前は enum の名前（EKakurenboMusic::Calm → Music_Calm.wav）
 	const FString Name = UEnum::GetValueAsName(Music).ToString().RightChop(FString(TEXT("EKakurenboMusic::")).Len());
-	const FString Path = KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/Music_%s.wav"), *Name));
+	return Music != EKakurenboMusic::None
+		&& ReadWav16(KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/Music_%s.wav"), *Name)), OutSamples, OutSampleRate, OutChannels);
+}
+
+bool UKakurenboSoundSubsystem::ReadWav16(const FString& Path, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels)
+{
 	TArray<uint8> Bytes;
-	if (Music == EKakurenboMusic::None || !FFileHelper::LoadFileToArray(Bytes, *Path, FILEREAD_Silent))
+	if (!FFileHelper::LoadFileToArray(Bytes, *Path, FILEREAD_Silent))
 	{
 		return false;
 	}
@@ -256,7 +261,7 @@ bool UKakurenboSoundSubsystem::LoadMusicWav(EKakurenboMusic Music, TArray<int16>
 	FWaveModInfo Info;
 	if (!Info.ReadWaveInfo(Bytes.GetData(), Bytes.Num()) || *Info.pBitsPerSample != 16 || *Info.pChannels < 1 || *Info.pChannels > 2)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("BGM: %s is not a 16-bit mono/stereo WAV"), *Path);
+		UE_LOG(LogTemp, Warning, TEXT("Sound: %s is not a 16-bit mono/stereo WAV"), *Path);
 		return false;
 	}
 	OutSampleRate = static_cast<int32>(*Info.pSamplesPerSec);
@@ -264,6 +269,65 @@ bool UKakurenboSoundSubsystem::LoadMusicWav(EKakurenboMusic Music, TArray<int16>
 	OutSamples.SetNumUninitialized(Info.SampleDataSize / sizeof(int16));
 	FMemory::Memcpy(OutSamples.GetData(), Info.SampleDataStart, OutSamples.Num() * sizeof(int16));
 	return OutSamples.Num() > 0;
+}
+
+bool UKakurenboSoundSubsystem::LoadSfxWav(EKakurenboSfx Sfx, TArray<int16>& OutSamples)
+{
+	// 音の名前は enum の名前（EKakurenboSfx::OniStep → OniStep.wav）。ゲームの効果音と同じモノラル・44100Hz だけ使う
+	const FString Name = UEnum::GetValueAsName(Sfx).ToString().RightChop(FString(TEXT("EKakurenboSfx::")).Len());
+	int32 Rate = 0;
+	int32 Channels = 0;
+	if (!ReadWav16(KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/%s.wav"), *Name)), OutSamples, Rate, Channels))
+	{
+		return false;
+	}
+	if (Channels != 1 || Rate != KakurenboSynth::DefaultSampleRate)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Sound: Data/Sounds/%s.wav must be mono %d Hz (Tools/SoundGen/ExportForGame.py)"), *Name, KakurenboSynth::DefaultSampleRate);
+		OutSamples.Reset();
+		return false;
+	}
+	return true;
+}
+
+TArray<int16> UKakurenboSoundSubsystem::GetSfxSamples(EKakurenboSfx Sfx, float PitchScale)
+{
+	// Data/Sounds に WAV があればそれ（一度読んだら使い回す。無かったことも覚えておく）、無ければプログラムで作る
+	TArray<int16>* File = SfxFileCache.Find(Sfx);
+	if (!File)
+	{
+		File = &SfxFileCache.Add(Sfx);
+		if (LoadSfxWav(Sfx, *File))
+		{
+			UE_LOG(LogTemp, Log, TEXT("Sound %s: Data/Sounds (%.2f s)"), *UEnum::GetValueAsString(Sfx), File->Num() / static_cast<float>(KakurenboSynth::DefaultSampleRate));
+		}
+	}
+	if (File->Num() == 0)
+	{
+		return KakurenboSynth::RenderSfx(Sfx, PitchScale);
+	}
+	if (FMath::IsNearlyEqual(PitchScale, 1.f, 0.001f) || PitchScale <= 0.f)
+	{
+		return *File;
+	}
+	// 高さを変える：速く（遅く）読む。プログラムの音と違って長さも変わる（レコードの回転を変えるのと同じ）
+	const int32 OutNum = FMath::Max(1, FMath::FloorToInt(File->Num() / PitchScale));
+	TArray<int16> Out;
+	Out.SetNumUninitialized(OutNum);
+	for (int32 i = 0; i < OutNum; ++i)
+	{
+		const float Pos = i * PitchScale;
+		const int32 A = FMath::Min(FMath::FloorToInt(Pos), File->Num() - 1);
+		const int32 B = FMath::Min(A + 1, File->Num() - 1);
+		Out[i] = static_cast<int16>(FMath::Lerp(static_cast<float>((*File)[A]), static_cast<float>((*File)[B]), Pos - A));
+	}
+	return Out;
+}
+
+bool UKakurenboSoundSubsystem::IsSfxFromFile(EKakurenboSfx Sfx) const
+{
+	const TArray<int16>* File = SfxFileCache.Find(Sfx);
+	return File && File->Num() > 0;
 }
 
 void UKakurenboSoundSubsystem::SetMusicVolume(float Volume)
@@ -389,7 +453,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 
 	// 無ければ波形を作って鳴らす。
 	// USoundWaveProcedural: 渡した波形データ（16bit・モノラル）をそのまま再生する音。1 回鳴らすごとに新しく作る
-	const TArray<int16> Samples = KakurenboSynth::RenderSfx(Sfx, PitchScale);
+	const TArray<int16> Samples = GetSfxSamples(Sfx, PitchScale);
 	if (Samples.Num() == 0)
 	{
 		return;

@@ -1,5 +1,6 @@
 ﻿// 効果音を鳴らすワールドサブシステム。
-// 波形は KakurenboSynth がその場で作る（音のファイル不要）。GameMode の SoundOverrides に音アセットを設定すると、そちらを鳴らす。
+// 波形は Data/Sounds/<音>.wav（採用した AI の効果音。Tools/SoundGen/ExportForGame.py）があればそれ、無ければ KakurenboSynth がその場で作る。
+// どちらも同じ左右の振り分け・こもりを通す。GameMode の SoundOverrides に音アセットを設定すると、そちらを鳴らす。
 //   2D: 画面全体で聞こえる（UI・連打・お宝・結果）
 //   3D: その場所から聞こえる（鬼・壁・罠。左右の聞こえ方と大きさで方向と距離がわかる）
 //       鬼の足音・お宝のキラキラは「手がかりの音」として、近いほどはっきり大きく、遠いと聞こえない距離の減り方にする
@@ -89,6 +90,15 @@ public:
 
 	/** 聞く人の位置（自分の体。設置パートなどで体が隠れているときはカメラ）と向き（カメラ） */
 	bool GetListener(FVector& OutLocation, FRotator& OutRotation) const;
+	/** Data/Sounds/<音>.wav（モノラル・44100Hz・16bit。採用した AI の効果音）を読む。無い・形が違えば false（プログラムの音を使う） */
+	static bool LoadSfxWav(EKakurenboSfx Sfx, TArray<int16>& OutSamples);
+
+	/** その効果音を Data/Sounds の WAV で鳴らしているか（テスト用。一度鳴らした音だけわかる） */
+	bool IsSfxFromFile(EKakurenboSfx Sfx) const;
+
+	/** 16bit の WAV ファイルを読む */
+	static bool ReadWav16(const FString& Path, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels);
+
 
 private:
 	void PlayInternal(EKakurenboSfx Sfx, const FVector* Location, float VolumeScale, float PitchScale);
@@ -128,3 +138,8 @@ private:
 	TArray<double> LastPlayTimes;
 	int32 StartedCount = 0;
 };
+
+	/** 効果音の波形（Data/Sounds の WAV。無ければプログラムで作る。PitchScale で高さ（と長さ）を変える） */
+	TArray<int16> GetSfxSamples(EKakurenboSfx Sfx, float PitchScale);
+	/** 効果音ごとの WAV の波形（空なら WAV が無い） */
+	TMap<EKakurenboSfx, TArray<int16>> SfxFileCache;

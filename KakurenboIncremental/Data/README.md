@@ -223,6 +223,11 @@ Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれ�
 | MeshYaw | 向きを足す角度（度） |
 | LightIntensity | 明かりの強さ（松明。館に 64 個まで） |
 
+## Sounds/<音>.wav（効果音）
+
+名前は `EKakurenboSfx`（`OniStep.wav` など）。**モノラル・44100Hz・16bit** の WAV。その音を初めて鳴らすときに読み、プログラムの音と同じ左右の振り分け・こもり・距離の処理を通す。
+無い音はプログラムで作った音。AI の候補から作るときは `Tools/SoundGen/ExportForGame.py`（形と大きさをそろえる）。採用の記録は docs/Sounds.md。
+
 ## Sounds/Music_*.wav（BGM）
 
 `Music_Title` / `Music_Calm` / `Music_Hide` / `Music_Chase`（名前は `EKakurenboMusic`）。16bit のモノラルかステレオの WAV で、

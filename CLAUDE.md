@@ -55,7 +55,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   `-Setup` の最後の確認でログインしていない・規約に同意していないと出たら、そこだけユーザーに頼む（`Tools\SoundGen\.venv\Scripts\hf.exe auth login` と
   https://huggingface.co/stabilityai/stable-audio-open-1.0 の同意。トークンは Claude が入れない）。
   できた候補（`<名前>/<名前>_s<シード>.wav`）と今の音（`_Current`）は `KakurenboIncremental/SourceArt/SoundGen/` で **Git（LFS）に入れる**（別のパソコンでも pull すれば聞けて採用できる。作ったらコミットする）。
-  ゲームの音はまだプログラムの音のまま（差し替えはしていない）。**候補の一覧・聞くページ・採用した音の記録は [docs/Sounds.md](docs/Sounds.md)**（聞く・採用するだけなら AI の環境は要らない）。
+  **採用した効果音は `Data/Sounds/<音>.wav`**（`Tools/SoundGen/ExportForGame.py` でモノラル・44100Hz にして大きさをそろえる。ゲームは同じ左右・こもりの処理を通す。無い音はプログラムの音）。**候補の一覧・聞くページ・採用した音の記録は [docs/Sounds.md](docs/Sounds.md)**（聞く・採用するだけなら AI の環境は要らない）。
   ユーザーが「使う音: OniStep_s2, …」（ページの「コピー」の文）を送ってきたら、docs/Sounds.md の表の「採用」を書き換え、そこに書いた予定（`Data/Sounds/<名前>.wav` を起動時に読み、今の左右・こもりの処理を通す）で組み込む。
   `index.html` はアプリの中のプレビューでは音が鳴らないので、ユーザーに見せるときは `Tools/SoundGen/MakeWebPage.py`（MP3 にして `_web/` に聞き比べのページ）を作り、
   Artifact ツールで `_web/index.html` を `root` = `_web`、`files` = `audio/` の MP3 全部で公開する（今のページ: https://claude.ai/artifact/SQq8ZzW6ZMYY9dEFoamWR6 。別の会話からは `url` にこれを渡して read してから出し直す）

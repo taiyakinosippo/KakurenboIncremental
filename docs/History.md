@@ -437,4 +437,7 @@
   Sounds.csv の効果音 31 の説明文を BGM の世界観（オルゴール・チェレスタ・ピチカート・ファゴット・チューバ・拍子木・木魚、かわいくてすこし不気味）に書き直し、
   s11〜s13 で作った（前の s1〜s3 も残す。prompt.txt は前の説明文も残して足していく）。このパソコンにも SoundGen の環境（uv で作る・PyTorch は RTX 50 用に CUDA 12.8）。
   タイトルの曲が少し暗い件はまだ（明るめの説明文で作り直せる）
+- 「**使う音: Buy_s13, BuyFail_s12, PickUp_s12, Gem_s13, CountdownBeep（今のまま）, RoundStart_s13, Alert_s11, Caught_s12, PlayerStep_s3, PlayerClimb_s12, Dash_s1, Smoke_s11, Heartbeat_s1, OniStep_s13, Treasure_s1, TreasureSparkle（今のまま）, Meow_s12**（＋ BGM 4 曲はそのまま）。
+  選んでいないのは、音がリアルすぎたり、逆に行動に合ってない音すぎたりするもの」→ 採用の 15 個を `Tools/SoundGen/ExportForGame.py` でモノラル・44100Hz・今のプログラムの音と同じ大きさにして `Data/Sounds/<音>.wav`。
+  ゲームはその WAV を今と同じ左右・こもり・距離の処理に通して鳴らす（`GetSfxSamples`。高さを変える所は読む速さで）。選ばなかった音はプログラムの音のまま。Sounds・Hearing・Heartbeat・Fx テスト
 - 「**他 PC でも確認できるように、ここにあるものを採用できるようにどこかに書いておいて**」→ 候補の WAV と今の音を Git（LFS）に入れた。`docs/Sounds.md` に聞くページ・採用のしかた・全部の候補と「採用」の表（今は全部 —）・組み込みの予定
