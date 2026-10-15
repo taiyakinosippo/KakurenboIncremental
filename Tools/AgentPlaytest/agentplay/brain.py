@@ -202,6 +202,8 @@ class Brain:
         self.spot_memory = {}  # "館の形の印:x,y" -> [回数, 得点の合計]
         # 宝石のお店の道具を使ったラウンドの記録：道具の名前 -> {rounds, score_sum, clears, effects{…}}（報告書と、試す順番に使う）
         self.gem_trials = {}
+        self.template_stats = {}  # 囲い方の型 -> [回数, 得点の合計]
+        self.insights = {}  # 気づいたこと（key -> 気づいたときの遊んだ秒数）。同じことを 2 回書かない
         self.read_texts = {}  # 初めて読んだ文 -> 回数
         self.episodes = 0
         self.history = []  # ラウンドごとの得点（学習の進み具合のグラフ用。最後の 5000）
@@ -232,6 +234,8 @@ class Brain:
         self.onis = j.get("onis", {})
         self.spot_memory = j.get("spot_memory", {})
         self.gem_trials = j.get("gem_trials", {})
+        self.template_stats = j.get("template_stats", {})
+        self.insights = j.get("insights", {})
         self.read_texts = j.get("read_texts", {})
         self.episodes = j.get("episodes", 0)
         self.history = j.get("history", [])
@@ -240,7 +244,7 @@ class Brain:
         j = {"spot": self.spot.to_json(), "templates": {k: v.to_json() for k, v in self.templates.items()},
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
-             "words": self.words, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "read_texts": self.read_texts,
+             "words": self.words, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "insights": self.insights, "read_texts": self.read_texts,
              "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

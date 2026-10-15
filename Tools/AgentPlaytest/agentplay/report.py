@@ -103,6 +103,22 @@ class PersonaData:
                 "treasures": (tr_got, tr_all), "survival": sum(surv) / len(surv) if surv else 0.0,
                 "bugs": len(self.bugs), "crashes": len(self.crashes)}
 
+    def status_now(self):
+        """この報告を作った時点：何周目・今のステージ・クリアした最大ステージ（全部 / この周）・挑戦回数（全部 / 今のステージ）"""
+        reached = [e["data"] for e in self.events if e["type"] == "stage-reached"]
+        lap_p = max([d.get("prestige", 0) for d in reached] + [r.get("prestige") or 0 for r in self.rounds] or [0])
+        cur_stage = max([d["stage"] for d in reached if d.get("prestige", 0) == lap_p] or [1])
+        cleared = [r for r in self.rounds if r.get("cleared_true") or r.get("cleared")]
+        best_all = max([r.get("stage") or 0 for r in cleared] or [0])
+        best_lap = max([r.get("stage") or 0 for r in cleared if (r.get("prestige") or 0) == lap_p] or [0])
+        here = sum(1 for r in self.rounds if (r.get("prestige") or 0) == lap_p and r.get("stage") == cur_stage)
+        played = max([r.get("elapsed", 0) for r in self.rounds] + [e.get("elapsed", 0) for e in self.events] or [0])
+        return {"lap": lap_p + 1, "stage": cur_stage, "best_all": best_all, "best_lap": best_lap, "tries": len(self.rounds), "tries_here": here,
+                "played": played}
+
+    def insights(self):
+        return [e for e in self.events if e["type"] == "insight"]
+
     def laps(self):
         laps = defaultdict(list)
         for r in self.rounds:
@@ -155,7 +171,17 @@ def persona_markdown(pd):
     L.append(f"- 遊んだ時間 **{hm(s['played'])}**・ラウンド **{s['rounds']}**・逃げ切り **{s['clears']}**（{pct(s['clears'], s['rounds'])}）")
     L.append(f"- 最高ステージ **{s['max_stage']}**・転生 **{s['prestiges']} 回**・隠れていられた割合の平均 **{s['survival'] * 100:.0f}%**")
     L.append(f"- お宝 {s['treasures'][0]} / {s['treasures'][1]} 個・見つけたおかしなこと {s['bugs']} 種類・ゲームが落ちた／固まった {s['crashes']} 回")
+    now = pd.status_now()
+    L.append(f"- 今：**{now['lap']} 周目のステージ {now['stage']}**（このステージ {now['tries_here']} 回目の挑戦中）・クリアした最大ステージ {now['best_all']}（この周 {now['best_lap']}）")
     L.append("")
+    ins = pd.insights()
+    if ins:
+        L.append("### 気づいたこと（時間の順）")
+        L.append("")
+        for e in ins:
+            dd = e["data"]
+            L.append(f"- {hm(e.get('elapsed', 0))}（{dd.get('lap', '-')} 周目・ステージ {dd.get('stage', '-')}・{dd.get('round', '-')} ラウンド目）：{dd.get('text', '')}")
+        L.append("")
 
     # ---- どこで詰まったか
     L.append("### どこで詰まったか")
@@ -521,6 +547,32 @@ def overview_markdown(datas, run_dir):
     L.append("AI はゲームの仕様（CSV・設計書・鬼の数値）を一切知らず、画面の文・ボタン・見えている物・聞こえた音・上から見た館の形だけで遊ぶ。"
              "長く隠れられるほど得点が高い強化学習（隠れ場所・囲い方はベイズ線形モデル＋トンプソン抽出、かくれんぼ中の動きは Q 学習、お店と転生のタイミングは多腕バンディット）で上達する。"
              "まず上から見た館全体を見渡して隠れやすい場所を探し、そこを拠点に壁で囲み、鬼の様子を見て連打・静かにする・逃げる・お宝を取るを選ぶ。")
+    L.append("")
+    # ---- 今の状況（この報告を作った時点）
+    L.append(f"## 今の状況（{time.strftime('%Y-%m-%d %H:%M')} 時点）")
+    L.append("")
+    L.append("| 性格 | 遊んだ時間 | 今何周目 | 今のステージ | クリアした最大ステージ（全部 / この周） | 挑戦回数（全部 / 今のステージ） |")
+    L.append("|---|---|---|---|---|---|")
+    for d in datas:
+        s = d.status_now()
+        L.append(f"| {PERSONA_JA[d.persona]} | {hm(s['played'])} | {s['lap']} 周目 | {s['stage']} | {s['best_all']} / {s['best_lap']} | {s['tries']} / {s['tries_here']} |")
+    L.append("")
+    # ---- 気づいたこと（3 つの性格を合わせて、遊んだ時間の順）
+    ins = sorted(((e, d.persona) for d in datas for e in d.insights()), key=lambda p: p[0].get("elapsed", 0))
+    L.append("## AI が攻略で大事なことに気づいた時間")
+    L.append("")
+    if not ins:
+        L.append("まだありません（学んだことがはっきりしてくると、ここに時間と一緒に書きます）。")
+    else:
+        L.append("遊んだ時間は、記録を始めてから実際に遊んだ時間（止めていた間は数えない）。")
+        L.append("")
+        L.append("| 遊んだ時間 | 性格 | 周 | ステージ | 何ラウンド目 | 気づいたこと |")
+        L.append("|---|---|---|---|---|---|")
+        for e, p in ins:
+            dd = e["data"]
+            L.append(f"| {hm(e.get('elapsed', 0))} | {PERSONA_JA[p]} | {dd.get('lap', '-')} | {dd.get('stage', '-')} | {dd.get('round', '-')} | {dd.get('text', '')} |")
+    L.append("")
+    L.append("## まとめ")
     L.append("")
     L.append("| | " + " | ".join(PERSONA_JA[d.persona] for d in datas) + " |")
     L.append("|---|" + "---|" * len(datas))

@@ -19,6 +19,7 @@ import time
 
 from . import reader
 from .brain import ACTIONS, CTX_TAGS, TEMPLATES, template_features
+from .insights import InsightTracker
 from .world import DIR_VEC, World
 
 # prestige：転生のお店の優先度（ユーザーの指定。左が先）。商品の名前に含まれる言葉で当てはめる（同じ組の中も左が先）
@@ -88,6 +89,7 @@ class Agent:
         self.hear_events = []
         self.word_events = []
         self.slot_roles = {}  # 置く物の名前 -> "wall" / "item"（置いて確かめた）
+        self.insights = InsightTracker(brain, recorder)  # 攻略で大事なことに気づいた瞬間を記録する
 
     # ------------------------------------------------------------ 送る・待つ
     def send(self, text):
@@ -933,7 +935,7 @@ class Agent:
         R = self.round
         R["phase"] = "hide"
         R["reached"] = reason
-        R["travel_time"] = round(o.t - R["t0"], 1)
+        R["travel_time"] = round(o.t - R["t0"], 1) if R["t0"] is not None else 0.0  # 「もういいかい」の間に着いたら 0 秒
         R["reward"] = 0.0  # Q 学習は隠れ場所に着いてから
         R["state"], R["action"] = None, None
         if R["goto"] is not None:
@@ -1357,6 +1359,9 @@ class Agent:
             mem[0] += 1
             mem[1] += frac
             self.brain.templates[self.plan["template"]].update(self.plan["tfeat"], frac)
+            ts = self.brain.template_stats.setdefault(self.plan["template"], [0, 0.0])
+            ts[0] += 1
+            ts[1] += score
         # 商品：このラウンドの前に買った物（基準より良かったか）
         base_score = self.stage_baseline.get(stage, score)
         adv = score - base_score
@@ -1407,5 +1412,9 @@ class Agent:
             "treasures_got": R["treasures_last"], "treasures_total": R["treasures_total"], "round_coins": round(earned, 1),
             "fail_streak": self.fail_streak.get(stage, 0), "prestige_arm": self.prestige_arm, "real_seconds": round(time.time() - R["real_start"], 1),
         })
+        try:
+            self.insights.check()
+        except Exception as e:  # 気づきの記録の失敗で遊ぶのを止めない
+            self.rec.event("agent-error", {"error": "insights: " + repr(e)[:200], "phase": "Result"})
         self.brain.save()
         self.round = None

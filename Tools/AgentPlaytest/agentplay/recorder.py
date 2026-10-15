@@ -34,6 +34,8 @@ class Recorder:
         self.gadgets = {}
         self.bug_counts = {}
         self.reached = set()
+        self.played_before = 0.0  # 前の起動までに遊んだ秒数（PC が止まっていた間は数えない）
+        self.session_start = time.time()
         self._load_state()
 
     def _path(self, name):
@@ -44,7 +46,8 @@ class Recorder:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
     def _load_state(self):
-        # 前の起動までの最高ステージ・転生回数（起動し直しても「初めて到達」を二重に数えない）
+        # 前の起動までの最高ステージ・転生回数（起動し直しても「初めて到達」を二重に数えない）と、遊んだ時間
+        last_elapsed = 0.0
         try:
             with open(self._path("events.jsonl"), "r", encoding="utf-8") as f:
                 for line in f:
@@ -52,8 +55,23 @@ class Recorder:
                         e = json.loads(line)
                     except ValueError:
                         continue
+                    last_elapsed = max(last_elapsed, float(e.get("elapsed", 0) or 0))
                     if e.get("type") == "stage-reached":
                         self.reached.add((e["data"]["prestige"], e["data"]["stage"]))
+        except OSError:
+            pass
+        self.played_before = last_elapsed
+        # これまでのラウンドの数（起動し直しても通しで数える）
+        self.round_count = 0
+        try:
+            with open(self._path("rounds.jsonl"), "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        self.round_count += 1
+                        try:
+                            self.played_before = max(self.played_before, float(json.loads(line).get("elapsed", 0) or 0))
+                        except ValueError:
+                            pass
         except OSError:
             pass
         try:
@@ -73,10 +91,17 @@ class Recorder:
             pass
 
     def elapsed(self):
-        return time.time() - self.run_start
+        """遊んだ時間（秒）：前の起動までの分＋今の起動から。起動し直しても続きから数え、止まっていた間は数えない"""
+        return self.played_before + (time.time() - self.session_start)
 
     def event(self, kind, data):
         self._append("events.jsonl", {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "elapsed": round(self.elapsed(), 1), "type": kind, "data": data})
+
+    def insight(self, key, text):
+        """AI が攻略で大事なことに気づいた（そのときの遊んだ時間・周・ステージ・何ラウンド目かと一緒に）"""
+        stage = self.tel.get("stage")
+        prestige = self.tel.get("prestige") or 0
+        self.event("insight", {"key": key, "text": text, "lap": prestige + 1, "stage": stage, "round": self.round_count})
 
     def observe(self, o):
         if o.tel:
@@ -135,6 +160,8 @@ class Recorder:
             rec["caught_by_true"] = parts.get("by")
             rec["caught_state_true"] = parts.get("state")
             rec["caught_dist_true"] = parts.get("dist")
+        self.round_count += 1
+        rec["round_total"] = self.round_count
         self._append("rounds.jsonl", rec)
         self.last_roundend = None
         self.hide_onis = []

@@ -7,7 +7,8 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy をカンマで）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Fresh            # セーブと学習を消して、はじめから
 #   -Speed 2（ゲームの時間の速さ。既定 2。1 なら人と同じ）・-Watch（ウィンドウを大きく）・-Sound（音を出す）・-Open（終わったら報告書を開く）
-#   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに送るので、外出先でも GitHub で LATEST.md を見られる）
+#   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md を更新するので、外出先でも GitHub で見られる）
+#   記録は前回の続きに書き足し、報告書も同じ物を更新する。-NewRun で新しい記録のフォルダ（-Fresh も新しくなる）
 #
 # ダブルクリックで動かすときは Tools\AgentPlaytest.bat（8 時間・3 つの性格）。
 # 記録と報告書：KakurenboIncremental/Saved/AgentPlaytest/<始めた日時>/report.html（と report.md）。15 分ごとと最後に作り直す。
@@ -23,6 +24,7 @@ param(
     [switch]$Sound,
     [switch]$Open,
     [switch]$NoPublish,
+    [switch]$NewRun,
     [int]$BasePort = 7701
 )
 
@@ -83,7 +85,13 @@ if ($Fresh) {
         Remove-Item (Join-Path $OutRoot "brains\brain_$p.json") -Force -ErrorAction SilentlyContinue
     }
 }
-$RunDir = Join-Path $OutRoot (Get-Date -Format "yyyyMMdd-HHmm")
+# 記録は前回の続きに書き足す（報告書も同じ物を更新する）。-Fresh・-NewRun のときだけ新しい記録のフォルダ
+$Latest = Get-ChildItem $OutRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{8}-\d{4}$' } | Sort-Object Name | Select-Object -Last 1
+if ($Latest -and -not $Fresh -and -not $NewRun) {
+    $RunDir = $Latest.FullName
+} else {
+    $RunDir = Join-Path $OutRoot (Get-Date -Format "yyyyMMdd-HHmm")
+}
 New-Item -ItemType Directory -Force $RunDir | Out-Null
 $LauncherLog = Join-Path $RunDir "launcher.log"
 function Say([string]$Message, [string]$Color = "Gray") {
@@ -91,7 +99,7 @@ function Say([string]$Message, [string]$Color = "Gray") {
     Write-Host $Line -ForegroundColor $Color
     Add-Content -Path $LauncherLog -Value $Line -Encoding UTF8
 }
-Say "テストプレイ AI：$($PersonaList -join ', ')・$($Deadline.ToString('MM/dd HH:mm')) まで・速さ ×$Speed・記録 $RunDir" "Cyan"
+Say "$(if ($Latest -and $RunDir -eq $Latest.FullName) { '前回の記録の続き：' } else { '' })テストプレイ AI：$($PersonaList -join ', ')・$($Deadline.ToString('MM/dd HH:mm')) まで・速さ ×$Speed・記録 $RunDir" "Cyan"
 Say "Python: $Python"
 
 $W = if ($Watch) { 960 } else { 640 }
@@ -104,6 +112,10 @@ function Start-Pair([string]$P, [int]$Index) {
     New-Item -ItemType Directory -Force (Join-Path $Dir "shots") | Out-Null
     $Port = $BasePort + $Index
     $S = $State[$P]
+    if ($S.Launch -eq 0) {
+        # 前回の記録の続きなら、前の起動のログを上書きしないよう番号も続きから
+        $S.Launch = @(Get-ChildItem (Join-Path $Dir "game_*.log") -ErrorAction SilentlyContinue).Count
+    }
     $S.Launch++
     $GameLog = Join-Path $Dir ("game_{0:D2}.log" -f $S.Launch)
     $X = ($Index % 3) * ($W + 8)
@@ -165,12 +177,13 @@ function Publish-Report {
         $Parent = (git rev-parse -q --verify "refs/remotes/origin/$Branch" 2>$null)
         $env:GIT_INDEX_FILE = $Index
         if ($Parent) { git read-tree $Parent.Trim() } else { git read-tree --empty }
-        # PC ごとのフォルダ（PC の名前）に書く：<PC の名前>/LATEST.md・<PC の名前>/<日時>/…（ほかの PC の結果と混ざらない）
+        # PC ごとのフォルダ（PC の名前）の同じファイルを上書きする（新しく作らない。前の版は Git の履歴に残る）：
+        #   <PC の名前>/README.md（報告書。GitHub でフォルダを開くとそのまま出る）・report.html・<性格>.md
         $RunName = Split-Path $RunDir -Leaf
         $Pc = ($env:COMPUTERNAME -replace '[^A-Za-z0-9_.-]', '_')
-        $Files = @(@{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/$RunName/report.md" }, @{ Src = (Join-Path $RunDir "report.html"); Dst = "$Pc/$RunName/report.html" },
-                   @{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/LATEST.md" })
-        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\report.md"); Dst = "$Pc/$RunName/$P.md" } }
+        git rm -r -q --cached --ignore-unmatch "$Pc" 2>$null | Out-Null
+        $Files = @(@{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "report.html"); Dst = "$Pc/report.html" })
+        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\report.md"); Dst = "$Pc/$P.md" } }
         foreach ($F in $Files) {
             if (Test-Path $F.Src) {
                 $Hash = (git hash-object -w $F.Src 2>$null).Trim()
@@ -181,7 +194,7 @@ function Publish-Report {
         $Message = "AI playtest report $Pc $RunName $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
         $Commit = if ($Parent) { (git commit-tree $Tree -p $Parent.Trim() -m $Message).Trim() } else { (git commit-tree $Tree -m $Message).Trim() }
         git push -q origin "${Commit}:refs/heads/$Branch" 2>$null
-        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/LATEST.md）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
+        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/README.md を更新）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
     } catch { Say "報告書を GitHub に送れませんでした：$_" "Yellow" }
     finally {
         if ($OldIndex) { $env:GIT_INDEX_FILE = $OldIndex } else { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue }
