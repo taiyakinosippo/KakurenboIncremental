@@ -3,7 +3,8 @@
 考え方（ユーザーの指定）：
   1. まずステージ全体（上から見た見取り図）を見渡し、隠れやすい場所を見つける
   2. そこを拠点にして（壁で囲む・罠を置く）、長く隠れる・逃げる
-  3. 性格は 3 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）
+  3. 性格は 4 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）・
+     建築大好き（builder：壁と罠を優先して買い、鬼を足止めして稼ぐ）
   4. かくれんぼはマップの中央から始める。隠れ場所に着くまでは、お宝を優先して取りつつ、鬼の足音から遠ざかる（どの性格も）
   5. 鬼の足音が近いときは連打をやめる。お宝の音がしたら、その方角・距離にお宝があると見当をつける（音の聞き分けは学ぶ）
   5b. 床の輪（クリックの輪・足音の輪）：自分の足元に出る輪の見た目・大きさと、輪の中の鬼が気づいて来るかを学ぶ。
@@ -37,6 +38,10 @@ PERSONAS = {
     "greedy": {"ja": "強欲型（お宝をほぼ全部取る）", "move": True, "fetch_radius": 999, "treasure_bonus": 3.0, "coin_weight": 0.5,
                "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 30,
                "prestige": [["煙幕ダッシュ", "煙幕"], ["お宝"], ["連打のお金"]]},
+    # 建築大好き（ユーザーの指定）：壁や罠を優先して買い、鬼を足止めして稼ぐ。囲わない型は使わない。転生は壁登り・壁の硬さ・時間コイン
+    "builder": {"ja": "建築大好き（壁と罠で足止め）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
+                "templates": ["door_far", "double", "decoy_far"], "travel_treasure": 6, "build": True,
+                "prestige": [["よじ登る", "登"], ["硬さ"], ["時間のお金"]]},
 }
 
 
@@ -462,7 +467,8 @@ class Agent:
             yield Wait(1.5)
 
     def want_tiers(self, stage):
-        return 1 if stage <= 2 else 2 if stage <= 7 else 3
+        base = 1 if stage <= 2 else 2 if stage <= 7 else 3
+        return base + 1 if self.P.get("build") else base  # 建築大好きは 1 段高く積む
 
     def pick_prestige_item(self, items, points):
         """転生のお店：性格ごとの優先度（左が先）で、今のポイントで買える一番左の物。優先度の物が全部最大なら学んだ良さで"""
@@ -514,6 +520,10 @@ class Agent:
             p += 0.3
         if "freeze_item" in roles:
             p += 0.2
+        if self.P.get("build"):
+            # 建築大好き：壁・壁の補強・足止めの罠を優先して買う
+            if roles & {"blocker", "toughen", "stun", "lure", "one_way", "decoy_runner", "darkness"}:
+                p += 0.8
         return p
 
     def pick_item(self, items, budget, special):
@@ -622,7 +632,7 @@ class Agent:
         for slot in reader.read_build_slots(self.obs):
             if self.slot_role(slot) == "wall" or slot["stock"] <= 0:
                 continue
-            for _ in range(min(slot["stock"], 3)):
+            for _ in range(min(slot["stock"], 8 if self.P.get("build") else 3)):
                 w = self.current_world()
                 cell = self.item_cell(w, slot, plan, gates)
                 if not cell:
@@ -1049,17 +1059,27 @@ class Agent:
         limit = R["limit"] or 30
         tl = R["time_left"] or limit
         tphase = 0 if tl > limit * 0.66 else 1 if tl > limit * 0.33 else 2
-        # 床の輪：連打したら輪が鬼（見えた鬼・足音の見当）に届くか。0＝まだ分からない・鬼の見当が無い / 1＝届かない / 2＝届く
-        oni_pts = list(threat_points) + [(x, y) for (t, x, y) in getattr(self, "_recent_oni_pos", []) if o.t - t <= 2.0]
-        oni_d = min((math.dist(me, p) for p in oni_pts), default=99.0)
+        # 床の輪：連打したら輪が鬼に届くか。人と同じくらいの見積もりにする（ユーザーの希望）：
+        #   見えている鬼だけ、輪の大きさを目分量（±15%）でくらべる。壁の向こうの鬼（足音・さっき見た所の見当）は、
+        #   輪が壁を越えてどこまで届くか人には分かりにくいので「分からない」（H3）にして、どうするかは経験（Q 学習）で覚える
+        #   0＝まだ分からない・鬼の見当が無い / 1＝届かない / 2＝届く（見えている鬼） / 3＝壁の向こうで届くかもしれない
+        vis = [(e["x"], e["y"]) for e in o.see_onis if e["cue"] not in ("frozen", "petting", "stuck")]
+        hidden = list(threat_points[len(vis):]) + [(x, y) for (t, x, y) in getattr(self, "_recent_oni_pos", []) if 0.15 < o.t - t <= 2.0]
+        vis_d = min((math.dist(me, p) for p in vis), default=99.0)
+        hidden_d = min((math.dist(me, p) for p in hidden), default=99.0)
+        oni_d = min(vis_d, hidden_d)
         reach = self.ring_reach_cells("mash", me)
-        ring_h = 0 if reach is None or oni_d >= 99.0 else 2 if oni_d <= reach else 1
+        if reach is None or oni_d >= 99.0:
+            ring_h = 0
+        else:
+            seen_reach = reach * (1.0 + self.rng.gauss(0.0, 0.15))  # 目分量
+            ring_h = 2 if vis_d <= seen_reach else 3 if hidden_d <= reach * 1.5 else 1
         s = f"T{threat}C{1 if chased else 0}B{at_base}E{enc}R{1 if target else 0}S{smoke}P{tphase}H{ring_h}"
         remaining = (st["treasure_total"] or 0) - (st["treasure_got"] or 0)
         explore_ok = self.P["move"] and self.P["fetch_radius"] > 0 and not target and threat <= 1 and not chased and remaining > 0
         info = {"me": me, "mec": mec, "threat": threat, "threat_d": threat_d, "threat_pos": threat_pos, "chased": chased,
                 "at_base": at_base, "target": target, "smoke": smoke, "daruma": st["daruma"], "explore_ok": explore_ok,
-                "ring_h": ring_h, "oni_d": oni_d, "steps_near": steps_near, "steps_d": min(steps_d, threat_d if steps_near else 99.0), "threat_points": threat_points}
+                "ring_h": ring_h, "oni_d": oni_d, "vis_d": vis_d, "steps_near": steps_near, "steps_d": min(steps_d, threat_d if steps_near else 99.0), "threat_points": threat_points}
         return s, info
 
     @staticmethod
@@ -1264,7 +1284,8 @@ class Agent:
         reach = self.ring_reach_cells("walk", info["me"]) if mr and self.brain.ring_reveals(mr[0]) else None
         if reach is None:
             return info["threat"] >= 1
-        sneak = info.get("oni_d", 99.0) <= reach or info["chased"]
+        # 輪で決めるのは見えている鬼だけ（目分量）。壁の向こうの鬼は届くか分からないので、近ければ用心する（前のきまり）
+        sneak = info.get("vis_d", 99.0) <= reach * (1.0 + self.rng.gauss(0.0, 0.15)) or info["chased"] or info["threat"] >= 2
         if self.round is not None and sneak != (info["threat"] >= 1):
             k = "ring_sneak" if sneak else "ring_walk"  # 輪で判断して、前のきまりと違う歩き方にした回数
             self.round[k] = self.round.get(k, 0) + 1

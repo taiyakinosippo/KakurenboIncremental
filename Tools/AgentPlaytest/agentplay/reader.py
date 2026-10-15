@@ -201,19 +201,25 @@ def read_shop_items(obs):
         lm = re.search(r"Lv\.?\s*(\d+)", rest_head)
         if lm:
             level = int(lm.group(1))
-        sm = re.search(r"在庫\s*(\d+)", rest_head)
+        # 在庫（置く物）・持っている数（使う物。だるまさんがころんだなど）
+        sm = re.search(r"(?:在庫|持っている)\s*(\d+)", rest_head)
         if sm:
             stock = int(sm.group(1))
-        name = re.split(r"\s{2,}|\s+Lv\.|\s+在庫", rest_head)[0].strip()
+        name = re.split(r"\s{2,}|\s+Lv\.|\s+在庫|\s+持っている", rest_head)[0].strip()
         cost = None
         currency = None
         available = True
         desc_parts = []
         for p in parts[1:]:
+            # 値段は「15 コイン」（数が先）と「宝石 3」（宝石のお店。単位が先）の両方がある
             cm = re.match(r"^(?:×\d+\s+)?" + _NUMTOKEN + r"\s*(コイン|宝石|pt|ポイント)$", p)
+            cm2 = re.match(r"^(?:×\d+\s+)?(コイン|宝石|pt|ポイント)\s*" + _NUMTOKEN + r"$", p)
             if cm and cost is None:
                 cost = parse_number(cm.group(1))
                 currency = cm.group(2)
+            elif cm2 and cost is None:
+                cost = parse_number(cm2.group(2))
+                currency = cm2.group(1)
             elif "まだ買えない" in p or "最大" == p or "売り切れ" in p:
                 available = False
             else:

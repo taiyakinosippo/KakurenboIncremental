@@ -4,7 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1                   # 3 つの性格を同時に 8 時間（既定）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Hours 2          # 2 時間
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Until 07:30      # その時刻まで
-#   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy をカンマで）
+#   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy / builder をカンマで）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Fresh            # セーブと学習を消して、はじめから
 #   -Speed 2（ゲームの時間の速さ。既定 2。1 なら人と同じ）・-Watch（ウィンドウを大きく）・-Sound（音を出す）・-Open（終わったら報告書を開く）
 #   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
@@ -21,7 +21,7 @@
 param(
     [double]$Hours = 8,
     [string]$Until = "",
-    [string]$Personas = "stay,near,greedy",
+    [string]$Personas = "stay,near,greedy,builder",
     [double]$Speed = 2,
     [switch]$Fresh,
     [switch]$Watch,
@@ -185,6 +185,14 @@ function Get-LogErrors([string]$Path) {
     return ($Lines -join " / ")
 }
 
+# バランスを推論する AI（analyze.py）：記録を全部読み、新しいファイル analysis/balance_<日時>.md・.html を作る（1 時間ごとと 8 時間の終わり）
+function Make-Analysis {
+    try {
+        $Out = & $Python (Join-Path $AgentDir "analyze.py") $OutRoot 2>&1
+        Say "バランスの推論を作りました：$Out"
+    } catch { Say "バランスの推論を作れませんでした：$_" "Yellow" }
+}
+
 function Make-Report {
     try {
         $Out = & $Python (Join-Path $AgentDir "make_report.py") $RunDir $ReportName $ReportLabel 2>&1
@@ -214,6 +222,11 @@ function Publish-Report {
         # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（GitHub のファイルの名前は同じまま上書き）
         $Files = @(@{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/report.html" })
         foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$P.md" } }
+        # バランスの推論：最新は balance.md・balance.html、作ったものは全部 analysis/ に残す（新しく作るたびに足していく）
+        $AnalysisDir = Join-Path $OutRoot "analysis"
+        $Files += @{ Src = (Join-Path $AnalysisDir "latest.md"); Dst = "$Pc/balance.md" }
+        $Files += @{ Src = (Join-Path $AnalysisDir "latest.html"); Dst = "$Pc/balance.html" }
+        foreach ($F in @(Get-ChildItem (Join-Path $AnalysisDir "balance_*.md") -ErrorAction SilentlyContinue)) { $Files += @{ Src = $F.FullName; Dst = "$Pc/analysis/$($F.Name)" } }
         foreach ($F in $Files) {
             if (Test-Path $F.Src) {
                 $Hash = (git hash-object -w $F.Src 2>$null).Trim()
@@ -272,6 +285,7 @@ function Run-Block {
         Start-Sleep -Seconds 4
     }
     $NextReport = (Get-Date).AddMinutes(15)
+    $NextAnalysis = (Get-Date).AddMinutes(60)
     while ($true) {
         Start-Sleep -Seconds 5
         foreach ($P in $PersonaList) { Set-LowPriority $P }
@@ -306,6 +320,10 @@ function Run-Block {
             }
         }
         if ($AllDone) { break }
+        if ((Get-Date) -ge $NextAnalysis) {
+            Make-Analysis
+            $NextAnalysis = (Get-Date).AddMinutes(60)
+        }
         if ((Get-Date) -ge $NextReport) {
             Make-Report
             $NextReport = (Get-Date).AddMinutes(15)
@@ -329,6 +347,7 @@ try {
         $Reported = $false
         Run-Block
         foreach ($P in $PersonaList) { Stop-Pair $P }
+        Make-Analysis
         Make-Report
         $Reported = $true
         Say "$Block 周目が終わりました。報告書：$(Join-Path $RunDir "$ReportName.html")" "Cyan"

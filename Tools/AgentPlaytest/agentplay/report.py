@@ -13,8 +13,9 @@ import os
 import time
 from collections import Counter, defaultdict
 
-PERSONA_JA = {"stay": "慎重型（その場から動かない）", "near": "慎重型（近くのお宝だけ取る）", "greedy": "強欲型（お宝をほぼ全部取る）"}
-PERSONA_ORDER = ["stay", "near", "greedy"]
+PERSONA_JA = {"stay": "慎重型（その場から動かない）", "near": "慎重型（近くのお宝だけ取る）", "greedy": "強欲型（お宝をほぼ全部取る）",
+              "builder": "建築大好き（壁と罠で足止め）"}
+PERSONA_ORDER = ["stay", "near", "greedy", "builder"]
 ONI_TYPE_JA = {"Balanced": "標準鬼", "Scout": "スピード鬼", "Breaker": "パワー鬼", "Careful": "慎重鬼", "Treasure": "宝物鬼", "Detector": "探知鬼"}
 STATE_JA = {"Wander": "うろうろ", "Investigate": "音を調べに来た", "Chase": "追いかけ", "Inspect": "囲いを調べに来た", "Attack": "壁を壊していた", "Stunned": "動けない"}
 FEATURE_JA = {
@@ -510,7 +511,8 @@ def persona_markdown(pd):
             m, q = choice.get(f"H{h}:MASH", 0), choice.get(f"H{h}:QUIET", 0)
             return f"連打 {pct(m, m + q)}（{m + q} 回の判断）"
         L.append("")
-        L.append(f"- 連打の輪が鬼に届くとき：{share(2)}／届かないとき：{share(1)}（届くときに連打が減っていれば、ばれるかどうかを学んでいる）")
+        L.append(f"- 連打の輪が見えている鬼に届くとき：{share(2)}／壁の向こうの鬼に届くかもしれないとき（人にも分かりにくいので、AI も分からないものとして経験で覚える）：{share(3)}／"
+                 f"届かないとき：{share(1)}（届くときに連打が減っていれば、ばれるかどうかを学んでいる）")
         L.append(f"- 輪で歩き方を決めた回数：鬼が近くはないが歩く輪が届くのでしのび足 {sum(r.get('ring_sneak', 0) for r in pd.rounds)}・"
                  f"鬼の気配はあるが輪が届かないので速く歩いた {sum(r.get('ring_walk', 0) for r in pd.rounds)}")
         L.append("")
@@ -729,10 +731,10 @@ def _inline(s):
 
 CSS = """
 :root{--bg:#f7f6f3;--panel:#ffffff;--ink:#1f1d1a;--muted:#6b665e;--line:#e3dfd7;--accent:#7a4bc9;
---s1:#2f6fb5;--s2:#c0682b;--s3:#3c9a5f;--gridc:#e9e5dd}
+--s1:#2f6fb5;--s2:#c0682b;--s3:#3c9a5f;--s4:#a8457a;--gridc:#e9e5dd}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#17161a;--panel:#211f25;--ink:#ece9e4;--muted:#a39d94;--line:#36323b;
---accent:#b393f0;--s1:#6ea8e8;--s2:#e8955a;--s3:#6cc78f;--gridc:#2e2b33}}
-:root[data-theme="dark"]{--bg:#17161a;--panel:#211f25;--ink:#ece9e4;--muted:#a39d94;--line:#36323b;--accent:#b393f0;--s1:#6ea8e8;--s2:#e8955a;--s3:#6cc78f;--gridc:#2e2b33}
+--accent:#b393f0;--s1:#6ea8e8;--s2:#e8955a;--s3:#6cc78f;--s4:#e07fb3;--gridc:#2e2b33}}
+:root[data-theme="dark"]{--bg:#17161a;--panel:#211f25;--ink:#ece9e4;--muted:#a39d94;--line:#36323b;--accent:#b393f0;--s1:#6ea8e8;--s2:#e8955a;--s3:#6cc78f;--s4:#e07fb3;--gridc:#2e2b33}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI",sans-serif}
 main{max-width:1080px;margin:0 auto;padding:24px 16px 64px}
 h1{font-size:26px;margin:8px 0 12px}h2{font-size:21px;margin:40px 0 8px;padding-top:12px;border-top:1px solid var(--line)}h3{font-size:16px;margin:24px 0 6px;color:var(--accent)}
@@ -747,7 +749,7 @@ li.sub{margin-left:18px;list-style:circle;color:var(--muted)}
 
 
 def build_html(datas, run_dir, md_all):
-    colors = {"stay": "--s1", "near": "--s2", "greedy": "--s3"}
+    colors = {"stay": "--s1", "near": "--s2", "greedy": "--s3", "builder": "--s4"}
     stage_series = []
     score_series = []
     for d in datas:
