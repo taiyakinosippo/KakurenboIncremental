@@ -575,8 +575,8 @@ def bug_markdown(pd):
     return "\n".join(L)
 
 
-def overview_markdown(datas, run_dir):
-    L = ["# テストプレイ AI の報告（かせぐんぼ）", ""]
+def overview_markdown(datas, run_dir, label=""):
+    L = ["# テストプレイ AI の報告（かせぐんぼ）" + (f"　{label}" if label else ""), ""]
     meta = read_json(os.path.join(run_dir, "run.json"), {}) or {}
     started = meta.get("started")
     L.append(f"記録のフォルダ：`{run_dir}`")
@@ -773,18 +773,20 @@ def build_html(datas, run_dir, md_all):
             f"<title>テストプレイ AI 報告</title><style>{CSS}</style></head><body><main>{body}</main></body></html>")
 
 
-def generate(run_dir, personas=None):
+def generate(run_dir, personas=None, name="report", label=""):
+    """報告書を <run_dir>/<name>.md・<name>.html（性格ごとは <性格>/<name>.md）に書く。
+    name は 8 時間の 1 周目が report、続けて遊んだ 2 周目からは report_2周目 など。label は見出しに足す文"""
     personas = personas or [p for p in PERSONA_ORDER if os.path.isdir(os.path.join(run_dir, p))]
     datas = [PersonaData(run_dir, p) for p in personas]
-    parts = [overview_markdown(datas, run_dir)]
+    parts = [overview_markdown(datas, run_dir, label)]
     for d in datas:
         md = persona_markdown(d)
-        with open(os.path.join(run_dir, d.persona, "report.md"), "w", encoding="utf-8") as f:
+        with open(os.path.join(run_dir, d.persona, name + ".md"), "w", encoding="utf-8") as f:
             f.write(md + "\n")
         parts.append(md)
     md_all = "\n\n".join(parts) + "\n"
-    with open(os.path.join(run_dir, "report.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(run_dir, name + ".md"), "w", encoding="utf-8") as f:
         f.write(md_all)
-    with open(os.path.join(run_dir, "report.html"), "w", encoding="utf-8") as f:
+    with open(os.path.join(run_dir, name + ".html"), "w", encoding="utf-8") as f:
         f.write(build_html(datas, run_dir, md_all))
-    return os.path.join(run_dir, "report.html")
+    return os.path.join(run_dir, name + ".html")

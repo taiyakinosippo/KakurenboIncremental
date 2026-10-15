@@ -10,7 +10,9 @@
 #   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
 #   -Full で軽くしない（-MaxFPS 30 で上限を変える）
 #   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md を更新するので、外出先でも GitHub で見られる）
-#   記録は前回の続きに書き足し、報告書も同じ物を更新する。-NewRun で新しい記録のフォルダ（-Fresh も新しくなる）
+#   記録は始めた日時のフォルダ（KakurenboIncremental/Saved/AgentPlaytest/<日時>/）。学習とゲームのセーブは前回の続き。-Continue で前回のフォルダに書き足す
+#   8 時間が終わって 5 分キーボード・マウスにさわらなければ、同じデータ（学習・セーブ・記録のフォルダ）のまま、もう 8 時間続ける（何回でも）。
+#   報告書は 1 周目が report.html・report.md、2 周目からは report_2周目.html のように周の番号を付けて足す。-NoRepeat で 1 回で終わる・-IdleMinutes 10 で待つ時間を変える
 #
 # ダブルクリックで動かすときは Tools\AgentPlaytest.bat（8 時間・3 つの性格）。
 # 記録と報告書：KakurenboIncremental/Saved/AgentPlaytest/<始めた日時>/report.html（と report.md）。15 分ごとと最後に作り直す。
@@ -27,6 +29,9 @@ param(
     [switch]$Open,
     [switch]$NoPublish,
     [switch]$NewRun,
+    [switch]$Continue,
+    [switch]$NoRepeat,
+    [double]$IdleMinutes = 5,
     [switch]$Full,
     [int]$MaxFPS = 0,
     [int]$BasePort = 7701
@@ -89,9 +94,9 @@ if ($Fresh) {
         Remove-Item (Join-Path $OutRoot "brains\brain_$p.json") -Force -ErrorAction SilentlyContinue
     }
 }
-# 記録は前回の続きに書き足す（報告書も同じ物を更新する）。-Fresh・-NewRun のときだけ新しい記録のフォルダ
+# 記録は始めた日時のフォルダに書く（ユーザーの希望）。-Continue のときだけ前回のフォルダに書き足す
 $Latest = Get-ChildItem $OutRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{8}-\d{4}$' } | Sort-Object Name | Select-Object -Last 1
-if ($Latest -and -not $Fresh -and -not $NewRun) {
+if ($Latest -and $Continue -and -not $Fresh -and -not $NewRun) {
     $RunDir = $Latest.FullName
 } else {
     $RunDir = Join-Path $OutRoot (Get-Date -Format "yyyyMMdd-HHmm")
@@ -182,8 +187,8 @@ function Get-LogErrors([string]$Path) {
 
 function Make-Report {
     try {
-        $Out = & $Python (Join-Path $AgentDir "make_report.py") $RunDir 2>&1
-        Say "報告書を更新：$(Join-Path $RunDir 'report.html')"
+        $Out = & $Python (Join-Path $AgentDir "make_report.py") $RunDir $ReportName $ReportLabel 2>&1
+        Say "報告書を更新：$(Join-Path $RunDir "$ReportName.html")"
     } catch { Say "報告書を作れませんでした：$_" "Yellow" }
     if (-not $NoPublish) { Publish-Report }
 }
@@ -206,8 +211,9 @@ function Publish-Report {
         $RunName = Split-Path $RunDir -Leaf
         $Pc = ($env:COMPUTERNAME -replace '[^A-Za-z0-9_.-]', '_')
         git rm -r -q --cached --ignore-unmatch "$Pc" 2>$null | Out-Null
-        $Files = @(@{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "report.html"); Dst = "$Pc/report.html" })
-        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\report.md"); Dst = "$Pc/$P.md" } }
+        # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（GitHub のファイルの名前は同じまま上書き）
+        $Files = @(@{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/report.html" })
+        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$P.md" } }
         foreach ($F in $Files) {
             if (Test-Path $F.Src) {
                 $Hash = (git hash-object -w $F.Src 2>$null).Trim()
@@ -236,16 +242,36 @@ $EsSystem = [uint32]1              # ES_SYSTEM_REQUIRED
 [KakuAgent.Power]::SetThreadExecutionState($EsContinuous -bor $EsSystem) | Out-Null
 Say "遊んでいる間はスリープしないようにしました（終わったら元に戻ります）"
 
-# ---------------------------------------------------------------- 見張る（落ちた・固まったら起動し直す）
-$i = 0
-foreach ($P in $PersonaList) {
-    $State[$P] = @{ Launch = 0; Index = $i; Done = $false }
-    Start-Pair $P $i
-    $i++
-    Start-Sleep -Seconds 4
+# ---------------------------------------------------------------- 最後にキーボード・マウスにさわってからの時間（続けて遊ぶか決める）
+Add-Type -Namespace KakuAgent -Name Idle -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+[DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+public static uint IdleMs() { LASTINPUTINFO i = new LASTINPUTINFO(); i.cbSize = (uint)Marshal.SizeOf(i); GetLastInputInfo(ref i); return unchecked((uint)Environment.TickCount - i.dwTime); }
+'@
+
+# 8 時間が終わった後、$IdleMinutes 分のあいだキーボード・マウスにさわらなければ $true（続けて遊ぶ）。さわったら $false（終わる）
+function Wait-Idle {
+    $End = Get-Date
+    Say "$IdleMinutes 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう $([math]::Round($BlockSpan.TotalHours, 2)) 時間遊びます（さわると終わります）" "Cyan"
+    while (((Get-Date) - $End).TotalMinutes -lt $IdleMinutes) {
+        Start-Sleep -Seconds 2
+        $Since = ((Get-Date) - $End).TotalMilliseconds
+        if ([KakuAgent.Idle]::IdleMs() -lt $Since - 1500) { return $false } # 終わった後にさわった
+    }
+    return $true
 }
-$NextReport = (Get-Date).AddMinutes(15)
-try {
+
+# ---------------------------------------------------------------- 見張る（落ちた・固まったら起動し直す）。1 周（8 時間）ぶん
+function Run-Block {
+    $i = 0
+    foreach ($P in $PersonaList) {
+        if (-not $State.ContainsKey($P)) { $State[$P] = @{ Launch = 0; Index = $i } }
+        $State[$P].Done = $false
+        Start-Pair $P $i
+        $i++
+        Start-Sleep -Seconds 4
+    }
+    $NextReport = (Get-Date).AddMinutes(15)
     while ($true) {
         Start-Sleep -Seconds 5
         foreach ($P in $PersonaList) { Set-LowPriority $P }
@@ -291,10 +317,34 @@ try {
         }
     }
 }
+
+# 1 周目の報告書は report.html、続けて遊んだ 2 周目からは report_2周目.html（同じフォルダに足す。中身はフォルダの最初からの記録）
+$Block = 1
+$ReportName = "report"
+$ReportLabel = ""
+$BlockSpan = $Deadline - (Get-Date)
+$Reported = $false
+try {
+    while ($true) {
+        $Reported = $false
+        Run-Block
+        foreach ($P in $PersonaList) { Stop-Pair $P }
+        Make-Report
+        $Reported = $true
+        Say "$Block 周目が終わりました。報告書：$(Join-Path $RunDir "$ReportName.html")" "Cyan"
+        if ($NoRepeat -or -not (Wait-Idle)) { break }
+        $Block++
+        $ReportName = "report_${Block}周目"
+        $ReportLabel = "（続けて遊んだ $Block 周目：$(Get-Date -Format 'MM/dd HH:mm') から）"
+        $Deadline = (Get-Date) + $BlockSpan
+        $DeadlineUnix = [DateTimeOffset]::new($Deadline).ToUnixTimeSeconds()
+        Say "さわらなかったので、同じデータのまま $Block 周目を始めます（$($Deadline.ToString('MM/dd HH:mm')) まで・報告書は $ReportName.html）" "Cyan"
+    }
+}
 finally {
     foreach ($P in $PersonaList) { Stop-Pair $P }
-    Make-Report
+    if (-not $Reported) { Make-Report }
     [KakuAgent.Power]::SetThreadExecutionState($EsContinuous) | Out-Null # スリープしてよい状態に戻す
-    Say "おわり。報告書：$(Join-Path $RunDir 'report.html')（Markdown は report.md）" "Cyan"
-    if ($Open) { Start-Process (Join-Path $RunDir "report.html") }
+    Say "おわり。報告書：$(Join-Path $RunDir "$ReportName.html")（Markdown は $ReportName.md）" "Cyan"
+    if ($Open) { Start-Process (Join-Path $RunDir "$ReportName.html") }
 }

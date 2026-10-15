@@ -10,6 +10,8 @@ Tools\AgentPlaytest.bat
 ```
 
 - ダブルクリックで、3 つの性格を同時に **8 時間**遊ばせ、終わったら報告書をブラウザで開く
+- **8 時間が終わって 5 分キーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊ぶ**（何回でも。さわると終わって報告書を開く）。
+  学習・ゲームのセーブ・記録のフォルダはそのまま続き。`-NoRepeat` で 1 回で終わる・`-IdleMinutes 10` で待つ時間を変える
 - 時間などを変えるとき（PowerShell）：
   - `powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Hours 2`（2 時間）・`-Until 07:30`（その時刻まで）
   - `-Personas near`（1 つだけ。`stay` / 
@@ -30,11 +32,12 @@ ear` / `greedy` をカンマで）
 
 ### 記録と報告書
 
-`KakurenboIncremental/Saved/AgentPlaytest/<始めた日時>/`
+`KakurenboIncremental/Saved/AgentPlaytest/<始めた日時>/`（起動するたびに新しいフォルダ。学習とゲームのセーブは前回の続き。`-Continue` で前回のフォルダに書き足す）
 
 | ファイル | 中身 |
 |---|---|
 | `report.html` | 報告書（グラフ付き。15 分ごとと最後に作り直す） |
+| `report_2周目.html`・`report_2周目.md`… | 続けて遊んだ 2 周目からの報告書（周の番号付き。中身はフォルダの最初からの記録。1 周目の report.html はそのまま残る） |
 | `report.md` | 同じ内容の Markdown |
 | `<性格>/report.md` | 性格ごとの報告 |
 | `<性格>/rounds.jsonl` | 1 ラウンド 1 行（ステージ・館・鬼・逃げ切ったか・隠れた秒数・拠点・囲い方・行動の回数・見つけた鬼…） |
@@ -51,7 +54,7 @@ ear` / `greedy` をカンマで）
 
 - **報告書**：起動スクリプトが 15 分ごとと最後に、GitHub のブランチ `agent-reports` へ送る（Claude は使わない）。
   **PC の名前のフォルダの同じファイルを上書きする**（新しく作らない。前の版は Git の履歴に残る）：https://github.com/taiyakinosippo/KakurenboIncremental/tree/agent-reports/KIC-GAME-A-25 （このパソコン。フォルダを開くと `README.md`＝報告書がそのまま出る。スマホの GitHub アプリでも表のまま読める。`<性格>.md` に性格ごとの報告、`report.html` はグラフ付き）。ほかの PC で動かしても混ざらない。
-- **記録は前回の続き**に書き足し、報告書も同じ物を更新する（遊んだ時間も続きから数え、止めていた間は数えない）。新しく始めるのは `-Fresh`・`-NewRun` のときだけ
+- 記録は**始めた日時のフォルダ**に書く（`-Continue` で前回のフォルダの続き）。GitHub の報告書は今の周の物で同じファイルを上書きする
   手元の main・作業中のファイルには触れない（一時的なインデックスでコミットを作り、そのブランチへ push するだけ。ほかのパソコンの pull・自動ビルドにも影響しない）
 - **Claude とのチャット**：Claude Code のセッションの「Remote Control」をオンにすると、claude.ai/code やスマホのアプリから続きを見て指示できる
 
