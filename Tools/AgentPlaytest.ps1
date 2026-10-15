@@ -8,7 +8,8 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Fresh            # セーブと学習を消して、はじめから
 #   -Speed 2（ゲームの時間の速さ。既定 2。1 なら人と同じ）・-Watch（ウィンドウを大きく）・-Sound（音を出す）・-Open（終わったら報告書を開く）
 #   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
-#   -Full で軽くしない（-MaxFPS 30 で上限を変える）
+#   -Full で軽くしない（-MaxFPS 40 で上限を変える。既定 30。5 つ同時で PC 全体の CPU が 7 割くらい）
+#   Claude のセッションから起動するときは explorer.exe 経由で（Claude のアプリが更新・再起動すると、アプリから起動したゲームと AI も一緒に止まるため）
 #   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md を更新するので、外出先でも GitHub で見られる）
 #   記録は始めた日時のフォルダ（KakurenboIncremental/Saved/AgentPlaytest/<日時>/）。学習とゲームのセーブは前回の続き。-Continue で前回のフォルダに書き足す
 #   8 時間が終わって 5 分キーボード・マウスにさわらなければ、同じデータ（学習・セーブ・記録のフォルダ）のまま、もう 8 時間続ける（何回でも）。
@@ -33,7 +34,7 @@ param(
     [switch]$NoRepeat,
     [double]$IdleMinutes = 5,
     [switch]$Full,
-    [int]$MaxFPS = 0,
+    [int]$MaxFPS = 30,
     [int]$BasePort = 7701
 )
 
