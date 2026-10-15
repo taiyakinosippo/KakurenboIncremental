@@ -217,7 +217,8 @@ function Publish-Report {
         # PC ごとのフォルダ（PC の名前）の同じファイルを上書きする（新しく作らない。前の版は Git の履歴に残る）：
         #   <PC の名前>/README.md（報告書。GitHub でフォルダを開くとそのまま出る）・report.html・<性格>.md
         $RunName = Split-Path $RunDir -Leaf
-        $Pc = ($env:COMPUTERNAME -replace '[^A-Za-z0-9_.-]', '_')
+        # PC の名前は日本語でもそのまま（GitHub のフォルダ名に使えない記号と空白だけ _ にする。前は英数字以外を全部 _ にしていて、日本語の名前が _______ になった）
+        $Pc = ($env:COMPUTERNAME -replace '[\\/:*?"<>|\s]', '_')
         git rm -r -q --cached --ignore-unmatch "$Pc" 2>$null | Out-Null
         # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（GitHub のファイルの名前は同じまま上書き）
         $Files = @(@{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/report.html" })
