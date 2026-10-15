@@ -178,13 +178,15 @@ enum class EKakurenboSfx : uint8
 	Count         UMETA(Hidden)
 };
 
-/** BGM の曲（プログラムで作る。KakurenboSynth） */
+/** BGM の曲（Data/Sounds/Music_<名前>.wav があればそれ。無ければプログラムで作る。KakurenboSynth） */
 UENUM(BlueprintType)
 enum class EKakurenboMusic : uint8
 {
 	None UMETA(DisplayName = "None"),
-	Calm UMETA(DisplayName = "Calm"), // 購入・設置・リザルト：夜の館のおもちゃ箱のような、のんびりした曲
-	Hide UMETA(DisplayName = "Hide"), // かくれんぼ：速くて少し怖い曲
+	Calm UMETA(DisplayName = "Calm"),   // 購入・設置・リザルト：夜の館のおもちゃ箱のような、のんびりした曲
+	Hide UMETA(DisplayName = "Hide"),   // かくれんぼ：速くて少し怖い曲
+	Title UMETA(DisplayName = "Title"), // タイトル：少し不気味な夜の館への招待（プログラムの曲は Calm と同じ）
+	Chase UMETA(DisplayName = "Chase"), // かくれんぼ中に鬼に追われている間：どたばた（プログラムの曲は Hide と同じ）
 };
 
 /** 購入パートの商品 1 つ分の表示用データ */

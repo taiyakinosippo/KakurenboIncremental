@@ -569,9 +569,11 @@ namespace KakurenboSynth
 		OutLoopSeconds = 0.f;
 		switch (Music)
 		{
-		case EKakurenboMusic::Calm: return CalmRecipe(OutLoopSeconds);
-		case EKakurenboMusic::Hide: return HideRecipe(OutLoopSeconds);
-		default:                    return {};
+		case EKakurenboMusic::Calm:
+		case EKakurenboMusic::Title: return CalmRecipe(OutLoopSeconds); // タイトル・追われている間の曲はプログラムでは作らない（WAV が無いときの代わり）
+		case EKakurenboMusic::Hide:
+		case EKakurenboMusic::Chase: return HideRecipe(OutLoopSeconds);
+		default:                     return {};
 		}
 	}
 

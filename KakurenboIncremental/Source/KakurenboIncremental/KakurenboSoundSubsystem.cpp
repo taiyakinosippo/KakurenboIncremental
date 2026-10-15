@@ -4,8 +4,11 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Audio.h"
+#include "KakurenboBalance.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboSynth.h"
+#include "Misc/FileHelper.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundAttenuation.h"
 #include "Sound/SoundWaveProcedural.h"
@@ -178,24 +181,33 @@ void UKakurenboSoundSubsystem::PlayMusic(EKakurenboMusic Music)
 		}
 	}
 
-	// 1 周ぶんの波形は最初に一度だけ作る
-	TArray<int16>* Loop = MusicCache.Find(Music);
+	// 1 周ぶんの波形は最初に一度だけ読む（Data/Sounds の WAV。無ければプログラムで作る）
+	FMusicLoop* Loop = MusicCache.Find(Music);
 	if (!Loop)
 	{
-		Loop = &MusicCache.Add(Music, KakurenboSynth::RenderMusic(Music));
+		Loop = &MusicCache.Add(Music);
+		Loop->bFromFile = LoadMusicWav(Music, Loop->Samples, Loop->SampleRate, Loop->Channels);
+		if (!Loop->bFromFile)
+		{
+			Loop->Samples = KakurenboSynth::RenderMusic(Music);
+			Loop->SampleRate = KakurenboSynth::MusicSampleRate;
+			Loop->Channels = 1;
+		}
+		UE_LOG(LogTemp, Log, TEXT("BGM %s: %s (%.1f s)"), *UEnum::GetValueAsString(Music), Loop->bFromFile ? TEXT("Data/Sounds") : TEXT("synth"),
+			Loop->Samples.Num() / static_cast<float>(FMath::Max(Loop->SampleRate * Loop->Channels, 1)));
 	}
-	if (Loop->Num() == 0)
+	if (Loop->Samples.Num() == 0)
 	{
 		return;
 	}
 	USoundWaveProcedural* Wave = NewObject<USoundWaveProcedural>(this);
-	Wave->SetSampleRate(KakurenboSynth::MusicSampleRate);
-	Wave->NumChannels = 1;
+	Wave->SetSampleRate(Loop->SampleRate);
+	Wave->NumChannels = Loop->Channels;
 	Wave->Duration = INDEFINITELY_LOOPING_DURATION;
 	Wave->SoundGroup = SOUNDGROUP_Music;
 	Wave->bLooping = false;
-	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), Loop->Num() * sizeof(int16));
-	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), Loop->Num() * sizeof(int16));
+	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), Loop->Samples.Num() * sizeof(int16));
+	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), Loop->Samples.Num() * sizeof(int16));
 
 	// bPersistAcrossLevelTransition などは不要。2D（画面全体）で流し、1 秒かけて大きくする
 	UAudioComponent* Component = UGameplayStatics::SpawnSound2D(World, Wave, 1.f);
@@ -212,16 +224,46 @@ void UKakurenboSoundSubsystem::PlayMusic(EKakurenboMusic Music)
 
 void UKakurenboSoundSubsystem::RefillMusic()
 {
-	const TArray<int16>* Loop = MusicCache.Find(CurrentMusic);
-	if (!MusicWave || !Loop || Loop->Num() == 0)
+	const FMusicLoop* Loop = MusicCache.Find(CurrentMusic);
+	if (!MusicWave || !Loop || Loop->Samples.Num() == 0)
 	{
 		return;
 	}
-	const int32 LoopBytes = Loop->Num() * sizeof(int16);
+	const int32 LoopBytes = Loop->Samples.Num() * sizeof(int16);
 	if (MusicWave->GetAvailableAudioByteCount() < LoopBytes)
 	{
-		MusicWave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), LoopBytes);
+		MusicWave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), LoopBytes);
 	}
+}
+
+bool UKakurenboSoundSubsystem::IsMusicFromFile(EKakurenboMusic Music) const
+{
+	const FMusicLoop* Loop = MusicCache.Find(Music);
+	return Loop && Loop->bFromFile;
+}
+
+bool UKakurenboSoundSubsystem::LoadMusicWav(EKakurenboMusic Music, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels)
+{
+	// 曲の名前は enum の名前（EKakurenboMusic::Calm → Music_Calm.wav）
+	const FString Name = UEnum::GetValueAsName(Music).ToString().RightChop(FString(TEXT("EKakurenboMusic::")).Len());
+	const FString Path = KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/Music_%s.wav"), *Name));
+	TArray<uint8> Bytes;
+	if (Music == EKakurenboMusic::None || !FFileHelper::LoadFileToArray(Bytes, *Path, FILEREAD_Silent))
+	{
+		return false;
+	}
+	// FWaveModInfo: WAV の頭の情報（周波数・チャンネル数・ビット数）と波形の場所を読む UE の道具
+	FWaveModInfo Info;
+	if (!Info.ReadWaveInfo(Bytes.GetData(), Bytes.Num()) || *Info.pBitsPerSample != 16 || *Info.pChannels < 1 || *Info.pChannels > 2)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("BGM: %s is not a 16-bit mono/stereo WAV"), *Path);
+		return false;
+	}
+	OutSampleRate = static_cast<int32>(*Info.pSamplesPerSec);
+	OutChannels = *Info.pChannels;
+	OutSamples.SetNumUninitialized(Info.SampleDataSize / sizeof(int16));
+	FMemory::Memcpy(OutSamples.GetData(), Info.SampleDataStart, OutSamples.Num() * sizeof(int16));
+	return OutSamples.Num() > 0;
 }
 
 void UKakurenboSoundSubsystem::SetMusicVolume(float Volume)

@@ -223,6 +223,12 @@ Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれ�
 | MeshYaw | 向きを足す角度（度） |
 | LightIntensity | 明かりの強さ（松明。館に 64 個まで） |
 
+## Sounds/Music_*.wav（BGM）
+
+`Music_Title` / `Music_Calm` / `Music_Hide` / `Music_Chase`（名前は `EKakurenboMusic`）。16bit のモノラルかステレオの WAV で、
+最後から最初へそのままつながる（くり返せる）こと。起動後、その曲を初めて流すときに読む（無ければプログラムで作った曲）。
+BGM を作る AI の候補から作るときは `Tools/MusicGen/ExportForGame.py`（くり返せる形に切って、大きさをそろえる）。採用の記録は docs/Sounds.md。
+
 ## Surfaces.csv（見た目のテクスチャ）
 
 壁・床・宝石・プレイヤーの見た目。共通のマテリアル（/Game/Kakurenbo/Materials/M_KakuSurface。Git に入っている）に、

@@ -28,6 +28,7 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboArena.h"
+#include "KakurenboBalance.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "KakurenboLibrary.h"
@@ -3497,6 +3498,32 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const AOniCharacter* Oni = GM->GetOnis()[0];
 			Check(FString::Printf(TEXT("a walking oni stomps (%d step sounds in 2s, oni counted %d)"), Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps, Oni->GetStepSoundCount()),
 				Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps >= 4 && Oni->GetStepSoundCount() >= 4);
+			// Data/Sounds に WAV があれば、BGM はそちら（BGM を作る AI の曲）
+			const bool bHasWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/Music_Hide.wav")));
+			Check(FString::Printf(TEXT("the hide BGM comes from Data/Sounds when the WAV exists (wav=%d)"), bHasWav ? 1 : 0),
+				Sound()->IsMusicFromFile(EKakurenboMusic::Hide) == bHasWav);
+			// 鬼に見つけさせて追わせる（ゆっくり歩かせて、つかまらないように）
+			AOniCharacter* Chaser = GM->GetOnis()[0];
+			Chaser->SightRadius = 3000.f;
+			Chaser->SightHalfAngle = 180.f;
+			Chaser->ChaseMaxDuration = 60.f;
+			Chaser->WanderSpeed = Chaser->InvestigateSpeed = Chaser->ChaseSpeed = 1.f;
+			TeleportPlayer(Chaser->GetActorLocation() + FVector(600.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("being chased plays the chase BGM (intent=%s, music=%s)"), *UEnum::GetValueAsString(Oni->GetIntent()), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())),
+				Oni->GetIntent() == EOniState::Chase && Sound()->GetCurrentMusic() == EKakurenboMusic::Chase);
+			GM->GetOnis()[0]->Deactivate(); // 追われなくなる
+		} });
+		Steps.Add({ 2.f, [=, this] // ChaseMusicHoldSeconds（4 秒）の半分
+		{
+			Check(FString::Printf(TEXT("the chase BGM stays a while after the chase ends (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Chase);
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("then it goes back to the hide BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Hide);
 			KakuSkipTime(1000.f);
 		} });
 		Steps.Add({ 1.f, [=, this]
@@ -3770,7 +3797,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue), Center)
 				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Settings), Center));
 			Check(TEXT("without a save, continue is disabled"), !IsTitleItemEnabled(EKakurenboTitleItem::Continue) && !GM->HasContinueData());
-			Check(TEXT("the title plays the calm music and does not save"), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
+			Check(TEXT("the title plays the title music and does not save"), Sound()->GetCurrentMusic() == EKakurenboMusic::Title);
 			Shot(TEXT("title_01_title"));
 			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue));
 		} });

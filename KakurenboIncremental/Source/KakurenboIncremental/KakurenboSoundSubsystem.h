@@ -3,7 +3,8 @@
 //   2D: 画面全体で聞こえる（UI・連打・お宝・結果）
 //   3D: その場所から聞こえる（鬼・壁・罠。左右の聞こえ方と大きさで方向と距離がわかる）
 //       鬼の足音・お宝のキラキラは「手がかりの音」として、近いほどはっきり大きく、遠いと聞こえない距離の減り方にする
-// BGM もプログラムで作った曲をくり返し流す（PlayMusic）。
+// BGM は Data/Sounds/Music_<曲>.wav（BGM を作る AI の曲。Tools/MusicGen/ExportForGame.py がくり返せる形にしたもの）があればそれを、
+// 無ければプログラムで作った曲をくり返し流す（PlayMusic）。
 
 #pragma once
 
@@ -65,6 +66,12 @@ public:
 	/** 今流している BGM（-NoSound で音が出ないときも、流すはずの曲を返す） */
 	EKakurenboMusic GetCurrentMusic() const { return CurrentMusic; }
 
+	/** その曲を Data/Sounds の WAV から読んだか（テスト用。一度 PlayMusic した曲だけわかる） */
+	bool IsMusicFromFile(EKakurenboMusic Music) const;
+
+	/** Data/Sounds/Music_<曲>.wav（16bit の WAV）を読む。無い・読めなければ false */
+	static bool LoadMusicWav(EKakurenboMusic Music, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels);
+
 	/** BGM の音量（0〜1。効果音の MasterVolume も掛かる）。コンソールの KakuMusicVolume で変えられる */
 	float MusicVolume = 0.45f;
 	void SetMusicVolume(float Volume);
@@ -102,8 +109,17 @@ private:
 	TObjectPtr<USoundWaveProcedural> MusicWave;
 
 	EKakurenboMusic CurrentMusic = EKakurenboMusic::None;
-	/** 曲ごとの 1 周ぶんの波形（一度作ったら使い回す） */
-	TMap<EKakurenboMusic, TArray<int16>> MusicCache;
+
+	/** 曲の 1 周ぶんの波形（16bit。2ch なら左右が交互に並ぶ） */
+	struct FMusicLoop
+	{
+		TArray<int16> Samples;
+		int32 SampleRate = 0;
+		int32 Channels = 1;
+		bool bFromFile = false;
+	};
+	/** 曲ごとの 1 周ぶんの波形（一度読んだ・作ったら使い回す） */
+	TMap<EKakurenboMusic, FMusicLoop> MusicCache;
 	FTimerHandle MusicRefillTimer;
 
 	TArray<int32> PlayCounts;

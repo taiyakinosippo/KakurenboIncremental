@@ -454,6 +454,7 @@ void AKakurenboGameMode::Tick(float DeltaSeconds)
 	State->HideTimeRemaining -= DeltaSeconds;
 	TickCountdownSounds();
 	TickDangerHeartbeat(DeltaSeconds);
+	TickChaseMusic(DeltaSeconds);
 	TickDaruma(DeltaSeconds);
 	if (State->HideTimeRemaining <= 0.f)
 	{
@@ -510,6 +511,36 @@ float AKakurenboGameMode::ComputeOniCloseness() const
 		Closeness = FMath::Max(Closeness, 1.f - FMath::Clamp((Dist - DangerFullDistance) / FMath::Max(HeartbeatMaxDistance - DangerFullDistance, 1.f), 0.f, 1.f));
 	}
 	return Closeness;
+}
+
+EKakurenboMusic AKakurenboGameMode::GetPhaseMusic(EKakurenboPhase Phase)
+{
+	switch (Phase)
+	{
+	case EKakurenboPhase::Title: return EKakurenboMusic::Title;
+	case EKakurenboPhase::Hide:  return EKakurenboMusic::Hide;
+	default:                     return EKakurenboMusic::Calm;
+	}
+}
+
+void AKakurenboGameMode::TickChaseMusic(float DeltaSeconds)
+{
+	// 鬼のどれかがプレイヤーを追いかけていたら（身代わり人形を追っているのは除く）追われている間の曲。
+	// 追われなくなってもしばらく（ChaseMusicHoldSeconds）はそのまま
+	bool bChased = false;
+	for (const AOniCharacter* Oni : Onis)
+	{
+		if (Oni && Oni->IsActive() && Oni->GetOniState() != EOniState::Stunned && Oni->GetIntent() == EOniState::Chase && Oni->IsChasingPlayer())
+		{
+			bChased = true;
+			break;
+		}
+	}
+	ChaseMusicTimer = bChased ? 0.f : ChaseMusicTimer + DeltaSeconds;
+	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
+	{
+		Sound->PlayMusic(ChaseMusicTimer < ChaseMusicHoldSeconds ? EKakurenboMusic::Chase : EKakurenboMusic::Hide);
+	}
 }
 
 void AKakurenboGameMode::TickDangerHeartbeat(float DeltaSeconds)
@@ -3006,10 +3037,11 @@ void AKakurenboGameMode::SetPhase(EKakurenboPhase NewPhase)
 		Arena->SetTallWallsVisible(NewPhase == EKakurenboPhase::Hide);
 	}
 
-	// BGM：かくれんぼ中は速くて少し怖い曲、それ以外はのんびりした曲
+	// BGM：タイトルはタイトルの曲、かくれんぼ中は速くて少し怖い曲（追われたら Chase。TickChaseMusic）、それ以外はのんびりした曲
+	ChaseMusicTimer = ChaseMusicHoldSeconds;
 	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
 	{
-		Sound->PlayMusic(NewPhase == EKakurenboPhase::Hide ? EKakurenboMusic::Hide : EKakurenboMusic::Calm);
+		Sound->PlayMusic(GetPhaseMusic(NewPhase));
 	}
 
 	// かくれんぼ以外のパートに入るたびに自動で保存する（かくれんぼの途中で終わっても、直前の状態から再開できる）。

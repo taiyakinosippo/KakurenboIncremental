@@ -38,7 +38,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
 | `KakurenboOniStudio` | 鬼の写真スタジオ（舞台のずっと下に見本の鬼・背景・明かり・SceneCapture）。チュートリアル・図鑑の写真（RenderTarget）を撮る |
 | `FakeHiderCharacter` | 身代わり人形（AHiderCharacter の子。bIsDecoyDoll）。鬼に追われると反対へまっすぐ逃げ、大きな音を出す。鬼は `GetChaseTarget` で人形も追う |
 | `KakurenboFx` | 仮の演出（破片 `AKakurenboBurstFx`・床の輪 `AKakurenboRingFx`）と窓口の `UKakurenboFxSubsystem`（輪は使い回す） |
-| `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / その場所から。その場所からの音は自前で左右に振り分けた 2ch の波形を 2D で鳴らす：聞く人＝自分の体・向き＝カメラ、壁の向こうはこもる。`GetLastSpatial` でテスト）と BGM（`PlayMusic`）。GameMode の `SoundOverrides` に音アセットがあればそちら（エンジンの 3D の音） |
+| `KakurenboSoundSubsystem` | 効果音を鳴らす（2D / その場所から。その場所からの音は自前で左右に振り分けた 2ch の波形を 2D で鳴らす：聞く人＝自分の体・向き＝カメラ、壁の向こうはこもる。`GetLastSpatial` でテスト）と BGM（`PlayMusic`。Data/Sounds の WAV があればそれ。タイトル・購入・かくれんぼ・追われている間 `TickChaseMusic`）。GameMode の `SoundOverrides` に音アセットがあればそちら（エンジンの 3D の音） |
 | `KakurenboSynth` | 効果音と BGM の波形をプログラムで作る（純粋な計算・単体テストあり）。左右の振り分け（`ComputeSpatial`・`MakeStereo`・`DistanceGain`）も。`USoundWaveProcedural` で再生し、効果音は長さぶん経ったら止める。BGM は 1 秒ごとに 1 周ぶん足す |
 | `KakurenboMaps` | 館の間取り（Data/Maps/*.txt の文字の図）を読み、同じ文字の長方形を家具にまとめる。館の大きさ＝文字数 × 行数（`MeasureLayout`）。`[floor]` の床の種類（`ParseFloorLayer`）（純粋ロジック・単体テストあり） |
 | `KakurenboLayout` | 設計図からの修復計画（純粋ロジック・単体テストあり） |
@@ -61,7 +61,8 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   Artifact ツールで `_web/index.html` を `root` = `_web`、`files` = `audio/` の MP3 全部で公開する（今のページ: https://claude.ai/artifact/SQq8ZzW6ZMYY9dEFoamWR6 。別の会話からは `url` にこれを渡して read してから出し直す）
 - **BGM を作る AI**（ACE-Step 1.5。`Tools\MusicGen.ps1`・説明文の表は `Tools/MusicGen/Music.csv`）。「BGM の AI の環境を作って」「BGM を作って」と言われたら、**確認せずに**
   `-Setup`（ACE-Step を `Tools/MusicGen/ACE-Step-1.5` に取ってきて uv で環境とモデル。十数分なので裏で。ログイン不要）→ 引数なし（全部 × 3 候補。裏で）。
-  候補は `KakurenboIncremental/SourceArt/MusicGen/`（Git LFS に入れてコミット）。採用は docs/Sounds.md の表
+  候補は `KakurenboIncremental/SourceArt/MusicGen/`（Git LFS に入れてコミット）。採用は docs/Sounds.md の表。
+  **ゲームの BGM は `Data/Sounds/Music_<Title|Calm|Hide|Chase>.wav`**（`Tools/MusicGen/ExportForGame.py` でくり返せる形にする。無ければプログラムの曲）。`UKakurenboSoundSubsystem::LoadMusicWav`
 - バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture / Surfaces / FloorKinds / Decor）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - **間取りは `python Tools/GenerateMansion.py` で作る**（25 個全部を上書き。玄関ホール・廊下・部屋・家具・`[floor]`）。作り直したら `Maps` / `Mood` / 単体テストを流す
 - 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ（連打・時間・壁の補強）→ 壁 → コインの罠）。

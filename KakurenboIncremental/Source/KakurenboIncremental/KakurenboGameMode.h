@@ -419,6 +419,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float HeartbeatMaxDistance = 2000.f;
 
+	/** 鬼に追われなくなってから、追われている間の BGM（Chase）をかくれんぼの BGM に戻すまでの秒数（すぐ戻ると曲がばたばた変わるので） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float ChaseMusicHoldSeconds = 4.f;
+
 	/** 近さ（0〜1）がこれ以上で鳴り始める */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float HeartbeatMinCloseness = 0.12f;
@@ -1143,6 +1147,10 @@ protected:
 	/** 開始前のカウントダウン・残り時間の秒読みの音 */
 	void TickCountdownSounds();
 	void TickDangerHeartbeat(float DeltaSeconds);
+	/** かくれんぼ中、鬼に追われている間は追われている間の BGM にする */
+	void TickChaseMusic(float DeltaSeconds);
+	/** パートに合う BGM（タイトル・かくれんぼ・それ以外） */
+	static EKakurenboMusic GetPhaseMusic(EKakurenboPhase Phase);
 
 	/** 画面の点滅・大きな文字（HUD に頼む） */
 	void FlashScreen(const FLinearColor& Color, float Duration) const;
@@ -1209,6 +1217,8 @@ protected:
 	float CurrentDanger = 0.f;
 	float CurrentCloseness = 0.f;
 	float HeartbeatTimer = 0.f;
+	/** 最後に鬼に追われていた時からの秒数（追われている間の BGM をいつ戻すか） */
+	float ChaseMusicTimer = 0.f;
 	int32 HeartbeatCount = 0;
 	float LastHeartbeatVolume = 0.f;
 

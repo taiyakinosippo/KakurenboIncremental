@@ -422,5 +422,8 @@
   候補は `SourceArt/MusicGen/`。2B のターボ版＋言語モデル 1.7B（Windows なので PyTorch で動かす）
 - 「**（BGM の設定：ポップなホラー、明るい雰囲気の緊張感）これでタイトル BGM とマップ作成 BGM、かくれんぼ中と見つかった時の BGM を作成してみて**」→
   Music_Title・Music_Calm（購入・設置）・Music_Hide・Music_Chase（追われているとき）の説明文を Music.csv に書いて 3 候補ずつ作った。
-  聞くページ（Artifact）の BGM に「ACE s1」などで追加。ゲームにはまだ入れていない（タイトルと追われているときの BGM の場面もまだ無い）
+  聞くページ（Artifact）の BGM に「ACE s1」などで追加
+- 「**いったんこれにするのやつでゲームの BGM 変えてみて**」（使う音: MusicGen:Music_Title_s2, Music_Calm_s2, Music_Hide_s2, Music_Chase_s3）→
+  `Tools/MusicGen/ExportForGame.py` で小節の切れ目でくり返せる形にして、大きさを今の BGM にそろえ `Data/Sounds/Music_*.wav` に。
+  ゲームは起動後に WAV を読んで流す（無ければプログラムの曲）。新しい場面：タイトルの曲（Title）と、鬼に追われている間の曲（Chase。追われなくなって 4 秒で戻る）。Sounds・Title テスト
 - 「**他 PC でも確認できるように、ここにあるものを採用できるようにどこかに書いておいて**」→ 候補の WAV と今の音を Git（LFS）に入れた。`docs/Sounds.md` に聞くページ・採用のしかた・全部の候補と「採用」の表（今は全部 —）・組み込みの予定
