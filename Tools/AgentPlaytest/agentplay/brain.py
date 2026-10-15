@@ -7,6 +7,8 @@
   - 転生のタイミング    ：同じステージで何回つまずいたら転生するか（多腕バンディット）
   - 音の危なさ          ：聞こえた音のすぐ後に鬼が近くに見えたか（音ごとの確率）
   - 鬼の特徴            ：文から読んだ印（事前知識）と、遊んで見た速さ・壁をこわした回数・見つかった回数
+  - 床の輪              ：見た目（色・太さ）ごとに、自分の足元に出るか・自分が何をしているときに出るか・大きさ、
+                          輪の中にいた鬼がその後こちらへ来た割合（輪の外の鬼とくらべる）。意味は知らないので、数えて学ぶ
 すべて brain_<性格>.json に保存し、次の起動で続きから学ぶ。
 """
 
@@ -133,9 +135,14 @@ class QTable:
 
     def values(self, s):
         if s not in self.q:
-            self.q[s] = [0.0] * len(ACTIONS)
-            # 最初の見当：連打は少しだけ得（お金が入る）、静かにも悪くない
-            self.q[s][0] = 0.05
+            # 状態に後から足した印（末尾の H…）が無い、前の状態で学んだ値があれば、それから始める（学び直さない）
+            parent = s[:s.rfind("H")] if "H" in s else None
+            if parent and parent in self.q:
+                self.q[s] = list(self.q[parent])
+            else:
+                self.q[s] = [0.0] * len(ACTIONS)
+                # 最初の見当：連打は少しだけ得（お金が入る）、静かにも悪くない
+                self.q[s][0] = 0.05
             self.n[s] = [0] * len(ACTIONS)
         return self.q[s]
 
@@ -198,6 +205,8 @@ class Brain:
         # 音の鳴り方：音の名前 -> [回数, 同じ方角から続けて聞こえるまでの秒数の合計]
         self.sound_rhythm = {}
         self.words = {}  # 鬼の一覧の様子のことば -> [回数, その後すぐ見つかった回数]
+        # 床の輪：見た目（"yellow-thick" など）-> {n, mine, modes{自分の様子: [回数, 半径の合計]}, in[回数, 来た], out[回数, 来た]}
+        self.rings = {}
         self.onis = {}  # 鬼の名前 -> 読んだ印・見たこと
         self.spot_memory = {}  # "館の形の印:x,y" -> [回数, 得点の合計]
         # 宝石のお店の道具を使ったラウンドの記録：道具の名前 -> {rounds, score_sum, clears, effects{…}}（報告書と、試す順番に使う）
@@ -231,6 +240,7 @@ class Brain:
         self.loudcal = j.get("loudcal", {})
         self.sound_rhythm = j.get("sound_rhythm", {})
         self.words = j.get("words", {})
+        self.rings = j.get("rings", {})
         self.onis = j.get("onis", {})
         self.spot_memory = j.get("spot_memory", {})
         self.gem_trials = j.get("gem_trials", {})
@@ -244,7 +254,7 @@ class Brain:
         j = {"spot": self.spot.to_json(), "templates": {k: v.to_json() for k, v in self.templates.items()},
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
-             "words": self.words, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "insights": self.insights, "read_texts": self.read_texts,
+             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "insights": self.insights, "read_texts": self.read_texts,
              "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -399,6 +409,81 @@ class Brain:
             if rec and rec[0] >= 8:
                 return rec[1] / rec[0]
         return {0: 22.0, 1: 14.0, 2: 9.0, 3: 6.0, 4: 4.0, 5: 2.5}[b]
+
+    # ---- 床の輪（ユーザーの希望：クリックの輪・足音の輪から、鬼にばれるかを判断する）
+    # 輪の意味は知らない。「自分の足元に出るか」「自分が何をしているときに出るか」「輪の中の鬼がその後こちらへ来たか」を数えて学ぶ
+    @staticmethod
+    def ring_look(color, width):
+        return f"{color}-{'thick' if width >= 10 else 'thin'}"
+
+    def _ring(self, look):
+        return self.rings.setdefault(look, {"n": 0, "mine": 0, "modes": {}, "in": [0, 0], "out": [0, 0]})
+
+    def note_ring(self, look, mine, mode, radius):
+        rec = self._ring(look)
+        rec["n"] += 1
+        if mine:
+            rec["mine"] += 1
+            m = rec["modes"].setdefault(mode, [0, 0.0])
+            m[0] += 1
+            m[1] += radius
+
+    def note_ring_reaction(self, look, ratio, reacted):
+        """ratio：鬼までの距離 ÷ 輪の半径（1 以下なら輪の中）。reacted：その後 3 秒以内に鬼がこちらへ来た・追ってきた"""
+        ring = self._ring(look)
+        rec = ring["in" if ratio <= 1.0 else "out"]
+        rec[0] += 1
+        rec[1] += 1 if reacted else 0
+        by = ring.setdefault("by", [[0, 0] for _ in range(5)])  # 距離 ÷ 半径の段（0.5 刻み。最後は 2 以上）
+        b = by[min(4, int(ratio / 0.5))]
+        b[0] += 1
+        b[1] += 1 if reacted else 0
+
+    def ring_reach(self, look):
+        """輪の半径の何倍まで鬼が気づくか（学んだ値。足音の輪のように見た目より遠くまで届くこともある）。足りなければ 1"""
+        by = (self.rings.get(look) or {}).get("by")
+        if not by or by[4][0] < 10:
+            return 1.0
+        base = (by[4][1] + 0.5) / (by[4][0] + 1.0)
+        reach = 1.0
+        for i in range(4):
+            n, hit = by[i]
+            if n >= 6 and (hit + 0.5) / (n + 1.0) >= 1.5 * base:
+                reach = max(reach, 0.5 * (i + 1))
+        return reach
+
+    def ring_near_far(self, look):
+        """輪の近く（鬼までの距離が半径の 2 倍まで）と遠く（2 倍より遠い）の鬼の [回数, 反応した回数]"""
+        by = (self.rings.get(look) or {}).get("by") or [[0, 0] for _ in range(5)]
+        near = [sum(b[0] for b in by[:4]), sum(b[1] for b in by[:4])]
+        return near, list(by[4])
+
+    def ring_lift(self, look):
+        """輪の近く（半径の 2 倍まで）にいた鬼が反応した割合が、遠くの鬼の何倍か（足りなければ None）。
+        足音の輪のように、見た目より少し遠くまで聞こえる輪もあるので、境目は 2 倍にしている（どこまで届くかは ring_reach で学ぶ）"""
+        near, far = self.ring_near_far(look)
+        if near[0] < 8 or far[0] < 15:
+            return None
+        pin = (near[1] + 0.5) / (near[0] + 1.0)
+        pout = (far[1] + 0.5) / (far[0] + 1.0)
+        return pin / max(0.02, pout)
+
+    def ring_reveals(self, look):
+        """この輪が届いた鬼は自分に気づく、と分かったか（輪の中の鬼の方が 1.5 倍以上来やすい）"""
+        lift = self.ring_lift(look)
+        return lift is not None and lift >= 1.5
+
+    def mode_ring(self, mode):
+        """自分がその様子（mash / walk / sneak …）のときに足元に出る輪の見た目と、ふだんの半径（マス）。まだ分からなければ None"""
+        best = None
+        for look, rec in self.rings.items():
+            m = rec["modes"].get(mode)
+            # 自分の足元に出る輪で、この様子のときに 5 回以上出た物（一番よく出る見た目を選ぶ）
+            if not m or m[0] < 5 or rec["mine"] < 0.6 * rec["n"]:
+                continue
+            if best is None or m[0] > best[2]:
+                best = (look, m[1] / m[0], m[0])
+        return (best[0], best[1]) if best else None
 
     def word_danger(self, word):
         n, hit = self.words.get(word, [0, 0])

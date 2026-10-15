@@ -7,6 +7,8 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Personas near     # 1 つだけ（stay / near / greedy をカンマで）
 #   powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Fresh            # セーブと学習を消して、はじめから
 #   -Speed 2（ゲームの時間の速さ。既定 2。1 なら人と同じ）・-Watch（ウィンドウを大きく）・-Sound（音を出す）・-Open（終わったら報告書を開く）
+#   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
+#   -Full で軽くしない（-MaxFPS 30 で上限を変える）
 #   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md を更新するので、外出先でも GitHub で見られる）
 #   記録は前回の続きに書き足し、報告書も同じ物を更新する。-NewRun で新しい記録のフォルダ（-Fresh も新しくなる）
 #
@@ -25,6 +27,8 @@ param(
     [switch]$Open,
     [switch]$NoPublish,
     [switch]$NewRun,
+    [switch]$Full,
+    [int]$MaxFPS = 0,
     [int]$BasePort = 7701
 )
 
@@ -99,7 +103,7 @@ function Say([string]$Message, [string]$Color = "Gray") {
     Write-Host $Line -ForegroundColor $Color
     Add-Content -Path $LauncherLog -Value $Line -Encoding UTF8
 }
-Say "$(if ($Latest -and $RunDir -eq $Latest.FullName) { '前回の記録の続き：' } else { '' })テストプレイ AI：$($PersonaList -join ', ')・$($Deadline.ToString('MM/dd HH:mm')) まで・速さ ×$Speed・記録 $RunDir" "Cyan"
+Say "$(if ($Latest -and $RunDir -eq $Latest.FullName) { '前回の記録の続き：' } else { '' })テストプレイ AI：$($PersonaList -join ', ')・$($Deadline.ToString('MM/dd HH:mm')) まで・速さ ×$Speed$(if ($Full) { '' } else { '・軽くして動かす' })・記録 $RunDir" "Cyan"
 Say "Python: $Python"
 
 $W = if ($Watch) { 960 } else { 640 }
@@ -123,14 +127,24 @@ function Start-Pair([string]$P, [int]$Index) {
     $GameArgs = @("-windowed", "-ResX=$W", "-ResY=$Hh", "-WinX=$X", "-WinY=$Y", "-KakuNoSave", "-KakuSaveSlot=Agent_$P",
         "-KakuAgentPort=$Port", "-KakuAgentSpeed=$Speed", "-KakuAgentShots=`"$(Join-Path $Dir 'shots')`"", "-log", "-abslog=`"$GameLog`"", "-unattended")
     if (-not $Sound) { $GameArgs += "-NoSound" }
+    if (-not $Full) {
+        $GameArgs += "-KakuAgentLight"
+        if ($MaxFPS -gt 0) { $GameArgs += "-KakuAgentMaxFPS=$MaxFPS" }
+    }
     $S.Game = Start-Process -FilePath $Exe -ArgumentList $GameArgs -PassThru
+    if (-not $Full) {
+        # 優先度を「通常以下」に：パソコンでほかの作業をしているときは、そちらを先に動かす
+        try { $S.Game.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+    }
     $AgentArgs = @("`"$(Join-Path $AgentDir 'run_agent.py')`"", "--persona", $P, "--port", "$Port", "--dir", "`"$RunDir`"",
         "--deadline", "$DeadlineUnix", "--speed", "$Speed")
     $S.Agent = Start-Process -FilePath $Python -ArgumentList $AgentArgs -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $Dir ("agent_out_{0:D2}.txt" -f $S.Launch)) -RedirectStandardError (Join-Path $Dir ("agent_err_{0:D2}.txt" -f $S.Launch))
+    if (-not $Full) { try { $S.Agent.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {} }
     $null = $S.Agent.Handle # 終わったときの戻り値（ExitCode）を読めるように、ハンドルを持っておく
     $S.GameLog = $GameLog
     $S.Started = Get-Date
+    $S.Lowered = $false
     Say "$P を起動（$($S.Launch) 回目・ポート $Port）"
 }
 
@@ -148,6 +162,16 @@ function Stop-Pair([string]$P) {
     # パッケージの .exe は本体（Binaries の .exe）を別に起動するので、本体も止める（このポートのもの）
     Get-CimInstance Win32_Process -Filter "Name='KakurenboIncremental.exe' OR Name='KakurenboIncremental-Win64-Shipping.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -match "KakuAgentPort=$($BasePort + $S.Index)\b" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# パッケージの .exe は本体（Binaries の .exe）を別に起動するので、本体の優先度も「通常以下」にする（起動して 1 分の間だけ探す）
+function Set-LowPriority([string]$P) {
+    $S = $State[$P]
+    if ($Full -or $S.Lowered -or ((Get-Date) - $S.Started).TotalSeconds -gt 60) { return }
+    Get-CimInstance Win32_Process -Filter "Name LIKE 'KakurenboIncremental%'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match "KakuAgentPort=$($BasePort + $S.Index)\b" } | ForEach-Object {
+            try { (Get-Process -Id $_.ProcessId -ErrorAction Stop).PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; if ($_.ExecutablePath -match "Binaries") { $S.Lowered = $true } } catch {}
+        }
 }
 
 function Get-LogErrors([string]$Path) {
@@ -224,6 +248,7 @@ $NextReport = (Get-Date).AddMinutes(15)
 try {
     while ($true) {
         Start-Sleep -Seconds 5
+        foreach ($P in $PersonaList) { Set-LowPriority $P }
         $AllDone = $true
         foreach ($P in $PersonaList) {
             $S = $State[$P]

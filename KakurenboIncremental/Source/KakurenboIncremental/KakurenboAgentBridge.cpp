@@ -3,6 +3,8 @@
 // 起動オプション -KakuAgentPort=<番号> で 127.0.0.1:<番号> の TCP で AI を待つ（AI は 1 つ。切れたら次の AI を待つ）。
 //   -KakuAgentSpeed=<倍率>  ゲームの時間を速める（学習のため。既定 1）
 //   -KakuAgentShots=<フォルダ> スクリーンショットの置き場（shot の操作・見つけた不具合）
+//   -KakuAgentLight          軽くする（CPU・GPU を使いすぎないように：コマ数の上限・画質を一番低く・描く解像度を半分。見た目以外は同じ）
+//   -KakuAgentMaxFPS=<数>    軽くするときのコマ数の上限（既定：ゲームの速さ × 20。24〜60）
 //
 // ゲーム → AI（0.1 秒ごと。#OBS から #END まで）
 //   PHASE / MENU   今のパートと開いているメニュー
@@ -11,6 +13,7 @@
 //   LABELS         画面に出ているワールドの名前（「鬼の門」「スタート」「！」）と場所（マス）
 //   SELF           自分の体（場所はマス。h は床からの高さ（段）・しゃがんでいるか・よじ登っているか）
 //   SEE / HEAR     見えている鬼・お宝（壁や家具にさえぎられていないもの）／聞こえた音（方角 dir＝8 方位・deg＝15 度刻みと、大きさ）
+//                  SEE ring は前の観測から後に床に広がった輪（場所・広がりきった半径（マス）・色の名前・線の太さ）。意味は書かない（AI が学ぶ）
 //   MAP            上から見た館の形（. 床 / 1 低い家具 / 2 背の高さくらい / 3 2 段ぶん / # 部屋の壁 / g 赤い床）
 //   PLACED         置いてある壁と道具（自分が置いたもの）
 //   WALK / ACK     歩いている様子・操作の結果
@@ -37,11 +40,14 @@
 #include "Kismet/GameplayStatics.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
+#include "KakurenboFx.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "KakurenboSettings.h"
 #include "KakurenboSoundSubsystem.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/Paths.h"
+#include "Scalability.h"
 #include "OniCharacter.h"
 #include "PlaceableBlock.h"
 #include "Sockets.h"
@@ -211,6 +217,23 @@ namespace
 		return Names[Sector];
 	}
 
+	/** 色のおおまかな名前（人が見て言う言葉くらいの細かさ。輪の色を AI に伝える） */
+	const TCHAR* AgentColorName(const FLinearColor& Color)
+	{
+		const FLinearColor Hsv = Color.LinearRGBToHSV(); // R = 色相（0〜360）・G = 鮮やかさ・B = 明るさ
+		if (Hsv.B < 0.15f)
+		{
+			return TEXT("black");
+		}
+		if (Hsv.G < 0.25f)
+		{
+			return Hsv.B > 0.7f ? TEXT("white") : TEXT("gray");
+		}
+		const float H = Hsv.R;
+		return H < 12.f ? TEXT("red") : H < 38.f ? TEXT("orange") : H < 70.f ? TEXT("yellow") : H < 165.f ? TEXT("green")
+			: H < 195.f ? TEXT("cyan") : H < 255.f ? TEXT("blue") : H < 290.f ? TEXT("purple") : H < 340.f ? TEXT("pink") : TEXT("red");
+	}
+
 	FString AgentEnumShort(const FString& Full)
 	{
 		int32 Colon = INDEX_NONE;
@@ -252,6 +275,26 @@ void AKakurenboPlayerController::KakuAgent(const FString& Options)
 	}
 	UE_LOG(LogTemp, Display, TEXT("[Agent] listening on 127.0.0.1:%d (speed %.2f, shots %s)"), A.Port, A.Speed, *A.ShotDir);
 
+	// 軽くする：何体も同時に動かすので、コマ数に上限を付け、画質を一番低くする（AI は画面の絵を見ないので、判断は変わらない）
+	if (FParse::Param(FCommandLine::Get(), TEXT("KakuAgentLight")))
+	{
+		float MaxFps = FMath::Clamp(20.f * A.Speed, 24.f, 60.f);
+		FParse::Value(FCommandLine::Get(), TEXT("KakuAgentMaxFPS="), MaxFps);
+		Scalability::FQualityLevels Low;
+		Low.SetFromSingleQualityLevel(0);
+		Scalability::SetQualityLevels(Low);
+		auto SetCVar = [](const TCHAR* Name, float Value)
+		{
+			if (IConsoleVariable* Var = IConsoleManager::Get().FindConsoleVariable(Name))
+			{
+				Var->Set(Value, ECVF_SetByCode);
+			}
+		};
+		SetCVar(TEXT("t.MaxFPS"), MaxFps);
+		SetCVar(TEXT("r.ScreenPercentage"), 50.f);
+		UE_LOG(LogTemp, Display, TEXT("[Agent] light mode (max %.0f fps, lowest quality)"), MaxFps);
+	}
+
 	// 本物のキーボード・マウスは使わない（AI だけが操作する）。ヒントと鬼のチュートリアルは初めての人と同じく出す
 	bIgnoreRealInputForAutoTest = true;
 	bShowTipsInAutoTest = true;
@@ -284,6 +327,10 @@ void AKakurenboPlayerController::TickAgentBridge(float RealDeltaSeconds)
 	if (UKakurenboSoundSubsystem* Sound = World->GetSubsystem<UKakurenboSoundSubsystem>())
 	{
 		Sound->bRecordHeard = true;
+	}
+	if (UKakurenboFxSubsystem* Fx = World->GetSubsystem<UKakurenboFxSubsystem>())
+	{
+		Fx->bRecordRings = true;
 	}
 	// ゲームの時間の速さ（何かで戻っても 1 秒ごとにかけ直す）
 	if (A.Clock >= A.NextSpeedApply)
@@ -1262,7 +1309,10 @@ FString AKakurenboPlayerController::AgentBuildObservation()
 			}
 			FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuAgentSight), false);
 			Params.AddIgnoredActor(Hider);
-			Params.AddIgnoredActor(Target);
+			if (Target)
+			{
+				Params.AddIgnoredActor(Target);
+			}
 			for (const AOniCharacter* Oni : GM->GetOnis())
 			{
 				Params.AddIgnoredActor(Oni);
@@ -1291,6 +1341,21 @@ FString AKakurenboPlayerController::AgentBuildObservation()
 			{
 				const FVector2D C = ToCell(T->GetActorLocation());
 				Out += FString::Printf(TEXT("SEE treasure pos=%.1f,%.1f dist=%.1f\n"), C.X, C.Y, FVector2D::Distance(C, Me));
+			}
+		}
+		// 床に広がった輪（前の観測から後に出たもの）。自分のそば（2 マス以内）の輪と、輪の真ん中が見える輪だけ
+		if (UKakurenboFxSubsystem* Fx = World->GetSubsystem<UKakurenboFxSubsystem>())
+		{
+			for (const FKakurenboShownRing& R : Fx->ShownRings)
+			{
+				const FVector2D C = ToCell(R.Location);
+				const FVector Floor(R.Location.X, R.Location.Y, Origin.Z + 20.f);
+				if (FVector2D::Distance(C, Me) > 2.f && !CanSee(nullptr, Floor))
+				{
+					continue;
+				}
+				Out += FString::Printf(TEXT("SEE ring pos=%.1f,%.1f r=%.1f color=%s w=%.0f dist=%.1f\n"), C.X, C.Y, R.Radius / CellSize,
+					AgentColorName(R.Color), R.Thickness, FVector2D::Distance(C, Me));
 			}
 		}
 		// 聞こえた音：音の種類と方角ごとに一番大きいもの
@@ -1331,6 +1396,10 @@ FString AKakurenboPlayerController::AgentBuildObservation()
 	if (UKakurenboSoundSubsystem* Sound = World->GetSubsystem<UKakurenboSoundSubsystem>())
 	{
 		Sound->Heard.Reset();
+	}
+	if (UKakurenboFxSubsystem* Fx = World->GetSubsystem<UKakurenboFxSubsystem>())
+	{
+		Fx->ShownRings.Reset();
 	}
 
 	// ---- 上から見た館の形（家具の高さは館が変わったときに上からレイを落として測る）

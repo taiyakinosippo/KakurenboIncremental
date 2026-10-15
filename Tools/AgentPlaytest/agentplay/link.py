@@ -27,6 +27,7 @@ class Obs:
         self.gauges = {}  # 名前 -> {left, max}
         self.see_onis = []  # dict(name, x, y, vx, vy, dist, cue)
         self.see_treasures = []  # (x, y, dist)
+        self.see_rings = []  # dict(x, y, r, color, w, dist)：前の観測から後に床に広がった輪（意味は書かれていない）
         self.hear = []  # dict(name, dir, loud, muffled)
         self.map_size = None
         self.map_rows = None  # 送られてきたときだけ
@@ -144,6 +145,9 @@ def parse_obs(text):
                 o.see_onis.append({"name": str(kv.get("name", "?")), "x": kv["pos"][0], "y": kv["pos"][1],
                                    "vx": kv.get("vel", (0.0, 0.0))[0], "vy": kv.get("vel", (0.0, 0.0))[1],
                                    "dist": float(kv.get("dist", 99)), "cue": str(kv.get("cue", "-"))})
+            elif parts and parts[0] == "ring" and "pos" in kv:
+                o.see_rings.append({"x": kv["pos"][0], "y": kv["pos"][1], "r": float(kv.get("r", 0)), "color": str(kv.get("color", "?")),
+                                    "w": float(kv.get("w", 0)), "dist": float(kv.get("dist", 99))})
             elif parts and parts[0] == "treasure" and "pos" in kv:
                 o.see_treasures.append((kv["pos"][0], kv["pos"][1], float(kv.get("dist", 99))))
         elif head == "HEAR":

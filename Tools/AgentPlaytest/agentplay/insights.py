@@ -10,6 +10,15 @@ from .world import SPOT_FEATURES
 ACTION_KEYS = ["MASH", "QUIET", "FLEE", "RETURN", "FETCH", "SMOKE", "ITEM", "EXPLORE"]
 
 
+COLOR_JA = {"yellow": "黄色", "orange": "オレンジ", "red": "赤", "blue": "青", "cyan": "水色", "green": "緑", "purple": "紫", "pink": "ピンク",
+            "white": "白", "gray": "灰色", "black": "黒"}
+
+
+def ring_look_ja(look):
+    color, _, width = look.partition("-")
+    return f"{COLOR_JA.get(color, color)}・{'太い' if width == 'thick' else '細い'}"
+
+
 def _opposite(key):
     """「+」と「-」、「oni」と「treasure」などの逆の気づきの key"""
     for a, b in (("+", "-"), (":oni", ":treasure"), ("good", "bad")):
@@ -47,6 +56,37 @@ class InsightTracker:
                 self.note(f"sound:{name}:oni", f"「{name}」の音は鬼の足音・声だと聞き分けた（その方角に鬼がいたのは、ふだんの {lifts[0]:.1f} 倍）。近いときは連打をやめる")
             elif kind == "treasure" and lifts:
                 self.note(f"sound:{name}:treasure", f"「{name}」の音はお宝の音だと聞き分けた（その方角にお宝があったのは、ふだんの {lifts[1]:.1f} 倍）。音のする方へ取りに行ける")
+        # ---- 床の輪（クリックの輪・足音の輪）
+        mode_ja = {"mash": "連打した", "walk": "歩いた", "sneak": "しのび足で歩いた", "climb": "よじ登った", "dash": "ダッシュした"}
+        for mode, ja in mode_ja.items():
+            mr = b.mode_ring(mode)
+            if mr:
+                self.note(f"ring:{mode}:{mr[0]}", f"{ja}ときに自分の足元に床の輪（{ring_look_ja(mr[0])}）が出ると気づいた（ふだんの半径 {mr[1]:.1f} マス）")
+        for look in list(b.rings):
+            lift = b.ring_lift(look)
+            if lift is None:
+                continue
+            if lift >= 1.5:
+                self.note(f"ringlift:{look}:good", f"床の輪（{ring_look_ja(look)}）が届いた鬼は気づく（近くの鬼は遠くの鬼の {lift:.1f} 倍反応した。"
+                                                    f"届く範囲は輪の {b.ring_reach(look):.1f} 倍）。輪が鬼に届くかで、ばれるかを判断できる")
+            elif lift <= 1.1 and b.ring_near_far(look)[0][0] >= 30:
+                self.note(f"ringlift:{look}:bad", f"床の輪（{ring_look_ja(look)}）が届いても、鬼はあまり気づかない（×{lift:.1f}）")
+        qs = {}
+        for st, vals in b.qtable.q.items():
+            if "H2" not in st:
+                continue
+            ns = b.qtable.n.get(st, [0] * 8)
+            for act in ("MASH", "QUIET"):
+                i = ACTION_KEYS.index(act)
+                if ns[i] >= 3:
+                    t, n = qs.get(act, (0.0, 0))
+                    qs[act] = (t + vals[i] * ns[i], n + ns[i])
+        if all(k in qs and qs[k][1] >= 40 for k in ("MASH", "QUIET")):
+            qm, qq = qs["MASH"][0] / qs["MASH"][1], qs["QUIET"][0] / qs["QUIET"][1]
+            if qq - qm >= 0.15:
+                self.note("q:ringreach:quietgood", "連打の輪が鬼に届くときは、連打せずに静かにしゃがむ方が長く隠れられる（強化学習で覚えた）")
+            elif qm - qq >= 0.15:
+                self.note("q:ringreach:mashgood", "連打の輪が鬼に届いても、連打して稼いだ方が良い（強化学習で覚えた）")
         # ---- 隠れ場所の選び方
         if b.spot.n >= 20:
             for feat, w in zip(SPOT_FEATURES, b.spot.mean()):

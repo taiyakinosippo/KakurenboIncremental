@@ -6,6 +6,8 @@
   3. 性格は 3 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）
   4. かくれんぼはマップの中央から始める。隠れ場所に着くまでは、お宝を優先して取りつつ、鬼の足音から遠ざかる（どの性格も）
   5. 鬼の足音が近いときは連打をやめる。お宝の音がしたら、その方角・距離にお宝があると見当をつける（音の聞き分けは学ぶ）
+  5b. 床の輪（クリックの輪・足音の輪）：自分の足元に出る輪の見た目・大きさと、輪の中の鬼が気づいて来るかを学ぶ。
+      「連打したら輪が鬼に届くか」を Q 学習の状態に入れ（連打するかは Q 学習が決める）、歩く輪が鬼に届くと分かったらしのび足にする
   6. 宝石のお店の道具は、まだ試していない物から買って必ず使う（使った結果を報告書で比べる）
   7. 転生のお店は性格ごとの優先度（左が先）：動かない＝よじ登る・壁の硬さ・お金アップ / 近くのお宝＝煙幕・よじ登る・お宝・壁の硬さ /
      強欲＝煙幕・お宝・連打のお金。名前の言葉で当てはめる
@@ -105,7 +107,7 @@ class Agent:
             if not obs_list:
                 if time.time() - self.link.last_recv > 90:
                     return "hang"
-                time.sleep(0.004)
+                time.sleep(0.01)  # 観測は 0.1 秒ごとなので、待つ間は CPU を使わない
                 continue
             for o in obs_list:
                 self.ingest(o)
@@ -813,6 +815,10 @@ class Agent:
         R["decided_chased"] = info["chased"]
         R["decisions"] += 1
         R["actions"][ACTIONS[a]] += 1
+        if ACTIONS[a] in ("MASH", "QUIET"):
+            rh = R.setdefault("ring_choice", {})
+            k = f"H{info['ring_h']}:{ACTIONS[a]}"
+            rh[k] = rh.get(k, 0) + 1
         R["info"] = info
         self.do_action(ACTIONS[a], info)
 
@@ -887,7 +893,7 @@ class Agent:
             return
         if R.get("goto_kind") == "flee" and R["goto"] is not None:
             return  # 逃げ終わるまで
-        sneak = " sneak" if info["threat"] >= 1 else ""
+        sneak = " sneak" if self.sneak_needed(info) else ""
         # お宝を優先（見えた・覚えている・音の手がかり。鬼の近くの物は取らない）
         t = self.travel_treasure(me, info)
         if t:
@@ -1043,12 +1049,17 @@ class Agent:
         limit = R["limit"] or 30
         tl = R["time_left"] or limit
         tphase = 0 if tl > limit * 0.66 else 1 if tl > limit * 0.33 else 2
-        s = f"T{threat}C{1 if chased else 0}B{at_base}E{enc}R{1 if target else 0}S{smoke}P{tphase}"
+        # 床の輪：連打したら輪が鬼（見えた鬼・足音の見当）に届くか。0＝まだ分からない・鬼の見当が無い / 1＝届かない / 2＝届く
+        oni_pts = list(threat_points) + [(x, y) for (t, x, y) in getattr(self, "_recent_oni_pos", []) if o.t - t <= 2.0]
+        oni_d = min((math.dist(me, p) for p in oni_pts), default=99.0)
+        reach = self.ring_reach_cells("mash", me)
+        ring_h = 0 if reach is None or oni_d >= 99.0 else 2 if oni_d <= reach else 1
+        s = f"T{threat}C{1 if chased else 0}B{at_base}E{enc}R{1 if target else 0}S{smoke}P{tphase}H{ring_h}"
         remaining = (st["treasure_total"] or 0) - (st["treasure_got"] or 0)
         explore_ok = self.P["move"] and self.P["fetch_radius"] > 0 and not target and threat <= 1 and not chased and remaining > 0
         info = {"me": me, "mec": mec, "threat": threat, "threat_d": threat_d, "threat_pos": threat_pos, "chased": chased,
                 "at_base": at_base, "target": target, "smoke": smoke, "daruma": st["daruma"], "explore_ok": explore_ok,
-                "steps_near": steps_near, "steps_d": min(steps_d, threat_d if steps_near else 99.0), "threat_points": threat_points}
+                "ring_h": ring_h, "oni_d": oni_d, "steps_near": steps_near, "steps_d": min(steps_d, threat_d if steps_near else 99.0), "threat_points": threat_points}
         return s, info
 
     @staticmethod
@@ -1194,7 +1205,7 @@ class Agent:
                 if R["fetch_from_sound"]:
                     R["sound_fetch"] = R.get("sound_fetch", 0) + 1
             if t and R["goto"] != t:
-                sneak = " sneak" if info["threat"] >= 1 else ""
+                sneak = " sneak" if self.sneak_needed(info) else ""
                 self.send(f"goto {t[0]} {t[1]}{sneak}")
                 R["goto"] = t
                 R["goto_at"] = self.obs.t
@@ -1218,6 +1229,104 @@ class Agent:
                 self.rec.event("walk-stuck", {"at": self.obs.self_.get("pos"), "goal": R["goto"]})
             R["goto"] = None
 
+    # ------------------------------------------------------------ 床の輪
+    def my_mode(self, o):
+        """今の自分の様子（輪がどの様子のときに出るかを数えるため）"""
+        me = o.self_
+        if me.get("climbing"):
+            return "climb"
+        if me.get("dashing"):
+            return "dash"
+        if o.walk.get("state") == "moving":
+            return "sneak" if me.get("crouch") else "walk"
+        if (o.walk.get("mash") or 0) > 0:
+            return "mash"
+        return "still"
+
+    def ring_reach_cells(self, mode, me):
+        """その様子のときの自分の輪が届く距離（マス。学んだ「鬼が気づく範囲」の倍率込み）。分からなければ None。
+        このラウンドに同じ場所（1 マス以内・20 秒以内）で見た輪があればその大きさ（囲いの中では小さくなる）、無ければふだんの大きさ"""
+        R = self.round
+        rec = (R or {}).get("my_rings", {}).get(mode)
+        if rec and self.obs.t - rec[0] <= 20.0 and math.dist(rec[1], me) <= 1.0:
+            look, r = rec[2], rec[3]
+        else:
+            mr = self.brain.mode_ring(mode)
+            if not mr:
+                return None
+            look, r = mr
+        return r * self.brain.ring_reach(look) + 0.5
+
+    def sneak_needed(self, info):
+        """しのび足にするか。歩く輪が届いた鬼は気づくと学んだら、輪が鬼に届くかで決める（届かなければ速く歩く）。
+        まだ学んでいなければ、鬼が近いとき（見えた・足音が 14 マス以内）"""
+        mr = self.brain.mode_ring("walk")
+        reach = self.ring_reach_cells("walk", info["me"]) if mr and self.brain.ring_reveals(mr[0]) else None
+        if reach is None:
+            return info["threat"] >= 1
+        sneak = info.get("oni_d", 99.0) <= reach or info["chased"]
+        if self.round is not None and sneak != (info["threat"] >= 1):
+            k = "ring_sneak" if sneak else "ring_walk"  # 輪で判断して、前のきまりと違う歩き方にした回数
+            self.round[k] = self.round.get(k, 0) + 1
+        return sneak
+
+    def learn_rings(self, o, me, now):
+        """床の輪から学ぶ：どの見た目の輪が自分の足元に出るか（そのときの自分の様子・大きさ）と、
+        輪が出たときに見えていた鬼がその後 3 秒以内に反応したか（輪の中の鬼と外の鬼をくらべる）。
+        反応＝左上の一覧のその鬼の様子のことばが変わった（新しいことばが出た）・輪の方へ向きを変えた・追ってきた。ことばの意味は使わない"""
+        words_now = {}
+        for name, word in reader.read_oni_list(o):
+            words_now.setdefault(name.replace(" ", "_"), set()).add(word)
+        def heading(e, c):
+            """鬼の進む向きが c の方を向いている度合い（-1〜1。止まっていれば None）"""
+            sp = math.hypot(e["vx"], e["vy"])
+            dx, dy = c[0] - e["x"], c[1] - e["y"]
+            d = math.hypot(dx, dy)
+            if sp < 0.3 or d < 0.5:
+                return None
+            return (e["vx"] * dx + e["vy"] * dy) / (sp * d)
+        keep = []
+        for p in getattr(self, "_ring_pending", []):
+            if not p["reacted"]:
+                for e in o.see_onis:
+                    if e["name"] != p["name"]:
+                        continue
+                    h = heading(e, p["c"])
+                    if e["cue"] == "red-eyes" or (h is not None and p["h0"] < 0.5 and h >= 0.8 and h - p["h0"] >= 0.5):
+                        p["reacted"] = True
+                if p["w0"] is not None and words_now.get(p["name"], set()) - p["w0"]:
+                    p["reacted"] = True
+            if now - p["t"] >= 3.0:
+                self.brain.note_ring_reaction(p["look"], p["ratio"], p["reacted"])
+            else:
+                keep.append(p)
+        mode = self.my_mode(o)
+        last = getattr(self, "_ring_last", {})
+        for rg in o.see_rings:
+            look = self.brain.ring_look(rg["color"], rg["w"])
+            mine = rg["dist"] <= 1.0
+            self.brain.note_ring(look, mine, mode, rg["r"])
+            if mine and self.round is not None:
+                self.round.setdefault("my_rings", {})[mode] = (now, (me[0], me[1]), look, rg["r"])
+            # 輪が出たときに見えていた鬼（同じ見た目の輪は 1 秒に 1 回まで。もう追ってきている・止まっている鬼は数えない）
+            key = (look, int(rg["x"]), int(rg["y"]))
+            if rg["r"] < 0.3 or now - last.get(key, -99.0) < 1.0:
+                continue
+            last[key] = now
+            c = (rg["x"], rg["y"])
+            for e in o.see_onis:
+                if e["cue"] != "-":
+                    continue
+                ratio = math.dist((e["x"], e["y"]), c) / rg["r"]
+                h0 = heading(e, c)
+                h0 = 0.0 if h0 is None else h0
+                w0 = words_now.get(e["name"])
+                if ratio <= 4.0:
+                    keep.append({"t": now, "look": look, "name": e["name"], "c": c, "h0": h0, "w0": set(w0) if w0 else None,
+                                 "ratio": ratio, "reacted": False})
+        self._ring_last = {k: t for k, t in last.items() if now - t < 5.0}
+        self._ring_pending = keep[-200:]
+
     def set_mash(self, on):
         R = self.round
         if R["mash_on"] != on:
@@ -1239,6 +1348,7 @@ class Agent:
             for (x, y, d) in o.see_treasures:
                 self.round["treasure_known"][(int(round(x)), int(round(y)))] = now
             self.round.setdefault("visited", set()).add((int(round(me[0])), int(round(me[1]))))
+        self.learn_rings(o, me, now)
         near_oni = any(e["dist"] < 6 and e["cue"] not in ("frozen", "petting", "stuck") for e in o.see_onis)
         # 聞き分けのための「その方向にあった物」：見えている鬼（と 1 秒以内に見た鬼）・見えている／覚えているお宝・自分の置いた道具
         recent = getattr(self, "_recent_oni_pos", [])
@@ -1408,7 +1518,8 @@ class Agent:
             "limit": limit, "score": round(score, 3), "q_return": round(R["score"], 2), "plan": plan,
             "actions": R["actions"], "decisions": R["decisions"], "chased": R["chased_ever"], "flee": R["flee_count"],
             "smoke": R["smoke_used"], "items_used": R["items_used"], "caught_by_seen": caught_by_seen,
-            "mash_stopped": R.get("mash_stopped", 0), "sound_fetch": R.get("sound_fetch", 0),
+            "mash_stopped": R.get("mash_stopped", 0), "ring_choice": R.get("ring_choice", {}), "ring_sneak": R.get("ring_sneak", 0), "ring_walk": R.get("ring_walk", 0),
+            "sound_fetch": R.get("sound_fetch", 0),
             "treasures_got": R["treasures_last"], "treasures_total": R["treasures_total"], "round_coins": round(earned, 1),
             "fail_streak": self.fail_streak.get(stage, 0), "prestige_arm": self.prestige_arm, "real_seconds": round(time.time() - R["real_start"], 1),
         })

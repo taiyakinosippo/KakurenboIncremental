@@ -476,6 +476,45 @@ def persona_markdown(pd):
         L.append(f"- お宝の音を頼りに取りに行った回数：{sfetch}（着いた {sum(1 for f in snd if f.get('result') == 'arrived')}・道が無い {sum(1 for f in snd if f.get('result') == 'nopath')}）")
         L.append("")
 
+    # ---- 床の輪（クリックの輪・足音の輪）
+    rings = pd.brain.get("rings") or {}
+    if rings:
+        from .insights import ring_look_ja
+        try:
+            from .brain import Brain
+            rj = Brain.__new__(Brain)
+            rj.rings = rings
+        except Exception:
+            rj = None
+        mode_ja = {"mash": "連打", "walk": "歩く", "sneak": "しのび足", "climb": "よじ登る", "dash": "ダッシュ", "still": "止まっている"}
+        L.append("### 床の輪（クリックの輪・足音の輪）")
+        L.append("")
+        L.append("AI は輪の意味を知らない。見た目（色・太さ）ごとに、自分の足元に出たか・そのとき自分が何をしていたか・大きさを数え、"
+                 "輪が出たときに見えていた鬼が 3 秒以内に反応した割合（一覧の様子のことばが変わった・輪の方へ向きを変えた・追ってきた）を、輪の近く（距離 ÷ 半径 ≦ 2）と遠くでくらべ、"
+                 "半径の何倍まで反応が多いか（届く範囲）も学ぶ。"
+                 "「連打したら輪が鬼に届くか」を Q 学習の状態に入れ、連打するかどうかは Q 学習が決める。歩く輪が届いた鬼は気づくと分かったら、鬼に届くときはしのび足にする。")
+        L.append("")
+        L.append("| 輪 | 見た回数 | 自分の足元 | 出たときの自分（回数・半径マス） | 近くの鬼が反応（半径の 2 倍まで） | 遠くの鬼が反応 | 何倍 | 届く範囲（輪の何倍） |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for look, rec in sorted(rings.items(), key=lambda p: -p[1].get("n", 0))[:10]:
+            modes = "、".join(f"{mode_ja.get(m, m)} {v[0]}・{v[1] / v[0]:.1f}" for m, v in sorted(rec.get("modes", {}).items(), key=lambda p: -p[1][0]) if v[0])
+            lift = rj.ring_lift(look) if rj else None
+            near, far = rj.ring_near_far(look) if rj else ([0, 0], [0, 0])
+            L.append(f"| {ring_look_ja(look)} | {rec['n']} | {pct(rec['mine'], rec['n'])} | {modes or '-'} | {pct(near[1], near[0])}（{near[0]}） | "
+                     f"{pct(far[1], far[0])}（{far[0]}） | {'×%.1f' % lift if lift is not None else '-'} | {rj.ring_reach(look) if rj else 1.0:.1f} |")
+        choice = {}
+        for r in pd.rounds:
+            for k, v in (r.get("ring_choice") or {}).items():
+                choice[k] = choice.get(k, 0) + v
+        def share(h):
+            m, q = choice.get(f"H{h}:MASH", 0), choice.get(f"H{h}:QUIET", 0)
+            return f"連打 {pct(m, m + q)}（{m + q} 回の判断）"
+        L.append("")
+        L.append(f"- 連打の輪が鬼に届くとき：{share(2)}／届かないとき：{share(1)}（届くときに連打が減っていれば、ばれるかどうかを学んでいる）")
+        L.append(f"- 輪で歩き方を決めた回数：鬼が近くはないが歩く輪が届くのでしのび足 {sum(r.get('ring_sneak', 0) for r in pd.rounds)}・"
+                 f"鬼の気配はあるが輪が届かないので速く歩いた {sum(r.get('ring_walk', 0) for r in pd.rounds)}")
+        L.append("")
+
     # ---- 読んだ文
     texts = pd.brain.get("read_texts") or {}
     if texts:
