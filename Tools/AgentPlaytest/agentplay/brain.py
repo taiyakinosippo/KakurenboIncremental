@@ -212,6 +212,10 @@ class Brain:
         # 宝石のお店の道具を使ったラウンドの記録：道具の名前 -> {rounds, score_sum, clears, effects{…}}（報告書と、試す順番に使う）
         self.gem_trials = {}
         self.template_stats = {}  # 囲い方の型 -> [回数, 得点の合計]
+        # 買った物と勝ち（逃げ切り）：商品名 -> {"now": [回数, 上がり幅の合計], "next": [回数, 上がり幅の合計]}
+        # 上がり幅 ＝ 逃げ切ったか（1/0）− そのステージのふだんの逃げ切りの割合。next は次のラウンドの分（お金の強化用）
+        self.item_wins = {}
+        self.stage_clear = {}  # ステージ -> ふだんの逃げ切りの割合（ゆっくり動く平均）
         self.insights = {}  # 気づいたこと（key -> 気づいたときの遊んだ秒数）。同じことを 2 回書かない
         self.read_texts = {}  # 初めて読んだ文 -> 回数
         self.episodes = 0
@@ -245,6 +249,8 @@ class Brain:
         self.spot_memory = j.get("spot_memory", {})
         self.gem_trials = j.get("gem_trials", {})
         self.template_stats = j.get("template_stats", {})
+        self.item_wins = j.get("item_wins", {})
+        self.stage_clear = j.get("stage_clear", {})
         self.insights = j.get("insights", {})
         self.read_texts = j.get("read_texts", {})
         self.episodes = j.get("episodes", 0)
@@ -254,7 +260,7 @@ class Brain:
         j = {"spot": self.spot.to_json(), "templates": {k: v.to_json() for k, v in self.templates.items()},
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
-             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "insights": self.insights, "read_texts": self.read_texts,
+             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts,
              "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -495,12 +501,51 @@ class Brain:
         rec[1] += 1 if caught_soon else 0
 
     # ---- 商品
+    WIN_MIN = 6  # 勝ちやすさで選ぶのは、この回数以上試してから（それまでは見当と得点で）
+
     def item_value(self, name, roles, prior):
         rec = self.items.get(name)
         if not rec or rec["n"] == 0:
             return prior + 0.3  # まだ試していないものは少し試したくなる
         bonus = 0.25 / math.sqrt(rec["n"])
-        return 0.5 * prior + rec["mean"] + bonus
+        v = 0.5 * prior + rec["mean"] + bonus
+        n, lift = self.win_lift(name, roles)
+        if n >= self.WIN_MIN:
+            v += 1.5 * lift  # 勝ちやすい物を見つけたら優先（勝率 +20% なら +0.3）
+        return v
+
+    @staticmethod
+    def is_income(roles):
+        return bool(set(roles) & {"income_mash", "income_time", "gold"})
+
+    def win_lift(self, name, roles=()):
+        """買った物で逃げ切りの割合がどれだけ上がったか（回数, 上がり幅）。お金の強化は今回＋次回のラウンドの分を足す"""
+        rec = self.item_wins.get(name)
+        if not rec or rec["now"][0] == 0:
+            return 0, 0.0
+        n, s = rec["now"]
+        lift = s / n
+        if self.is_income(roles or self.items.get(name, {}).get("roles", [])):
+            nn, ns = rec["next"]
+            if nn:
+                lift += ns / nn
+        return n, lift
+
+    def clear_baseline(self, stage, cleared):
+        """ふだんの逃げ切りの割合と比べた上がり幅を返し、割合を更新する"""
+        k = str(stage)
+        base = self.stage_clear.get(k)
+        c = 1.0 if cleared else 0.0
+        if base is None:
+            self.stage_clear[k] = c
+            return 0.0
+        self.stage_clear[k] = 0.9 * base + 0.1 * c
+        return c - base
+
+    def note_item_win(self, name, slot, lift):
+        rec = self.item_wins.setdefault(name, {"now": [0, 0.0], "next": [0, 0.0]})
+        rec[slot][0] += 1
+        rec[slot][1] += lift
 
     def note_item(self, name, roles, advantage):
         rec = self.items.setdefault(name, {"n": 0, "mean": 0.0, "roles": sorted(roles), "bought": 0})

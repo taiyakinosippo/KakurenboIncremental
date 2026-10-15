@@ -30,13 +30,13 @@ from .world import DIR_VEC, World
 # 中央から隠れ場所まで歩くので、出入り口の無い「全部閉じる」囲いはどの性格も使わない（中に入れない）
 PERSONAS = {
     "stay": {"ja": "慎重型（その場から動かない）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
-             "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 8,
+             "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 8, "wall_lean": True,
              "prestige": [["よじ登る", "登"], ["硬さ"], ["お金アップ"]]},
     "near": {"ja": "慎重型（近くのお宝だけ取る）", "move": True, "fetch_radius": 8, "treasure_bonus": 1.0, "coin_weight": 1.0,
-             "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 12,
+             "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 12, "wall_lean": True,
              "prestige": [["煙幕ダッシュ", "煙幕"], ["よじ登る", "登"], ["お宝"], ["硬さ"]]},
     "greedy": {"ja": "強欲型（お宝をほぼ全部取る）", "move": True, "fetch_radius": 999, "treasure_bonus": 3.0, "coin_weight": 0.5,
-               "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 30,
+               "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 30, "wall_lean": True,
                "prestige": [["煙幕ダッシュ", "煙幕"], ["お宝"], ["連打のお金"]]},
     # 建築大好き（ユーザーの指定）：壁や罠を優先して買い、鬼を足止めして稼ぐ。囲わない型は使わない。転生は壁登り・壁の硬さ・時間コイン
     "builder": {"ja": "建築大好き（壁と罠で足止め）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
@@ -96,6 +96,7 @@ class Agent:
         self.plan = None
         self.shop_basket = []
         self.stage_baseline = {}
+        self.next_credit = []  # 前のラウンドで買ったお金の強化（次のラウンドの勝ちやすさも見る）
         self.coin_scale = {}
         self.hear_events = []
         self.word_events = []
@@ -333,6 +334,8 @@ class Agent:
         for k in self.P["templates"]:
             wt = self.brain.templates[k].sample(self.rng, scale=1.0)
             tmpl_scores[k] = self.brain.templates[k].predict(wt, tf)
+            if self.P.get("wall_lean") and k != "open":
+                tmpl_scores[k] += 0.06  # ユーザーの希望：建築大好き・壁なし以外も、壁を気持ち積極的に置く
         template = max(tmpl_scores, key=tmpl_scores.get)
         plan = {"base": best, "features": best_f, "value": best_v, "template": template, "tfeat": tf, "mapkey": mapkey,
                 "ctx": {k: round(v, 2) for k, v in ctx.items() if not k.startswith("_")}, "onis": dict(ctx.get("_names", {})),
@@ -471,7 +474,10 @@ class Agent:
             yield Wait(1.5)
 
     def want_tiers(self, stage):
-        base = 1 if stage <= 2 else 2 if stage <= 7 else 3
+        if self.P.get("wall_lean"):
+            base = 1 if stage <= 1 else 2 if stage <= 5 else 3  # 壁を気持ち早く高く
+        else:
+            base = 1 if stage <= 2 else 2 if stage <= 7 else 3
         return base + 1 if self.P.get("build") else base  # 建築大好きは 1 段高く積む
 
     def pick_prestige_item(self, items, points):
@@ -489,17 +495,23 @@ class Agent:
             return None  # 優先度の物はまだ買えない（ポイントをためる）
         return self.pick_item(items, points, special=True)
 
+    GEM_TRY = 3  # 宝石の道具は、まずどれもこの回数ずつ使ってみる
+
     def pick_gem_item(self, items, gems):
-        """宝石のお店：使った結果を知りたいので、まだ試した回数の少ない道具から買う（同じなら安い物）"""
+        """宝石のお店：まず試した回数の少ない道具から買う（同じなら安い物）。
+        どれもある程度試したら、使ったラウンドの勝ちやすさ（お金の道具は次のラウンドも）の高い物を優先"""
         trials = self.brain.gem_trials
-        best = None
-        for i in items:
-            if i["cost"] is None or i["cost"] > gems:
-                continue
-            key = (trials.get(i["name"], {}).get("rounds", 0) + (i["stock"] or 0) * 3, i["cost"])
-            if best is None or key < best[0]:
-                best = (key, i)
-        return best[1] if best else None
+        afford = [i for i in items if i["cost"] is not None and i["cost"] <= gems]
+        if not afford:
+            return None
+        untried = [i for i in afford if trials.get(i["name"], {}).get("rounds", 0) < self.GEM_TRY]
+        if untried:
+            return min(untried, key=lambda i: (trials.get(i["name"], {}).get("rounds", 0) + (i["stock"] or 0) * 3, i["cost"]))
+
+        def val(i):
+            n, lift = self.brain.win_lift(i["name"], i["roles"])
+            return lift + 0.15 / math.sqrt(max(1, n)) - 0.1 * (i["stock"] or 0)  # 持っている物は少し後回し
+        return max(afford, key=val)
 
     def item_prior(self, item):
         roles = item["roles"]
@@ -511,7 +523,7 @@ class Agent:
         if "toughen" in roles:
             p += 0.4
         if "blocker" in roles:
-            p += 0.1
+            p += 0.25 if self.P.get("wall_lean") else 0.1
         if "stun" in roles or "lure" in roles or "decoy_runner" in roles or "one_way" in roles or "darkness" in roles:
             p += 0.15
         if "smoke" in roles:
@@ -1505,6 +1517,14 @@ class Agent:
         self.stage_baseline[stage] = 0.8 * base_score + 0.2 * score
         for item in self.shop_basket:
             self.brain.note_item(item["name"], item["roles"], adv)
+        # 勝ちやすさ：買った物・使った宝石の道具は今回の、前のラウンドで買ったお金の強化（ゴールドラッシュも）は次回の分として
+        win_lift = self.brain.clear_baseline(stage, cleared)
+        for name in self.next_credit:
+            self.brain.note_item_win(name, "next", win_lift)
+        names = {item["name"] for item in self.shop_basket if item.get("currency") != "pt"} | set(R["gem_items"])
+        for name in names:
+            self.brain.note_item_win(name, "now", win_lift)
+        self.next_credit = [n for n in names if self.brain.is_income(self.brain.items.get(n, {}).get("roles", []))]
         self.shop_basket = []
         # お金の目安（得点の正規化に使う）
         earned = max(0.0, (R["coins_last"] or 0) - (R["coins0"] or 0))
