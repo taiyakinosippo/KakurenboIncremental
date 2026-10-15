@@ -1,0 +1,2 @@
+sneaky tension, hide and seek, playful horror, haunted mansion at night, staccato pizzicato, staccato woodwinds, bassoon, ticking percussion, low drums, distant bells, celesta, suspenseful but cute, whimsical tension, sparse mid range, instrumental, no vocals, game bgm, loopable
+seconds=90.0 bpm=126 key=D minor model=acestep-v15-turbo

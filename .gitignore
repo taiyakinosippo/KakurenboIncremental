@@ -27,4 +27,9 @@ KakurenboIncremental/Content/low_poly_cat/
 # 音を作る AI（Tools/SoundGen.ps1）：Python の環境（約 6GB）と、聞き比べのページ用に MP3 にしたもの（MakeWebPage.py が作り直す）。
 # 作った音の候補（SourceArt/SoundGen/<名前>/*.wav）と今の音（_Current）は Git（LFS）に入れる（別のパソコンでも聞けて、採用できるように。docs/Sounds.md）
 Tools/SoundGen/.venv/
+# BGM を作る AI（Tools/MusicGen.ps1）：ACE-Step 本体・Python の環境・モデル（-Setup が取ってくる）
+Tools/MusicGen/ACE-Step-1.5/
 KakurenboIncremental/SourceArt/SoundGen/_web/
+
+# ACE-Step（Tools/MusicGen.ps1）が動かした場所に書く進み具合の記録
+.cache/

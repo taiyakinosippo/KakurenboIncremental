@@ -1,0 +1,2 @@
+cozy spooky, toy box at midnight, haunted mansion at night, music box melody, bouncy pizzicato bass, tuba, bassoon, light percussion, calm, mischievous, whimsical, spooky cute, playful halloween, instrumental, no vocals, game bgm, loopable
+seconds=90.0 bpm=100 key=A minor model=acestep-v15-turbo

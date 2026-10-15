@@ -24,8 +24,11 @@ GROUPS = [
     ("プレイヤー", ["PlayerStep", "PlayerClimb", "Dash", "Smoke", "Heartbeat"]),
     ("鬼", ["OniStep", "OniNotice", "Summon", "BlockHit", "BlockBreak"]),
     ("お宝・罠・道具", ["Treasure", "TreasureSparkle", "TrapSticky", "DecoyPing", "DecoyBreak", "Poof", "Meow"]),
-    ("BGM", ["Music_Calm", "Music_Hide"]),
+    ("BGM", ["Music_Title", "Music_Calm", "Music_Hide", "Music_Chase"]),
 ]
+# BGM 専用の AI（ACE-Step 1.5。Tools/MusicGen.ps1）の候補。同じ名前の BGM に「ACE s1」などとして並べる
+MUSIC_SRC = ROOT / "KakurenboIncremental" / "SourceArt" / "MusicGen"
+MUSIC_CSV = ROOT / "Tools" / "MusicGen" / "Music.csv"
 
 
 def peaks(audio):
@@ -48,6 +51,8 @@ def to_mp3(wav, mp3):
 def main():
     with open(HERE / "Sounds.csv", encoding="utf-8") as f:
         table = {row["Name"]: row for row in csv.DictReader(f) if row.get("Name")}
+    with open(MUSIC_CSV, encoding="utf-8") as f:
+        music = {row["Name"]: row for row in csv.DictReader(f) if row.get("Name")}
     shutil.rmtree(OUT / "audio", ignore_errors=True)  # 前に作った MP3（消えた候補を残さない）
     OUT.mkdir(parents=True, exist_ok=True)
     groups = []
@@ -63,6 +68,11 @@ def main():
             for wav in sorted((SRC / name).glob("*.wav"), key=lambda p: int(p.stem.rsplit("_s", 1)[-1])):
                 seconds, bars = to_mp3(wav, OUT / "audio" / name / f"{wav.stem}.mp3")
                 clips.append({"id": wav.stem, "label": "s" + wav.stem.rsplit("_s", 1)[-1], "src": f"audio/{name}/{wav.stem}.mp3", "sec": round(seconds, 2), "bars": bars})
+            for wav in sorted((MUSIC_SRC / name).glob("*.wav"), key=lambda p: int(p.stem.rsplit("_s", 1)[-1])):
+                seconds, bars = to_mp3(wav, OUT / "audio" / "MusicGen" / name / f"{wav.stem}.mp3")
+                clips.append({"id": "MusicGen:" + wav.stem, "label": "ACE s" + wav.stem.rsplit("_s", 1)[-1],
+                              "src": f"audio/MusicGen/{name}/{wav.stem}.mp3", "sec": round(seconds, 2), "bars": bars})
+            row = music.get(name, row)  # BGM は ACE-Step の説明文を出す
             items.append({"name": name, "desc": row.get("Desc", ""), "prompt": row.get("Prompt", ""), "clips": clips})
         groups.append({"title": title, "items": items})
     page = (HERE / "WebPage.html").read_text(encoding="utf-8")

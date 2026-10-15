@@ -417,4 +417,10 @@
   結果は [PlaytestReport.md](PlaytestReport.md)（ステージ 8 で長く止まる・閉じこもると前半が簡単・宝石がほぼ手に入らない など）
 - 全部作った（101 個。エディタと GPU を分け合うので、必要な長さだけ音にしてメモリを減らした）。「**作ってくれたサイト音聞けません**」→ アプリのプレビューは中身だけ写すので横の音を読めない。
   MP3 にした聞き比べのページを Artifact で公開（`Tools/SoundGen/MakeWebPage.py`・`WebPage.html`。音ごとに「これにする」を選んでコピーして Claude に送れる）
+- 「**BGM 作成 AI のセットアップをお願いします**」→ Stable Audio Open は効果音向き（最長 47 秒）なので、曲専用の ACE-Step 1.5（MIT・作った曲は商用で使える・最長 10 分）を
+  `Tools\MusicGen.ps1`（`-Setup` で `Tools/MusicGen/ACE-Step-1.5` に取ってきて uv で環境・モデルを入れる。ログイン不要）。説明文は `Tools/MusicGen/Music.csv`、
+  候補は `SourceArt/MusicGen/`。2B のターボ版＋言語モデル 1.7B（Windows なので PyTorch で動かす）
+- 「**（BGM の設定：ポップなホラー、明るい雰囲気の緊張感）これでタイトル BGM とマップ作成 BGM、かくれんぼ中と見つかった時の BGM を作成してみて**」→
+  Music_Title・Music_Calm（購入・設置）・Music_Hide・Music_Chase（追われているとき）の説明文を Music.csv に書いて 3 候補ずつ作った。
+  聞くページ（Artifact）の BGM に「ACE s1」などで追加。ゲームにはまだ入れていない（タイトルと追われているときの BGM の場面もまだ無い）
 - 「**他 PC でも確認できるように、ここにあるものを採用できるようにどこかに書いておいて**」→ 候補の WAV と今の音を Git（LFS）に入れた。`docs/Sounds.md` に聞くページ・採用のしかた・全部の候補と「採用」の表（今は全部 —）・組み込みの予定
