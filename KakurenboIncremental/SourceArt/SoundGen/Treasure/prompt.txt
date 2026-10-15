@@ -1,2 +1,4 @@
 Bright magical chime, sparkling coin pickup jingle, cheerful, video game item collect sound effect
 seconds=2.5 steps=100
+s11-s13: Bright music box and celesta sparkle jingle with clinking coins, treasure collected, cute playful halloween game, cheerful item pickup sound effect
+seconds=2.5 steps=100

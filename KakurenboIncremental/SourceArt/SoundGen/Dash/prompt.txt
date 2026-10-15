@@ -1,2 +1,4 @@
 Fast whoosh of a person dashing, quick footsteps on wooden floor, short sound effect
 seconds=1.5 steps=100
+s11-s13: Fast cartoon whoosh with quick scampering footsteps on a wooden floor, playful, short sound effect
+seconds=1.5 steps=100

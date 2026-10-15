@@ -1,2 +1,4 @@
 Sudden tense orchestral stinger, sharp string hit, discovered by enemy, horror game alert sound effect
 seconds=2.0 steps=100
+s11-s13: Sudden comedic spooky stinger, staccato pizzicato strings and a tuba hit with a bell, discovered, cartoon haunted mansion game alert sound effect
+seconds=2.0 steps=100

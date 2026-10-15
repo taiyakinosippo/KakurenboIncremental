@@ -1,2 +1,4 @@
 Single deep heartbeat thump, lub dub, low and tense, close
 seconds=1.5 steps=100
+s11-s13: Single deep heartbeat thump, lub dub, low and tense, soft timpani, close
+seconds=1.5 steps=100

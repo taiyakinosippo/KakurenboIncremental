@@ -1,2 +1,4 @@
 Cash register ding with coins clinking, cheerful shop purchase sound effect, game UI
 seconds=1.5 steps=100
+s11-s13: Cheerful coin clink with a bright glockenspiel ding, toy shop purchase, cute playful game UI sound effect
+seconds=1.5 steps=100

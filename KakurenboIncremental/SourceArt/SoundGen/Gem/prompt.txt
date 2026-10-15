@@ -1,2 +1,4 @@
 Brilliant crystal chime arpeggio, gems collected, magical reward sound effect
 seconds=3.0 steps=100
+s11-s13: Brilliant crystal celesta and music box arpeggio, gems collected, magical cute reward sound effect
+seconds=3.0 steps=100

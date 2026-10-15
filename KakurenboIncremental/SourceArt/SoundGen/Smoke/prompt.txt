@@ -1,2 +1,4 @@
 Smoke bomb poof, soft burst of gas with a hiss, short sound effect
 seconds=2.0 steps=100
+s11-s13: Cartoon smoke bomb poof, soft burst of gas with a hiss, playful, short sound effect
+seconds=2.0 steps=100

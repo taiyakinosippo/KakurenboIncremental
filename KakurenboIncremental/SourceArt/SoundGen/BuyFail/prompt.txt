@@ -1,2 +1,4 @@
 Soft low error buzz, two short descending tones, game UI deny sound
 seconds=1.0 steps=100
+s11-s13: Soft comedic bassoon low double honk, descending, playful deny, game UI sound
+seconds=1.0 steps=100

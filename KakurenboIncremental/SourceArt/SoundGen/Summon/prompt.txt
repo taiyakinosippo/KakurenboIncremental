@@ -1,2 +1,4 @@
 Eerie horn call echoing in a big hall, monster calling allies, spooky sound effect
 seconds=3.0 steps=100
+s11-s13: Eerie playful horn call with a wobbly theremin echoing in a big hall, monster calling its friends, spooky cute sound effect
+seconds=3.0 steps=100

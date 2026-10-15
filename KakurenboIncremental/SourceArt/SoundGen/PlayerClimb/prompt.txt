@@ -1,2 +1,4 @@
 Person climbing onto furniture, cloth rustle and hands grabbing wood, short sound effect
 seconds=1.5 steps=100
+s11-s13: Child climbing onto wooden furniture, cloth rustle and small hands grabbing wood, light creak, short sound effect
+seconds=1.5 steps=100

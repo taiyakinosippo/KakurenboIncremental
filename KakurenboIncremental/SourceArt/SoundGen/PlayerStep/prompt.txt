@@ -1,2 +1,4 @@
 Single soft barefoot footstep on an old wooden floor, quiet, close mic
 seconds=1.0 steps=100
+s11-s13: Single soft sneaky tiptoe footstep on an old creaky wooden floor, quiet, close mic
+seconds=1.0 steps=100

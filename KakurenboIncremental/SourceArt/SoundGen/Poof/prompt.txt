@@ -1,2 +1,4 @@
 Cartoon poof, quick puff of smoke disappearing with a soft pop
 seconds=1.0 steps=100
+s11-s13: Cartoon poof, quick puff of smoke disappearing with a soft pop and a tiny sparkle
+seconds=1.0 steps=100

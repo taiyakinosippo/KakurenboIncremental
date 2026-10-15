@@ -1,2 +1,4 @@
 Comedic descending trombone fail sound, game over, caught, short cartoon sting
 seconds=3.0 steps=100
+s11-s13: Comedic descending tuba and bassoon wah wah fail, cartoon caught sting, playful and spooky, short game over sound
+seconds=3.0 steps=100

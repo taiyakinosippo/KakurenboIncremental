@@ -1,2 +1,4 @@
 Wooden boards breaking and splintering, wall crashing apart, debris falling, impact sound effect
 seconds=2.5 steps=100
+s11-s13: Cartoon wooden boards cracking and splintering, toy blocks tumbling down, playful crash, short sound effect
+seconds=2.5 steps=100

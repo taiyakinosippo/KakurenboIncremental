@@ -1,2 +1,4 @@
 Quick whoosh and soft pop, picking up an item, short game UI sound effect
 seconds=1.0 steps=100
+s11-s13: Quick soft whoosh and a cute pop, toy picked up, playful game UI sound effect
+seconds=1.0 steps=100

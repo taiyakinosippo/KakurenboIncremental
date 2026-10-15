@@ -1,2 +1,4 @@
 Low curious grunt of a big monster, hm?, short creature vocalization
 seconds=1.5 steps=100
+s11-s13: Low curious grunt of a big cute cartoon monster, hm?, short creature vocalization
+seconds=1.5 steps=100

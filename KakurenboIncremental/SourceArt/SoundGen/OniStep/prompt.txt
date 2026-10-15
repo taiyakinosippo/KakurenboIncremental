@@ -1,2 +1,4 @@
 Single heavy stomping footstep on an old wooden floor, big creature, thud, close mic
 seconds=1.0 steps=100
+s11-s13: Single heavy stomping footstep of a big cartoon monster on an old wooden floor, booming thud, close mic
+seconds=1.0 steps=100

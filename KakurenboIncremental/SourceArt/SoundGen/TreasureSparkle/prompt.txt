@@ -1,2 +1,4 @@
 Soft high twinkling sparkle, tiny glittering chimes, magical shimmer, quiet
 seconds=2.0 steps=100
+s11-s13: Soft high twinkling sparkle, tiny celesta and glockenspiel chimes, magical shimmer, quiet
+seconds=2.0 steps=100

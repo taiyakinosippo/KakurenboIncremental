@@ -1,2 +1,4 @@
 Single short soft electronic countdown beep, clean sine tone, game UI
 seconds=1.0 steps=100
+s11-s13: Single Japanese wooden clapper hyoshigi clack, two wooden sticks struck together, short and clear, dry
+seconds=1.0 steps=100

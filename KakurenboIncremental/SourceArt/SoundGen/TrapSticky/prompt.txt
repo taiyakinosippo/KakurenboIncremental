@@ -1,2 +1,4 @@
 Sticky gooey slime squelch, foot stuck in glue, wet sticky sound effect
 seconds=2.0 steps=100
+s11-s13: Cartoon sticky slime squelch, gooey glue stretching with a funny boing, playful sound effect
+seconds=2.0 steps=100

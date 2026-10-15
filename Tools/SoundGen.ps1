@@ -28,12 +28,15 @@ if (-not (Test-Ready)) {
             & py -3.12 -c "import sys" 2>$null
             $UsePy = $LASTEXITCODE -eq 0
         }
-        if ($UsePy) { & py -3.12 -m venv $Venv } else { & python -m venv $Venv }
+        # py が無ければ uv（Python も用意してくれる。--seed で pip も入れる）。どちらも無ければ PATH の python
+        if ($UsePy) { & py -3.12 -m venv $Venv }
+        elseif (Get-Command uv -ErrorAction SilentlyContinue) { & uv venv --seed --python 3.12 $Venv }
+        else { & python -m venv $Venv }
         if ($LASTEXITCODE -ne 0) { throw "venv を作れませんでした（Python 3.10〜3.12 を入れてください）" }
     }
     & $Python -m pip install --upgrade pip -q
-    # GPU（CUDA）版の PyTorch。NVIDIA の GPU が無いパソコンでも動く（CPU でとても遅い）
-    & $Python -m pip install torch==2.7.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu126 -q
+    # GPU（CUDA 12.8）版の PyTorch。RTX 50 シリーズは 12.8 が要る。NVIDIA の GPU が無いパソコンでも動く（CPU でとても遅い）
+    & $Python -m pip install torch==2.7.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu128 -q
     & $Python -m pip install -r (Join-Path $Dir "requirements.txt") -q
     if (-not (Test-Ready)) { throw "環境を作れませんでした（上のエラーを見てください）" }
     Write-Host "[SoundGen] 環境ができました: $Venv"

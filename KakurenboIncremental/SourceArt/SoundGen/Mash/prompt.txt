@@ -1,2 +1,4 @@
 Quick soft wooden knock on a table, single short tap, dry, close mic, game UI sound effect
 seconds=1.5 steps=100
+s11-s13: Soft wooden mokugyo temple block tap, single short knock, cute and playful, dry, close mic, cartoon game UI sound effect
+seconds=1.5 steps=100
