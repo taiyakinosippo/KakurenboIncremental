@@ -22,6 +22,7 @@ ear` / `greedy` をカンマで）
 - 必要なもの：Python 3.8 以上（標準ライブラリだけ。`python`・`py`・uv の Python を自動で探す）
 - ゲームのセーブは専用のスロット（`Agent_stay` など）。**あなたのセーブ・設定は読み書きしない**
 - 遊んでいる間、ゲームのウィンドウは本物のマウス・キーボードを受け付けない（AI だけが操作する）
+- 遊んでいる間はパソコンがスリープしない（Windows の電源の設定は変えず、終わったら元に戻る。ふたを閉じる・手動でスリープにしたときは止まる）
 
 ### 記録と報告書
 
@@ -45,7 +46,7 @@ ear` / `greedy` をカンマで）
 ### 外出先で見る
 
 - **報告書**：起動スクリプトが 15 分ごとと最後に、GitHub のブランチ `agent-reports` へ送る（Claude は使わない）。
-  https://github.com/taiyakinosippo/KakurenboIncremental/blob/agent-reports/LATEST.md （スマホの GitHub アプリでも表のまま読める。日時のフォルダに性格ごとの報告も）。
+  **PC の名前のフォルダ**に書く：https://github.com/taiyakinosippo/KakurenboIncremental/tree/agent-reports の `<PC の名前>/LATEST.md`（このパソコンは `KIC-GAME-A-25/LATEST.md`。スマホの GitHub アプリでも表のまま読める。`<PC の名前>/<日時>/` に性格ごとの報告も）。ほかの PC で動かしても混ざらない。
   手元の main・作業中のファイルには触れない（一時的なインデックスでコミットを作り、そのブランチへ push するだけ。ほかのパソコンの pull・自動ビルドにも影響しない）
 - **Claude とのチャット**：Claude Code のセッションの「Remote Control」をオンにすると、claude.ai/code やスマホのアプリから続きを見て指示できる
 

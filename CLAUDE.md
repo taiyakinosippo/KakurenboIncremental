@@ -71,7 +71,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   HUD に文を足すときは `Text` / `TextFit` / `RichText` / `DrawButton` を使う（窓口が読める。直接 `Canvas->DrawItem` で描いた文は AI に見えない）。
   文字ではない大事な表示（ゲージなど）を足したら、窓口の `GAUGE` に文字で足す。C++ を変えたらパッケージも作り直す（AI はパッケージ版を遊ぶ）。
   ユーザーが決めた動き：スタートはマップの中央・隠れ場所に着くまではお宝優先で足音から遠ざかる・鬼の足音が近いと連打をやめる（音の聞き分けは学ぶ）・
-  宝石の道具は試した回数の少ない物から・性格ごとの転生のお店の優先度（`agent.py` の `PERSONAS`）。報告書は GitHub のブランチ `agent-reports`（`LATEST.md`）にも送る（外出先で見る）
+  宝石の道具は試した回数の少ない物から・性格ごとの転生のお店の優先度（`agent.py` の `PERSONAS`）。報告書は GitHub のブランチ `agent-reports` の **PC の名前のフォルダ**（`<PC の名前>/LATEST.md`）にも送る（外出先で見る）。遊んでいる間はスリープしない（SetThreadExecutionState。電源の設定は変えない）
 - バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture / Surfaces / FloorKinds / Decor）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - **間取りは `python Tools/GenerateMansion.py` で作る**（25 個全部を上書き。玄関ホール・廊下・部屋・家具・`[floor]`）。作り直したら `Maps` / `Mood` / 単体テストを流す
 - 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ（連打・時間・壁の補強）→ 壁 → コインの罠）。

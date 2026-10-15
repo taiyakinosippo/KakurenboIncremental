@@ -165,10 +165,12 @@ function Publish-Report {
         $Parent = (git rev-parse -q --verify "refs/remotes/origin/$Branch" 2>$null)
         $env:GIT_INDEX_FILE = $Index
         if ($Parent) { git read-tree $Parent.Trim() } else { git read-tree --empty }
+        # PC ごとのフォルダ（PC の名前）に書く：<PC の名前>/LATEST.md・<PC の名前>/<日時>/…（ほかの PC の結果と混ざらない）
         $RunName = Split-Path $RunDir -Leaf
-        $Files = @(@{ Src = (Join-Path $RunDir "report.md"); Dst = "$RunName/report.md" }, @{ Src = (Join-Path $RunDir "report.html"); Dst = "$RunName/report.html" },
-                   @{ Src = (Join-Path $RunDir "report.md"); Dst = "LATEST.md" })
-        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\report.md"); Dst = "$RunName/$P.md" } }
+        $Pc = ($env:COMPUTERNAME -replace '[^A-Za-z0-9_.-]', '_')
+        $Files = @(@{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/$RunName/report.md" }, @{ Src = (Join-Path $RunDir "report.html"); Dst = "$Pc/$RunName/report.html" },
+                   @{ Src = (Join-Path $RunDir "report.md"); Dst = "$Pc/LATEST.md" })
+        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\report.md"); Dst = "$Pc/$RunName/$P.md" } }
         foreach ($F in $Files) {
             if (Test-Path $F.Src) {
                 $Hash = (git hash-object -w $F.Src 2>$null).Trim()
@@ -176,10 +178,10 @@ function Publish-Report {
             }
         }
         $Tree = (git write-tree).Trim()
-        $Message = "AI playtest report $RunName $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+        $Message = "AI playtest report $Pc $RunName $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
         $Commit = if ($Parent) { (git commit-tree $Tree -p $Parent.Trim() -m $Message).Trim() } else { (git commit-tree $Tree -m $Message).Trim() }
         git push -q origin "${Commit}:refs/heads/$Branch" 2>$null
-        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（LATEST.md）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログインを確かめてください）" "Yellow" }
+        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/LATEST.md）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
     } catch { Say "報告書を GitHub に送れませんでした：$_" "Yellow" }
     finally {
         if ($OldIndex) { $env:GIT_INDEX_FILE = $OldIndex } else { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue }
@@ -187,6 +189,15 @@ function Publish-Report {
         Pop-Location
     }
 }
+
+# ---------------------------------------------------------------- 遊んでいる間はスリープしない
+# Windows の電源の設定は変えない。このスクリプトが動いている間だけ「使用中」と伝え、終わったら（Ctrl+C・ウィンドウを閉じた後も）元に戻る。
+# ふたを閉じる・手動でスリープにしたときは止まる
+Add-Type -Namespace KakuAgent -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+$EsContinuous = [uint32]2147483648 # ES_CONTINUOUS
+$EsSystem = [uint32]1              # ES_SYSTEM_REQUIRED
+[KakuAgent.Power]::SetThreadExecutionState($EsContinuous -bor $EsSystem) | Out-Null
+Say "遊んでいる間はスリープしないようにしました（終わったら元に戻ります）"
 
 # ---------------------------------------------------------------- 見張る（落ちた・固まったら起動し直す）
 $i = 0
@@ -245,6 +256,7 @@ try {
 finally {
     foreach ($P in $PersonaList) { Stop-Pair $P }
     Make-Report
+    [KakuAgent.Power]::SetThreadExecutionState($EsContinuous) | Out-Null # スリープしてよい状態に戻す
     Say "おわり。報告書：$(Join-Path $RunDir 'report.html')（Markdown は report.md）" "Cyan"
     if ($Open) { Start-Process (Join-Path $RunDir "report.html") }
 }
