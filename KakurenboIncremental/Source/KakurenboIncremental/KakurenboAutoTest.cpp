@@ -86,6 +86,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
@@ -4773,6 +4774,158 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("presence does not pass through a wall (presence %.2f, notices %d -> %d)"), Oni->GetPresence(), C->NoticesBeforeWall, Oni->GetPresenceNoticeCount()),
 				Oni->GetPresenceNoticeCount() == C->NoticesBeforeWall && Oni->GetPresence() < 0.05f);
 			bTestSneak = false;
+		} });
+	}
+	// ================================================================ LowCover（全部の館で、低い家具（椅子・つぼ・テーブルなど）の陰にしゃがんだプレイヤーが、
+	//   家具の向こう側の鬼から見えるか。距離ごとに、今の判定と、手前の家具を見ない前の判定（CrouchCoverReach 0）で数える。のぞき込める距離（2.5m）より遠くからは見えない）
+	else if (Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase))
+	{
+		constexpr int32 LowCoverDists = 5;
+		struct FLowCover
+		{
+			int32 Total[LowCoverDists] = {};
+			int32 Old[LowCoverDists] = {};
+			int32 Seen[LowCoverDists] = {};
+			TMap<TCHAR, FIntVector> ByKey; // 文字 → (数, 前の判定で見えた, 今の判定で見えた)（2〜3 マス）
+		};
+		static const int32 DistCells[LowCoverDists] = { 1, 2, 3, 4, 6 };
+		TSharedRef<FLowCover> R = MakeShared<FLowCover>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 3.3f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				GS()->HideTimeRemaining = 600.f;
+				if (AOniCharacter* Oni = KeepOnlyOni(0))
+				{
+					Oni->Activate(GetHider());
+					Oni->Deactivate(); // 動かさず、見えるかどうかだけ調べる
+				}
+				bTestSneak = true;
+			} });
+			Steps.Add({ 0.6f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				const AKakurenboArena* Arena = GM->GetArena();
+				AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0] : nullptr;
+				AHiderCharacter* Me = GetHider();
+				if (!Oni || !Me || !Me->bIsCrouched)
+				{
+					Check(TEXT("lowcover: oni and crouching player are ready"), false);
+					return;
+				}
+				const FCollisionShape Probe = FCollisionShape::MakeSphere(6.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuLowCover), false, Me);
+				Params.AddIgnoredActor(Oni);
+				const float SavedReach = Oni->CrouchCoverReach;
+				const float OniHalf = Oni->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+				const float MeHalf = Me->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+				auto Open = [G](const FIntPoint& P) { return G->IsWalkable(P); };
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						const TCHAR Key = Arena->GetLayoutChar(C);
+						if (!G->IsObstacle(C) || Key == KakurenboMaps::WallChar || Key == TEXT('.'))
+						{
+							continue;
+						}
+						const FVector Floor = G->CellFloorCenter(C);
+						// 低い家具だけ（1.6m の高さには何も無く、30cm の高さには何かある）
+						bool bLow = false, bTall = false;
+						for (int32 i = 0; i < 5; ++i)
+						{
+							for (int32 j = 0; j < 5; ++j)
+							{
+								const FVector P = Floor + FVector(-40.f + i * 20.f, -40.f + j * 20.f, 0.f);
+								bLow |= GetWorld()->OverlapBlockingTestByChannel(P + FVector(0, 0, 30.f), FQuat::Identity, ECC_Pawn, Probe, Params);
+								bTall |= GetWorld()->OverlapBlockingTestByChannel(P + FVector(0, 0, 160.f), FQuat::Identity, ECC_Pawn, Probe, Params);
+							}
+						}
+						if (!bLow || bTall)
+						{
+							continue;
+						}
+						for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+						{
+							if (!Open(C + D))
+							{
+								continue;
+							}
+							// プレイヤーは家具のすぐ後ろ（家具の面から体の半径ぶん）
+							const FVector Dir(D.X, D.Y, 0.f);
+							const FVector Behind = G->CellFloorCenter(C + D);
+							FHitResult Hit;
+							FVector Spot = Behind;
+							if (GetWorld()->LineTraceSingleByChannel(Hit, Behind + FVector(0, 0, 25.f), Floor + FVector(0, 0, 25.f), ECC_Pawn, Params))
+							{
+								Spot = FVector(Hit.Location.X, Hit.Location.Y, Behind.Z) + Dir * 38.f;
+							}
+							Me->SetActorLocation(Spot + FVector(0, 0, MeHalf + 1.f), false, nullptr, ETeleportType::TeleportPhysics);
+							for (int32 k = 0; k < LowCoverDists; ++k)
+							{
+								// 鬼は家具の反対側、間が空いている床（家具のマスから DistCells マス）
+								bool bClear = true;
+								for (int32 s = 1; s <= DistCells[k] && bClear; ++s)
+								{
+									bClear = Open(C - D * s);
+								}
+								if (!bClear)
+								{
+									break;
+								}
+								const FVector OniFloor = G->CellFloorCenter(C - D * DistCells[k]);
+								Oni->SetActorLocation(OniFloor + FVector(0, 0, OniHalf + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+								Oni->SetActorRotation(Dir.Rotation());
+								Oni->CrouchCoverReach = 0.f;
+								const bool bOld = Oni->CanSeeTarget();
+								Oni->CrouchCoverReach = SavedReach;
+								const bool bSeen = Oni->CanSeeTarget();
+								++R->Total[k];
+								R->Old[k] += bOld ? 1 : 0;
+								R->Seen[k] += bSeen ? 1 : 0;
+								if (k == 1 || k == 2)
+								{
+									FIntVector& K = R->ByKey.FindOrAdd(Key);
+									K.X += 1;
+									K.Y += bOld ? 1 : 0;
+									K.Z += bSeen ? 1 : 0;
+								}
+							}
+						}
+					}
+				}
+				Oni->CrouchCoverReach = SavedReach;
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			bTestSneak = false;
+			for (int32 k = 0; k < LowCoverDists; ++k)
+			{
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] lowcover oni %d cells beyond the furniture: %d spots, seen %d (before the fix %d)"), DistCells[k], R->Total[k], R->Seen[k], R->Old[k]);
+			}
+			FString ByKey;
+			for (const TPair<TCHAR, FIntVector>& Pair : R->ByKey)
+			{
+				ByKey += FString::Printf(TEXT(" %c:%d/%d/%d"), Pair.Key, Pair.Value.X, Pair.Value.Y, Pair.Value.Z);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] lowcover by furniture (spots/seen before the fix/seen now, 2-3 cells):%s"), *ByKey);
+			Check(FString::Printf(TEXT("measured %d spots behind low furniture"), R->Total[0]), R->Total[0] > 100);
+			int32 FarSeen = 0, FarTotal = 0;
+			for (int32 k = 1; k < LowCoverDists; ++k)
+			{
+				FarSeen += R->Seen[k];
+				FarTotal += R->Total[k];
+			}
+			Check(FString::Printf(TEXT("crouching behind low furniture (chairs too) hides the player from 2+ cells away (%d of %d seen)"), FarSeen, FarTotal), FarSeen == 0 && FarTotal > 0);
+			Check(FString::Printf(TEXT("an oni right on the other side still peeks over and sees the player (%d of %d)"), R->Seen[0], R->Total[0]), R->Seen[0] * 10 >= R->Total[0] * 9);
 		} });
 	}
 	// ================================================================ CarefulFind（M14：慎重鬼 2 体が、本物の館（客間）で家具のとなりにしゃがんで隠れたプレイヤーを見つけるまでの時間。

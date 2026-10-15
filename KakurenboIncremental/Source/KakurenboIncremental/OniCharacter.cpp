@@ -1808,6 +1808,9 @@ bool AOniCharacter::CanSeeHider(const AHiderCharacter* Who) const
 	const bool bCrouchedTarget = Who->bIsCrouched;
 	bool bPeekChecked = false;
 	bool bPeekClear = false;
+	// しゃがんでいる相手のすぐ手前に低い家具（椅子など）があれば、のぞき込める距離より遠くからは見えない
+	bool bCoverChecked = false;
+	bool bBehindCover = false;
 
 	TArray<FVector> Points;
 	Who->GetSightTargetPoints(Points);
@@ -1831,6 +1834,18 @@ bool AOniCharacter::CanSeeHider(const AHiderCharacter* Who) const
 		if (ASmokeCloud::IsSightBlocked(GetWorld(), Eye, P))
 		{
 			continue;
+		}
+		if (bCrouchedTarget && ToP.Size2D() > PeekRadius)
+		{
+			if (!bCoverChecked)
+			{
+				bCoverChecked = true;
+				bBehindCover = IsCrouchedBehindCover(Who);
+			}
+			if (bBehindCover)
+			{
+				continue;
+			}
 		}
 		// 間に壁などがなければ見えている
 		if (!GetWorld()->LineTraceTestByChannel(Eye, P, ECC_Visibility, Params))
@@ -1869,6 +1884,29 @@ bool AOniCharacter::IsOnlyLowCoverBetween(const AHiderCharacter* Who) const
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniLowCover), false, this);
 	Params.AddIgnoredActor(Who);
 	return !ASmokeCloud::IsSightBlocked(GetWorld(), From, To) && !GetWorld()->LineTraceTestByChannel(From, To, ECC_Visibility, Params);
+}
+
+bool AOniCharacter::IsCrouchedBehindCover(const AHiderCharacter* Who) const
+{
+	if (!Who || CrouchCoverHeight <= 0.f || CrouchCoverReach <= 0.f)
+	{
+		return false;
+	}
+	// 相手の足元から CrouchCoverHeight の高さで、相手から自分の方へ CrouchCoverReach だけ線を引く。何かに当たれば、その陰にしゃがんでいる
+	// （手前の家具だけを見る。部屋の真ん中の遠くのテーブルの向こうにしゃがんでも隠れたことにはしない）
+	const FVector Me = GetActorLocation();
+	const FVector Them = Who->GetActorLocation();
+	const FVector ToMe = (Me - Them).GetSafeNormal2D();
+	if (ToMe.IsNearlyZero())
+	{
+		return false;
+	}
+	const float TheirFeet = Them.Z - Who->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector From(Them.X, Them.Y, TheirFeet + CrouchCoverHeight);
+	const float Reach = FMath::Min(CrouchCoverReach, static_cast<float>(FVector::Dist2D(Me, Them)));
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(OniCrouchCover), false, this);
+	Params.AddIgnoredActor(Who);
+	return GetWorld()->LineTraceTestByChannel(From, From + ToMe * Reach, ECC_Visibility, Params);
 }
 
 void AOniCharacter::UpdatePresence(float DeltaSeconds)

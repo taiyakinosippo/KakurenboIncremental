@@ -188,6 +188,16 @@ public:
 	float LowCoverHeight = 150.f;
 
 	/**
+	 * しゃがんでいる相手のすぐ手前（CrouchCoverReach cm 以内）に、足元から CrouchCoverHeight cm の高さをさえぎる物（椅子・小さな台・まきなど）があれば、
+	 * PeekRadius より遠くからは見えない。しゃがんだ体（70cm）より低い家具だと頭が少し出て、まっすぐの視線では見えてしまっていた（ユーザーの指摘：椅子の陰にしゃがんでも見つかる）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CrouchCoverHeight = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CrouchCoverReach = 120.f;
+
+	/**
 	 * M14：気配。見えていない相手がこの距離（cm）以内にいて、間に背の高い物（壁・本棚）が無いと「あやしさ」がたまり、1 になったら「ン？」と調べに来る。
 	 * たまる速さ ＝ PresenceRate ×（1 − 距離 / PresenceRadius）/ 秒。すぐそばを通る・そばで立ち止まると気づかれる（さっと通り過ぎるだけなら気づかないことが多い）
 	 */
@@ -571,6 +581,8 @@ private:
 	void UpdatePresence(float DeltaSeconds);
 	/** 自分と相手の間に、LowCoverHeight より背の高い物（壁・本棚）が無いか */
 	bool IsOnlyLowCoverBetween(const AHiderCharacter* Who) const;
+	/** しゃがんでいる相手のすぐ手前（自分の側）に、低い家具などの隠れる物があるか（CrouchCoverHeight・CrouchCoverReach） */
+	bool IsCrouchedBehindCover(const AHiderCharacter* Who) const;
 	void FoundTarget(FName Reason);
 	/** 見えている壁のうち一番近いマス（パワー鬼が壊しに行く） */
 	bool FindVisibleWallCell(FIntPoint& OutCell) const;
