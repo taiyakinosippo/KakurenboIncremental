@@ -17,7 +17,10 @@ $Jobs = @(
     @("icon_bo", 400, 400),
     @("icon_koban", 400, 400),
     @("header", 1500, 500),
-    @("header_game", 1500, 500)
+    @("header_game", 1500, 500),
+    @("history/h01", 1200, 675),
+    @("history/h02", 1200, 675),
+    @("history/h03", 1200, 675)
 )
 foreach ($J in $Jobs) {
     $Html = Join-Path $Art "$($J[0]).html"
