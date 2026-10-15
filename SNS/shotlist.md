@@ -14,9 +14,24 @@ GIF にしたい時は mp4 のまま入れれば Claude が変換を手伝う（
 | `build.png` | 画像 | 設置パート（真上から）。壁で二重に囲った隠れ場所 | インフレ | できた（ステージ 3。壁は少なめ） |
 | `shop.png` | 画像 | 購入パートのお店（コイン・宝石・転生のタブ） | インフレ | できた |
 | `mitsuketa.png` | 画像 | 見つかったときの「みーつけた」の結果画面 | 開発の裏側 | できた |
+| `gem.png` | 画像 | お宝の宝石が光っているところ（近くから） | システム 2a | できた（自動テストで撮影） |
+| `gem_walled.png` | 画像 | 壁で囲まれた宝石（光が壁の外に漏れていない。真上から） | システム 2b | 未（Claude が撮れる） |
+| `gem_shop.png` | 画像 | 宝石のお店のタブ | システム 2c | できた（自動テストで撮影） |
+| `cat.png` / `daruma.png` | 画像 | 迷い猫を鬼がなでている・だるまさんがころんだで鬼が止まった | システム 2c・土曜 | できた（自動テストで撮影） |
+| `build_double.png` | 画像 | 壁を二重に置いた隠れ場所（真上から） | 土曜・システム 3 | 未（Claude が撮れる） |
 | `icon_koban.png` / `icon_bo.png` / `icon_peek.png` | 画像 800×800 | X のアイコン（案 C：壁のかげからのぞく小判（おすすめ）／案 B：ロゴの「ぼ」／案 A：壁のかげからのぞく目）。`art/` の HTML から `art/Render.ps1` で作る | プロフィール | できた |
 | `header.png` | 画像 3000×1000 | X のヘッダー（夜の館＋ロゴ＋「連打で稼ぐ。音で見つかる。」）。同上 | プロフィール | できた |
 | `ai_report.png` | 画像 | AI テストプレイの報告書（`report.html`）の「気づいた時間」の表 | AI テストプレイ | Claude が用意できる |
+
+## 2026-10-15 に自動テストで撮った画像（`media/`）
+
+ゲームに入っている自動テスト（Showcase・Look・OniIntro・GemShop・Walls・Climb・Dash・Crouch・Detector・Mood・Gate・Trap・Maps など）をパッケージ版で動かして撮った。
+`showcase_shop / showcase_build / showcase_chase / daruma / gem`（ステージ 10）・`oni_lineup / oni_red_eyes / oni_intro / oni_book_1〜6 / oni_detector_summon`・
+`gem_shop / prestige_shop / walls_3types / treasure_complete`・`climb / smoke / crouch / darkness / trap_stunned / gate_onis / countdown`・
+`map_s01_parlor / map_s03_nursery / map_s04_library / map_s05_dining / map_walls_angle`・`mood_gate / mood_great_hall / mood_bedroom`
+
+撮り直す方法：`Packaged\Windows\KakurenboIncremental.exe -windowed -KakuNoSave -NoSound -ExecCmds="KakuAutoTest <シナリオ>"` → `Packaged/Windows/KakurenboIncremental/Saved/AutoTest/`。
+迷い猫（Cat）は試験用の部屋で猫が小さく、使える画像にならなかった。
 
 ## Claude が撮るとき
 
