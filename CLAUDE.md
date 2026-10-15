@@ -65,14 +65,14 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   候補は `KakurenboIncremental/SourceArt/MusicGen/`（Git LFS に入れてコミット）。採用は docs/Sounds.md の表。
   **ゲームの BGM は `Data/Sounds/Music_<Title|Calm|Hide|Chase>.wav`**（`Tools/MusicGen/ExportForGame.py` でくり返せる形にする。無ければプログラムの曲）。`UKakurenboSoundSubsystem::LoadMusicWav`
 - **テストプレイ AI**（M16。`Tools\AgentPlaytest.bat`・`Tools\AgentPlaytest.ps1`・Python は `Tools/AgentPlaytest/`・説明は [docs/AgentPlaytest.md](docs/AgentPlaytest.md)）。
-  パッケージ版を 3 つの性格（stay 動かない慎重型・near 近くのお宝だけ・greedy 強欲型）で同時に遊び、強化学習で上達し、報告書（`Saved/AgentPlaytest/<日時>/report.html`）を作る。
+  パッケージ版を 4 つの性格（stay 動かない慎重型・near 近くのお宝だけ・greedy 強欲型・builder 建築大好き）で同時に遊び、強化学習で上達し、報告書（`Saved/AgentPlaytest/<日時>/report.html`）を作る。
   **一度作った後は Claude のトークンを使わない**（ユーザーの要件。AI は手元の Python・標準ライブラリだけ）。**AI はゲームの仕様を知らない**（要件）：AI のコードに鬼・道具の効果・数値を書かない。
   知っていてよいのは一般的な言葉の辞書（`reader.py`）だけで、それ以外は画面の文・見えた物・結果から学ぶ。`TEL`（本当の値）は `recorder.py` だけが読む。
   HUD に文を足すときは `Text` / `TextFit` / `RichText` / `DrawButton` を使う（窓口が読める。直接 `Canvas->DrawItem` で描いた文は AI に見えない）。
   文字ではない大事な表示（ゲージなど）を足したら、窓口の `GAUGE` に文字で足す。C++ を変えたらパッケージも作り直す（AI はパッケージ版を遊ぶ）。
   ユーザーが決めた動き：スタートはマップの中央・隠れ場所に着くまではお宝優先で足音から遠ざかる・鬼の足音が近いと連打をやめる（音の聞き分けは学ぶ）・
   宝石の道具は試した回数の少ない物から・性格ごとの転生のお店の優先度（`agent.py` の `PERSONAS`）。報告書は GitHub のブランチ `agent-reports` の **PC の名前のフォルダ**の同じファイル（`<PC の名前>/README.md`）を上書きする（外出先で見る。新しく作らない）。
-  記録は起動した日時のフォルダ（学習・セーブは続き。`-Continue` で前回のフォルダに書き足す）。8 時間の後 5 分さわられなければ同じデータで続けて 8 時間（報告書は `report_2周目.html` のように足す。`-NoRepeat`）。報告書の先頭は今の状況（何周目・最大ステージ・挑戦回数）と、AI が気づいたこと（`insights.py`。時間付き）。遊んでいる間はスリープしない（SetThreadExecutionState。電源の設定は変えない）。既定は軽くして動かす（`-KakuAgentLight`：コマ数の上限・画質を一番低く・優先度を通常以下。`-Full` で軽くしない）。床の輪（クリック・足音）は `SEE ring` で意味なしに送り、AI が「輪が届いた鬼は気づくか」を学ぶ
+  記録は起動した日時のフォルダ（学習・セーブは続き。`-Continue` で前回のフォルダに書き足す）。8 時間の後 5 分さわられなければ同じデータで続けて 8 時間（報告書は `report_2周目.html` のように足す。`-NoRepeat`）。報告書の先頭は今の状況（何周目・最大ステージ・挑戦回数）と、AI が気づいたこと（`insights.py`。時間付き）。遊んでいる間はスリープしない（SetThreadExecutionState。電源の設定は変えない）。既定は軽くして動かす（`-KakuAgentLight`：コマ数の上限・画質を一番低く・優先度を通常以下。`-Full` で軽くしない）。床の輪（クリック・足音）は `SEE ring` で意味なしに送り、AI が「輪が届いた鬼は気づくか」を学ぶ（壁の向こうの鬼は人と同じく「分からない」扱い）。**バランスを推論する AI** `Tools/AgentPlaytest/analyze.py`（`agentplay/balance.py`。トークンを使わない）が全部の記録から `analysis/balance_<日時>.md` を作り、1 時間ごとに GitHub へ
 - バランスの数値は `KakurenboIncremental/Data/*.csv`（Stages / Upgrades / Walls / OniTypes / Traps / Prestige / PrestigeUpgrades / Maps / Furniture / Surfaces / FloorKinds / Decor）と間取り `Data/Maps/*.txt`。起動時に読み込む（ビルド不要）。書式は `Data/README.md`
 - **間取りは `python Tools/GenerateMansion.py` で作る**（25 個全部を上書き。玄関ホール・廊下・部屋・家具・`[floor]`）。作り直したら `Maps` / `Mood` / 単体テストを流す
 - 購入パートの商品の番号は `GetShopIndexOfWall` / `GetShopIndexOfTrap` で求める（テストで番号を決め打ちしない。並び: 強化 3 つ（連打・時間・壁の補強）→ 壁 → コインの罠）。
