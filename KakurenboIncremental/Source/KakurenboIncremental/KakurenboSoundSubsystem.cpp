@@ -386,6 +386,8 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	bool bSpatial = false;
 	FVector ListenerLocation;
 	FRotator ListenerRotation;
+	float HeardLoudness = VolumeScale; // M16：テキストの窓口に伝える大きさ（音量の設定を掛けない）
+	bool bHeardOccluded = false;
 	if (Location && GetListener(ListenerLocation, ListenerRotation))
 	{
 		bSpatial = true;
@@ -425,10 +427,21 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		Debug.LowPass = Spatial.LowPass;
 		Debug.bBehind = Spatial.bBehind;
 		Debug.bValid = true;
+		HeardLoudness = VolumeScale * DistanceGain * FMath::Max(Spatial.GainL, Spatial.GainR);
+		bHeardOccluded = bBlocked;
 		if (Volume <= 0.001f)
 		{
 			return; // 遠すぎて聞こえない
 		}
+	}
+	if (bRecordHeard && Heard.Num() < 512)
+	{
+		FKakurenboHeardSound& Entry = Heard.AddDefaulted_GetRef();
+		Entry.Sfx = Sfx;
+		Entry.bSpatial = bSpatial;
+		Entry.Location = Location ? *Location : FVector::ZeroVector;
+		Entry.Loudness = HeardLoudness;
+		Entry.bOccluded = bHeardOccluded;
 	}
 
 	// 音アセットが設定されていればそれを鳴らす

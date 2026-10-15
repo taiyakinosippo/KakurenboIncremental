@@ -32,12 +32,29 @@ struct FKakurenboSpatialDebug
 	bool bBehind = false;
 };
 
+/** M16：聞こえた音 1 つ（テキストの窓口が「聞こえた音」として AI に伝える） */
+struct FKakurenboHeardSound
+{
+	EKakurenboSfx Sfx = EKakurenboSfx::Mash;
+	/** その場所から聞こえる音か（false なら画面全体の音） */
+	bool bSpatial = false;
+	FVector Location = FVector::ZeroVector;
+	/** 聞こえた大きさ（距離と壁で小さくなった後。音量の設定は掛けない。だいたい 0〜1） */
+	float Loudness = 0.f;
+	/** 壁・家具の向こうでこもって聞こえた */
+	bool bOccluded = false;
+};
+
 UCLASS()
 class KAKURENBOINCREMENTAL_API UKakurenboSoundSubsystem : public UWorldSubsystem
 {
 	GENERATED_BODY()
 
 public:
+	/** M16：聞こえた音を記録する（テキストの窓口が動いているときだけ）。読んだら空にする */
+	bool bRecordHeard = false;
+	TArray<FKakurenboHeardSound> Heard;
+
 	/** 画面全体で聞こえる音を鳴らす */
 	void Play(EKakurenboSfx Sfx, float VolumeScale = 1.f, float PitchScale = 1.f);
 
@@ -73,6 +90,15 @@ public:
 	/** Data/Sounds/Music_<曲>.wav（16bit の WAV）を読む。無い・読めなければ false */
 	static bool LoadMusicWav(EKakurenboMusic Music, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels);
 
+	/** Data/Sounds/<音>.wav（モノラル・44100Hz・16bit。採用した AI の効果音）を読む。無い・形が違えば false（プログラムの音を使う） */
+	static bool LoadSfxWav(EKakurenboSfx Sfx, TArray<int16>& OutSamples);
+
+	/** その効果音を Data/Sounds の WAV で鳴らしているか（テスト用。一度鳴らした音だけわかる） */
+	bool IsSfxFromFile(EKakurenboSfx Sfx) const;
+
+	/** 16bit の WAV ファイルを読む */
+	static bool ReadWav16(const FString& Path, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels);
+
 	/** BGM の音量（0〜1。効果音の MasterVolume も掛かる）。コンソールの KakuMusicVolume で変えられる */
 	float MusicVolume = 0.45f;
 	void SetMusicVolume(float Volume);
@@ -90,15 +116,6 @@ public:
 
 	/** 聞く人の位置（自分の体。設置パートなどで体が隠れているときはカメラ）と向き（カメラ） */
 	bool GetListener(FVector& OutLocation, FRotator& OutRotation) const;
-	/** Data/Sounds/<音>.wav（モノラル・44100Hz・16bit。採用した AI の効果音）を読む。無い・形が違えば false（プログラムの音を使う） */
-	static bool LoadSfxWav(EKakurenboSfx Sfx, TArray<int16>& OutSamples);
-
-	/** その効果音を Data/Sounds の WAV で鳴らしているか（テスト用。一度鳴らした音だけわかる） */
-	bool IsSfxFromFile(EKakurenboSfx Sfx) const;
-
-	/** 16bit の WAV ファイルを読む */
-	static bool ReadWav16(const FString& Path, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels);
-
 
 private:
 	void PlayInternal(EKakurenboSfx Sfx, const FVector* Location, float VolumeScale, float PitchScale);
@@ -130,6 +147,11 @@ private:
 	};
 	/** 曲ごとの 1 周ぶんの波形（一度読んだ・作ったら使い回す） */
 	TMap<EKakurenboMusic, FMusicLoop> MusicCache;
+
+	/** 効果音の波形（Data/Sounds の WAV。無ければプログラムで作る。PitchScale で高さ（と長さ）を変える） */
+	TArray<int16> GetSfxSamples(EKakurenboSfx Sfx, float PitchScale);
+	/** 効果音ごとの WAV の波形（空なら WAV が無い） */
+	TMap<EKakurenboSfx, TArray<int16>> SfxFileCache;
 	FTimerHandle MusicRefillTimer;
 
 	TArray<int32> PlayCounts;
@@ -138,8 +160,3 @@ private:
 	TArray<double> LastPlayTimes;
 	int32 StartedCount = 0;
 };
-
-	/** 効果音の波形（Data/Sounds の WAV。無ければプログラムで作る。PitchScale で高さ（と長さ）を変える） */
-	TArray<int16> GetSfxSamples(EKakurenboSfx Sfx, float PitchScale);
-	/** 効果音ごとの WAV の波形（空なら WAV が無い） */
-	TMap<EKakurenboSfx, TArray<int16>> SfxFileCache;

@@ -16,7 +16,10 @@ public class KakurenboIncremental : ModuleRules
 		// Slate/SlateCore: HUD の文字描画（FSlateFontInfo）で使う
 		// RenderCore: HUD の図形描画（GWhiteTexture）で使う
 		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore", "RenderCore" });
-		
+
+		// Sockets/Networking: テキストの窓口（AI のテストプレイ。-KakuAgentPort）で、外の AI と 127.0.0.1 の TCP でやり取りする
+		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets", "Networking" });
+
 		// Uncomment if you are using online features
 		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
 

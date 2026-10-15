@@ -105,12 +105,44 @@ namespace
 	}
 }
 
+bool AKakurenboHUD::bRecordTextLayout = false;
+
+void AKakurenboHUD::RecordText(const FString& Str, float LeftPx, float TopPx, float WidthPx, int32 Size)
+{
+	if (!bRecordTextLayout || Str.IsEmpty())
+	{
+		return;
+	}
+	FKakurenboDrawnText& Item = DrawnLayout.AddDefaulted_GetRef();
+	Item.Size = Size;
+	Item.bWorld = bDrawingWorldLabel;
+	Item.bMenu = bDrawingMenu;
+	Item.bCursor = bDrawingCursorHint;
+	Item.Rect = FBox2D(FVector2D(LeftPx, TopPx), FVector2D(LeftPx + WidthPx, TopPx + Size * 1.2f * UIScale));
+	if (!PendingTruncatedText.IsEmpty())
+	{
+		Item.Text = MoveTemp(PendingTruncatedText);
+		Item.bTruncated = true;
+		PendingTruncatedText.Reset();
+	}
+	else
+	{
+		Item.Text = Str;
+	}
+}
+
 void AKakurenboHUD::DrawHUD()
 {
 	Super::DrawHUD();
 
 	LastFrameTexts = MoveTemp(DrawnTexts);
 	DrawnTexts.Reset();
+	LastFrameLayout = MoveTemp(DrawnLayout);
+	DrawnLayout.Reset();
+	LastFrameWorldLabels = MoveTemp(WorldLabels);
+	WorldLabels.Reset();
+	RichTextDepth = 0;
+	PendingTruncatedText.Reset();
 	if (!Canvas)
 	{
 		return;
@@ -166,7 +198,9 @@ void AKakurenboHUD::DrawHUD()
 	{
 		Buttons.Reset();
 		DimScreen(0.6f);
+		bDrawingMenu = true;
 		DrawMenu(GM);
+		bDrawingMenu = false;
 	}
 }
 
@@ -231,6 +265,11 @@ void AKakurenboHUD::DrawPopupsAndFlash()
 		Item.EnableShadow(FLinearColor(0.f, 0.f, 0.f, 0.8f * Alpha));
 		Canvas->DrawItem(Item);
 		DrawnTexts.Add(Popup.Text);
+		if (bRecordTextLayout)
+		{
+			const float WidthPx = MeasureText(Popup.Text, 36) * UIScale;
+			RecordText(Popup.Text, Canvas->ClipX * 0.5f - WidthPx * 0.5f, Y * UIScale, WidthPx, 36);
+		}
 	}
 
 	// 画面全体の点滅（見つかった: 赤 / 逃げ切った: 金）
@@ -279,6 +318,11 @@ void AKakurenboHUD::TextPx(const FString& Str, float Px, float Py, int32 Size, c
 	Item.bCentreX = bCenterX;
 	Canvas->DrawItem(Item);
 	DrawnTexts.Add(Str);
+	if (bRecordTextLayout && RichTextDepth == 0)
+	{
+		const float WidthPx = MeasureText(Str, Size) * UIScale;
+		RecordText(Str, bCenterX ? Px - WidthPx * 0.5f : Px, Py, WidthPx, Size);
+	}
 }
 
 void AKakurenboHUD::Panel(float X, float Y, float W, float H, const FLinearColor& Color)
@@ -387,9 +431,14 @@ void AKakurenboHUD::TextFit(const FString& Str, float X, float Y, int32 Size, fl
 			Shown.LeftChopInline(1);
 		}
 		Shown += TEXT("…");
+		if (bRecordTextLayout)
+		{
+			PendingTruncatedText = Str; // テキストの窓口には削る前の文と「切った」ことを伝える
+		}
 	}
 	// 小さくした分だけ下げて、行の高さの真ん中にそろえる
 	Text(Shown, X, Y + (Size - Fit) * 0.5f, Fit, Color, bCenterX);
+	PendingTruncatedText.Reset();
 }
 
 float AKakurenboHUD::RichTextFit(const FString& Str, float X, float Y, int32 Size, float MaxW, const FLinearColor& Color, bool bCenterX, float Alpha)
@@ -442,6 +491,8 @@ float AKakurenboHUD::RichText(const FString& Str, float X, float Y, int32 Size, 
 		const float Mid = X < 0.f ? Canvas->ClipX / UIScale * 0.5f : X;
 		Cursor = Mid - Total * 0.5f;
 	}
+	const float Left = Cursor;
+	++RichTextDepth; // 部品（キーの形・文の切れ端）は記録しない。下で文全体を記録する
 	for (const FPart& Part : Parts)
 	{
 		if (Part.bKey)
@@ -454,7 +505,12 @@ float AKakurenboHUD::RichText(const FString& Str, float X, float Y, int32 Size, 
 			Cursor += MeasureText(Part.Text, Size);
 		}
 	}
+	--RichTextDepth;
 	DrawnTexts.Add(Str);
+	if (RichTextDepth == 0)
+	{
+		RecordText(Str, Left * UIScale, Y * UIScale, Total * UIScale, Size);
+	}
 	return Total;
 }
 
@@ -477,6 +533,7 @@ void AKakurenboHUD::DrawButton(float X, float Y, float W, float H, const FString
 	bool bSelected, int32 Size, const FLinearColor& TextColor)
 {
 	AddButton(X, Y, W, H, Action, Index);
+	Buttons.Last().Label = Label;
 	// カーソルを乗せている・コントローラーで選んでいるボタンは明るく（選んでいるボタンは金色の枠も）
 	const AKakurenboPlayerController* PC = Cast<AKakurenboPlayerController>(GetOwningPlayerController());
 	const bool bFocused = PC && PC->IsUIFocused(Action, Index);
@@ -568,9 +625,14 @@ void AKakurenboHUD::DrawWorldIndicator(const FVector& WorldLocation, const FStri
 		&& Screen.X > Margin && Screen.X < W - Margin && Screen.Y > Margin && Screen.Y < H - Margin)
 	{
 		TrianglePx(Screen + FVector2D(-14.f, -30.f) * S, Screen + FVector2D(14.f, -30.f) * S, Screen + FVector2D(0.f, -6.f) * S, Color);
+		bDrawingWorldLabel = true;
 		TextPx(Label, Screen.X, Screen.Y - 62.f * S, 18, Color, true);
+		bDrawingWorldLabel = false;
+		WorldLabels.Add({ Label, WorldLocation });
 		return;
 	}
+	WorldLabels.Add({ Label, WorldLocation }); // 画面の外：矢印で方向が出ている
+	bDrawingWorldLabel = true; // 下の矢印の名前も、カメラで動く
 
 	// 画面外なら、画面中央を囲む円の上に「その方向」を指す矢印を出す（上＝カメラの正面、下＝背後）
 	FVector CamLoc;
@@ -589,6 +651,7 @@ void AKakurenboHUD::DrawWorldIndicator(const FVector& WorldLocation, const FStri
 	TrianglePx(Tip, Base + Perp * 22.f * S, Base - Perp * 22.f * S, Color);
 	const FVector2D LabelPos = Center + Dir * (Radius - 34.f * S);
 	TextPx(Label, LabelPos.X, LabelPos.Y - 12.f * S, 18, Color, true);
+	bDrawingWorldLabel = false;
 }
 
 void AKakurenboHUD::DrawWorldLabel(const FVector& WorldLocation, const FString& Label, const FLinearColor& Color, float OffsetY)
@@ -597,7 +660,10 @@ void AKakurenboHUD::DrawWorldLabel(const FVector& WorldLocation, const FString& 
 	FVector2D Screen;
 	if (PC && PC->ProjectWorldLocationToScreen(WorldLocation, Screen, true))
 	{
+		bDrawingWorldLabel = true;
 		TextPx(Label, Screen.X, Screen.Y + (OffsetY - 12.f) * UIScale, 18, Color, true);
+		bDrawingWorldLabel = false;
+		WorldLabels.Add({ Label, WorldLocation });
 	}
 }
 
@@ -1604,6 +1670,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		}
 		// M15：画面の端で文が切れないよう、真ん中の位置を画面の中に収める
 		auto ClampCenter = [CanvasW](float Center, float Width) { return FMath::Clamp(Center, Width * 0.5f + 12.f, CanvasW - Width * 0.5f - 12.f); };
+		bDrawingCursorHint = true; // カーソルと一緒に動く案内（ほかの文と重なってもよい）
 		if (!Hint.IsEmpty())
 		{
 			RichText(Hint, ClampCenter(CX, MeasureRich(Hint, 17)), CY, 17, PC->bCanPlaceAtTarget || bOneWayHere ? Good : Gold, true);
@@ -1613,6 +1680,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 			const FString Reason = PC->BuildTargetReason.ToString();
 			TextPx(Reason, ClampCenter(CX, MeasureText(Reason, 18)) * UIScale, CY * UIScale, 18, Bad, true);
 		}
+		bDrawingCursorHint = false;
 	}
 
 	// 鬼の種類ごとの攻撃力（このステージに出てくる種類だけ）

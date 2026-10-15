@@ -247,6 +247,13 @@ void AKakurenboPlayerController::BeginPlay()
 	{
 		S->Apply(this);
 	}
+
+	// M16：テキストの窓口（外の AI のテストプレイ）。コンソールが使えないパッケージでも起動オプションで動く
+	int32 AgentPort = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("KakuAgentPort="), AgentPort) && AgentPort > 0)
+	{
+		KakuAgent(FString::Printf(TEXT("Port=%d"), AgentPort));
+	}
 }
 
 void AKakurenboPlayerController::PlayerTick(float DeltaTime)

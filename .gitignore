@@ -33,3 +33,6 @@ KakurenboIncremental/SourceArt/SoundGen/_web/
 
 # ACE-Step（Tools/MusicGen.ps1）が動かした場所に書く進み具合の記録
 .cache/
+
+# テストプレイ AI（Tools/AgentPlaytest）の Python が作るキャッシュ（記録と学習は KakurenboIncremental/Saved/AgentPlaytest。Saved は Git に入れない）
+__pycache__/

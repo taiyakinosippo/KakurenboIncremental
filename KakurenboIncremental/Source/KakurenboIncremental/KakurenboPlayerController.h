@@ -362,6 +362,16 @@ public:
 	UFUNCTION(Exec)
 	void KakuPlaytest(const FString& Options);
 
+	/**
+	 * M16：テキストの窓口（外の AI がパッケージ化したゲームを遊ぶ。Tools/AgentPlaytest）。
+	 * 127.0.0.1:Port で AI を待ち、画面の文・ボタン・見えている物・聞こえた音・館の見取り図を文字で送り、
+	 * AI の操作（クリック・キー・マスを指して置く・歩く）を本物の入力と同じ経路で行う。
+	 * ふつうは起動オプション -KakuAgentPort=<番号>（-KakuAgentSpeed=<倍率> でゲームの時間を速める）。例: KakuAgent Port=7777
+	 * 実装は KakurenboAgentBridge.cpp
+	 */
+	UFUNCTION(Exec)
+	void KakuAgent(const FString& Options);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void PlayerTick(float DeltaTime) override;
@@ -525,6 +535,23 @@ private:
 	/** スクリーンショット（決めた枚数まで） */
 	void PlaytestShot(const FString& Name);
 	void PlaytestLog(const FString& Line);
+
+	/** M16：テキストの窓口の状態（KakurenboAgentBridge.cpp。動いていなければ空） */
+	TSharedPtr<struct FKakurenboAgentBridge> Agent;
+	/** 窓口を 1 フレーム進める（実時間で毎フレーム。一時停止中も呼ぶ） */
+	void TickAgentBridge(float RealDeltaSeconds);
+	/** AI から届いた 1 行の操作を行う */
+	void AgentHandleCommand(const FString& Line);
+	/** 今見えているもの・聞こえたものを文字にする */
+	FString AgentBuildObservation();
+	/** 設置パートの「マスを指してクリック」を 1 フレームぶん進める */
+	void AgentTickBuildAction();
+	/** かくれんぼの「そのマスまで歩く」・連打・しゃがむを 1 フレームぶん進める */
+	void AgentTickBody(float RealDeltaSeconds);
+	/** 本当の値で、おかしなこと（はみ出した文・動けない・家具にめり込む…）がないか調べる */
+	void AgentCheckBugs(float RealDeltaSeconds);
+	/** 見つけた不具合を 1 回だけ AI に伝える（Key が同じものは 2 回目から伝えない） */
+	void AgentBug(const FString& Key, const FString& Line, bool bShot = false);
 
 	/** 設置パートのカメラの高さを最後に合わせた館の大きさ */
 	FIntPoint LastTopDownFitSize = FIntPoint::ZeroValue;

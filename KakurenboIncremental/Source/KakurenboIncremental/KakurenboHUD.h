@@ -141,6 +141,32 @@ struct FKakurenboUIButton
 	FBox2D Rect = FBox2D(ForceInit);
 	EKakurenboUIAction Action = EKakurenboUIAction::None;
 	int32 Index = 0;
+	/** ボタンに書いた文字（DrawButton で描いたもの。AddButton だけのボタンは空。テキストの窓口が読む） */
+	FString Label;
+};
+
+/** M16：画面に描いた文 1 つと、その場所（実際のピクセル）。テキストの窓口（AI のテストプレイ）が読む */
+struct FKakurenboDrawnText
+{
+	FString Text;
+	FBox2D Rect = FBox2D(ForceInit);
+	/** 文字の大きさ（1080p 基準） */
+	int32 Size = 0;
+	/** 枠に入らず後ろを「…」にした（Text は削る前の文） */
+	bool bTruncated = false;
+	/** ワールドの場所に付けた名前（「鬼の門」など。カメラで動くので、はみ出し・重なりの検出には使わない） */
+	bool bWorld = false;
+	/** メニュー（一時停止・チュートリアルなど）の文か。メニューは暗くした画面の上に重ねるので、後ろの文との重なりは問題にしない */
+	bool bMenu = false;
+	/** 設置パートのカーソルのそばの案内（「置く」「在庫がありません」など）。カーソルと一緒に動くので、重なりは問題にしない */
+	bool bCursor = false;
+};
+
+/** M16：ワールドの場所に付けた名前（「鬼の門」「スタート」「！」など）。画面に出ているものだけ */
+struct FKakurenboWorldLabel
+{
+	FString Text;
+	FVector World = FVector::ZeroVector;
 };
 
 UCLASS()
@@ -174,12 +200,24 @@ public:
 	/** 前のフレームのボタンが、そのパート・メニューの画面のものか（画面が変わった直後の 1 フレームは前の画面のボタンが残っている） */
 	bool AreButtonsFor(EKakurenboPhase Phase, EKakurenboMenu Menu) const { return ButtonsPhase == Phase && ButtonsMenu == Menu; }
 
+	/** 前のフレームを描いたときのパート・メニュー（テキストの窓口が、文がどの画面のものかを伝えるのに使う） */
+	EKakurenboPhase GetDrawnPhase() const { return ButtonsPhase; }
+	EKakurenboMenu GetDrawnMenu() const { return ButtonsMenu; }
+
 	/** ボタンの真ん中の位置（テスト用。描いていなければ false） */
 	bool GetButtonCenter(EKakurenboUIAction Action, int32 Index, FVector2D& OutScreenPx) const;
 
 	/** 今の画面に出している文（テスト用。文字が出ているかを確かめる） */
 	const TArray<FString>& GetDrawnTexts() const { return LastFrameTexts; }
 	bool HasDrawnText(const FString& Part) const;
+
+	/**
+	 * M16：文の場所・大きさ・「…」で切ったかも記録する（テキストの窓口が動いているときだけ。文の幅を測る手間がかかるので、ふだんは切っておく）。
+	 * 前のフレームに描いた文の一覧と、画面に出ているワールドの名前
+	 */
+	static bool bRecordTextLayout;
+	const TArray<FKakurenboDrawnText>& GetDrawnTextLayout() const { return LastFrameLayout; }
+	const TArray<FKakurenboWorldLabel>& GetWorldLabels() const { return LastFrameWorldLabels; }
 
 protected:
 	void DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM);
@@ -339,4 +377,20 @@ private:
 	/** このフレームに描いた文（テスト用） */
 	TArray<FString> DrawnTexts;
 	TArray<FString> LastFrameTexts;
+
+	/** M16：文の場所（bRecordTextLayout のときだけ）とワールドの名前 */
+	TArray<FKakurenboDrawnText> DrawnLayout;
+	TArray<FKakurenboDrawnText> LastFrameLayout;
+	TArray<FKakurenboWorldLabel> WorldLabels;
+	TArray<FKakurenboWorldLabel> LastFrameWorldLabels;
+	/** RichText の中で描いている部品（キーの形・文の切れ端）は 1 つずつ記録しない（RichText が文全体を記録する） */
+	int32 RichTextDepth = 0;
+	/** TextFit が「…」で切った元の文（次に描く 1 つにだけ付ける） */
+	FString PendingTruncatedText;
+	/** ワールドの名前・メニューを描いている間 */
+	bool bDrawingWorldLabel = false;
+	bool bDrawingMenu = false;
+	bool bDrawingCursorHint = false;
+	/** 描いた文を 1 つ記録する（Left・Top・Width は実際のピクセル） */
+	void RecordText(const FString& Str, float LeftPx, float TopPx, float WidthPx, int32 Size);
 };
