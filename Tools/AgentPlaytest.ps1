@@ -243,14 +243,15 @@ function Make-Report([switch]$Final) {
 }
 
 # 走りの記録（ラウンド・不具合・落ちた記録・ランチャーのログ）を送る形にする。大きい .jsonl は gzip に縮める（GitHub の容量を食わないように）
-function Get-RunDataFiles([string]$Pc, [string]$RunName) {
+# $Dir は送り先のフォルダ（<PC の名前>/<起動日時> か、2 周目からは <PC の名前>/<起動日時>/<n>周目）
+function Get-RunDataFiles([string]$Dir) {
     $Stage = Join-Path $RunDir ".publish-data"
     Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $Stage | Out-Null
     $Out = @()
     foreach ($Name in @("launcher.log", "run.json")) {
         $Src = Join-Path $RunDir $Name
-        if (Test-Path $Src) { $Out += @{ Src = $Src; Dst = "$Pc/$RunName/data/$Name" } }
+        if (Test-Path $Src) { $Out += @{ Src = $Src; Dst = "$Dir/data/$Name" } }
     }
     foreach ($P in $PersonaList) {
         foreach ($Name in @("rounds.jsonl", "bugs.jsonl", "events.jsonl", "crashes.jsonl", "bug_counts.json")) {
@@ -265,9 +266,9 @@ function Get-RunDataFiles([string]$Pc, [string]$RunName) {
                     $In.CopyTo($Zip)
                     $Zip.Dispose(); $OutStream.Dispose()
                 } finally { $In.Dispose() }
-                $Out += @{ Src = $Gz; Dst = "$Pc/$RunName/data/$P/$Name.gz" }
+                $Out += @{ Src = $Gz; Dst = "$Dir/data/$P/$Name.gz" }
             } else {
-                $Out += @{ Src = $Src; Dst = "$Pc/$RunName/data/$P/$Name" }
+                $Out += @{ Src = $Src; Dst = "$Dir/data/$P/$Name" }
             }
         }
     }
@@ -290,7 +291,7 @@ function Publish-Report([switch]$Final) {
         if ($Parent) { git read-tree $Parent.Trim() } else { git read-tree --empty }
         # PC ごとのフォルダ（PC の名前）：
         #   <PC の名前>/README.md・report.html・<性格>.md   最新の報告書（同じファイルを上書き。前の版は Git の履歴に残る）
-        #   <PC の名前>/<起動日時>/                         その走りの報告書（README.md・report*.html・<性格>.md）と記録（data/。1 周の終わりに送る）。走りごとに残る
+        #   <PC の名前>/<起動日時>/[<n>周目/]               その走り（2 周目からは周ごと）の報告書（README.md・report.html・<性格>.md）と記録（data/。1 周の終わりに送る）。走りごとに残る
         $RunName = Split-Path $RunDir -Leaf
         # PC の名前は日本語でもそのまま（GitHub のフォルダ名に使えない記号と空白だけ _ にする。前は英数字以外を全部 _ にしていて、日本語の名前が _______ になった）
         $Pc = ($env:COMPUTERNAME -replace '[\\/:*?"<>|\s]', '_')
@@ -300,11 +301,13 @@ function Publish-Report([switch]$Final) {
         # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（最新の方は同じファイルの名前で上書き）
         $Files = @(@{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/report.html" })
         foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$P.md" } }
-        # その走りのフォルダ：README.md はその走りの最新の周、HTML は周ごとの名前（report.html・report_2周目.html …）
-        $Files += @{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/$RunName/README.md" }
-        $Files += @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/$RunName/$ReportName.html" }
-        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$RunName/$P.md" } }
-        if ($Final) { $Files += Get-RunDataFiles $Pc $RunName }
+        # その走りのフォルダ：1 周目は <起動日時>/ の直下、2 周目からは <起動日時>/<n>周目/（ユーザーの希望）。
+        # 中身はどの周も同じ形（README.md・report.html・<性格>.md・data/）。記録はフォルダの最初からの分（続けて遊んだ周も同じ記録に書き足すので）
+        $BlockDir = if ($Block -ge 2) { "$Pc/$RunName/${Block}周目" } else { "$Pc/$RunName" }
+        $Files += @{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$BlockDir/README.md" }
+        $Files += @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$BlockDir/report.html" }
+        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$BlockDir/$P.md" } }
+        if ($Final) { $Files += Get-RunDataFiles $BlockDir }
         # バランスの推論：最新は balance.md・balance.html、作ったものは全部 analysis/ に残す（新しく作るたびに足していく）
         $AnalysisDir = Join-Path $OutRoot "analysis"
         $Files += @{ Src = (Join-Path $AnalysisDir "latest.md"); Dst = "$Pc/balance.md" }
@@ -320,7 +323,7 @@ function Publish-Report([switch]$Final) {
         $Message = "AI playtest report $Pc $RunName $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
         $Commit = if ($Parent) { (git commit-tree $Tree -p $Parent.Trim() -m $Message).Trim() } else { (git commit-tree $Tree -m $Message).Trim() }
         git push -q origin "${Commit}:refs/heads/$Branch" 2>$null
-        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/README.md と $Pc/$RunName/$(if ($Final) { '・走りの記録 data/' } else { '' })）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
+        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/README.md と $BlockDir/$(if ($Final) { '・走りの記録 data/' } else { '' })）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
     } catch { Say "報告書を GitHub に送れませんでした：$_" "Yellow" }
     finally {
         if ($OldIndex) { $env:GIT_INDEX_FILE = $OldIndex } else { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue }

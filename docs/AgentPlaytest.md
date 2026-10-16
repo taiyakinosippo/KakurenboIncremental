@@ -54,7 +54,8 @@ ear` / `greedy` をカンマで）
 
 - **報告書**：起動スクリプトが 15 分ごとと最後に、GitHub のブランチ `agent-reports` へ送る（Claude は使わない）。
   **PC の名前のフォルダの同じファイルを上書きする**（新しく作らない。前の版は Git の履歴に残る）：https://github.com/taiyakinosippo/KakurenboIncremental/tree/agent-reports/KIC-GAME-A-25 （このパソコン。フォルダを開くと `README.md`＝報告書がそのまま出る。スマホの GitHub アプリでも表のまま読める。`<性格>.md` に性格ごとの報告、`report.html` はグラフ付き）。ほかの PC で動かしても混ざらない。
-  **走りごとのフォルダ** `<PC の名前>/<起動日時>/`（例 `KIC-GAME-A-25/20261016-0914/`）にも、その走りの報告書（`README.md`・`report.html`（2 周目からは `report_2周目.html` も）・`<性格>.md`）を 15 分ごとに送り、
+  **走りごとのフォルダ** `<PC の名前>/<起動日時>/`（例 `KIC-GAME-A-25/20261016-0914/`）にも、その走りの報告書（`README.md`・`report.html`・`<性格>.md`）を 15 分ごとに送り
+  （続けて遊んだ 2 周目からはその下の `<n>周目/`（例 `20261016-0914/2周目/`）に同じ形で。記録はフォルダの最初からの分）、
   1 周の終わり（と Ctrl+C で止めたとき）に走りの記録 `data/`（`launcher.log`・`run.json`・性格ごとの `rounds.jsonl.gz`・`events.jsonl.gz`・`bugs.jsonl.gz`・`crashes.jsonl.gz`・`bug_counts.json`。.jsonl は gzip）を送る。前の走りのフォルダは消さない
 - 記録は**始めた日時のフォルダ**に書く（`-Continue` で前回のフォルダの続き）。GitHub の報告書は今の周の物で同じファイルを上書きする
   手元の main・作業中のファイルには触れない（一時的なインデックスでコミットを作り、そのブランチへ push するだけ。ほかのパソコンの pull・自動ビルドにも影響しない）
