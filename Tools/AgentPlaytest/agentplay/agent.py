@@ -101,6 +101,7 @@ class Agent:
         self.hear_events = []
         self.word_events = []
         self.slot_roles = {}  # 置く物の名前 -> "wall" / "item"（置いて確かめた）
+        self.can_climb = False  # この起動で、かくれんぼ中の案内（操作の欄・ヒント）に「登る」が出た（使える）
         self.insights = InsightTracker(brain, recorder)  # 攻略で大事なことに気づいた瞬間を記録する
 
     # ------------------------------------------------------------ 送る・待つ
@@ -149,7 +150,45 @@ class Agent:
                     self.brain.read_texts[t] = o.phase + ("/menu" if m else "")
                     self.read_count += 1
         if o.phase == "Hide" and o.menu == "None":
+            self.learn_abilities(o)
             self.learn_from_senses(o)
+
+    def learn_abilities(self, o):
+        """かくれんぼ中の案内の文（操作の欄・はじめてのヒント）から、自分の体でできることと使い方を読む。
+        取ったときに出るヒントを読めば、使い方がすぐ分かる（学習を待たない）。「解放」と書いてある文はまだ使えない物"""
+        for m, s, t in o.screen:
+            if m or "解放" in t:
+                continue
+            tags = reader.ability_tags(t)
+            if not tags:
+                continue
+            if "climb" in tags:
+                self.can_climb = True
+            for tag in tags:
+                if tag not in self.brain.abilities:
+                    self.brain.abilities[tag] = t
+                    self.rec.event("ability", {"tag": tag, "text": t})
+                    self.log(f"使い方を読んだ：{tag}（{t}）")
+
+    def climb_use(self, use):
+        """よじ登るを use（"escape" 逃げる / "out_back" 囲いから出て戻る）に使ってよいか：今使えて、使い方を読んだ"""
+        return self.can_climb and ("climb:" + use) in self.brain.abilities
+
+    def climb_flag(self, use):
+        """goto に付ける「登ってよい」の印"""
+        return " climb" if self.climb_use(use) else ""
+
+    def flee_plan(self, w, me, tp):
+        """逃げ先と goto の印。追われたら段を越えて逃げると読んでいれば、段の向こうも逃げ先にする"""
+        if self.climb_use("escape"):
+            if self.round is not None:
+                self.round["climb_flee"] = self.round.get("climb_flee", 0) + 1
+            return w.flee_target(me, tp, over=self.climbable(w)), " climb"
+        return w.flee_target(me, tp), ""
+
+    def climbable(self, w, tiers=1):
+        """登って通れるマスも含めた「通れる」（置いた tiers 段までの壁は越えられる。家具は窓口の道に入らないので数えない）"""
+        return lambda c: w.walkable(c) or (w.is_floor(c) and 0 < w.walls.get(c, 0) <= tiers)
 
     def step(self):
         o = self.obs
@@ -913,9 +952,9 @@ class Agent:
                 if alt and alt != base:
                     R["base"] = alt
                     R["base_switches"] += 1
-            target = w.flee_target(info["mec"], tp)
+            target, climb = self.flee_plan(w, info["mec"], tp)
             if target and R["goto"] != target:
-                self.send(f"goto {target[0]} {target[1]}")
+                self.send(f"goto {target[0]} {target[1]}{climb}")
                 R["goto"], R["goto_at"], R["goto_kind"] = target, o.t, "flee"
                 R["travel_flee"] += 1
             return
@@ -926,12 +965,12 @@ class Agent:
         t = self.travel_treasure(me, info)
         if t:
             if R["goto"] != t:
-                self.send(f"goto {t[0]} {t[1]}{sneak}")
+                self.send(f"goto {t[0]} {t[1]}{sneak}{self.climb_flag('out_back')}")
                 R["goto"], R["goto_at"], R["goto_kind"] = t, o.t, "treasure"
                 R["fetch_from_sound"] = t not in R["treasure_known"]
             return
         if R["goto"] != base:
-            self.send(f"goto {base[0]} {base[1]}{sneak}")
+            self.send(f"goto {base[0]} {base[1]}{sneak}{self.climb_flag('out_back')}")
             R["goto"], R["goto_at"], R["goto_kind"] = base, o.t, "base"
 
     def travel_treasure(self, me, info):
@@ -1140,7 +1179,12 @@ class Agent:
         w = self.current_world()
         if not w:
             return None
-        dist_base = w.bfs([base], w.walkable, limit=radius if radius < 999 else None)
+        # 囲いから登って一度外に出て戻ってこられると読んでいれば、囲いの外のお宝も取りに行く先にする
+        # 2 段の壁を越えられるかは試して分かる（行けなかった所はこのラウンドは選ばない）
+        passable = self.climbable(w, 2) if self.climb_use("out_back") else w.walkable
+        dist_base = w.bfs([base], passable, limit=radius if radius < 999 else None)
+        for c in R.get("unreachable", ()):
+            dist_base.pop(c, None)
         known = [c for c in R["treasure_known"] if c in dist_base]
         if known:
             R["target_from_sound"] = False
@@ -1179,9 +1223,10 @@ class Agent:
         if not w:
             return None
         start = (int(round(me[0])), int(round(me[1])))
-        reach = w.bfs([start], w.walkable, limit=30)
+        passable = self.climbable(w) if self.climb_use("out_back") else w.walkable
+        reach = w.bfs([start], passable, limit=30)
         if self.P["fetch_radius"] < 999:
-            around = w.bfs([tuple(base)], w.walkable, limit=self.P["fetch_radius"])
+            around = w.bfs([tuple(base)], passable, limit=self.P["fetch_radius"])
             cands = [c for c in reach if c in around]
         else:
             cands = list(reach)
@@ -1218,21 +1263,21 @@ class Agent:
         if a in ("FLEE", "SMOKE"):
             w = self.current_world()
             tp = info["threat_pos"] or (me[0] + 5, me[1])
-            target = w.flee_target(me, tp) if w else None
+            target, climb = self.flee_plan(w, me, tp) if w else (None, "")
             if a == "SMOKE":
                 self.send("key Dash tap")
                 R["smoke_used"] += 1
             R["flee_count"] += 1
             self.set_crouch(0)
             if target and R["goto"] != target:
-                self.send(f"goto {target[0]} {target[1]}")
+                self.send(f"goto {target[0]} {target[1]}{climb}")
                 R["goto"] = target
                 R["goto_at"] = self.obs.t
             return
         if a == "RETURN":
             b = R["base"]
             if R["goto"] != b:
-                self.send(f"goto {b[0]} {b[1]} sneak")
+                self.send(f"goto {b[0]} {b[1]} sneak{self.climb_flag('out_back')}")
                 R["goto"] = b
                 R["goto_at"] = self.obs.t
             return
@@ -1244,7 +1289,7 @@ class Agent:
                     R["sound_fetch"] = R.get("sound_fetch", 0) + 1
             if t and R["goto"] != t:
                 sneak = " sneak" if self.sneak_needed(info) else ""
-                self.send(f"goto {t[0]} {t[1]}{sneak}")
+                self.send(f"goto {t[0]} {t[1]}{sneak}{self.climb_flag('out_back')}")
                 R["goto"] = t
                 R["goto_at"] = self.obs.t
 
@@ -1265,6 +1310,8 @@ class Agent:
             R.get("treasure_suspect", {}).pop(R["goto"], None)  # 音の手がかりの所に着いた（無ければ次の手がかり）
             if state == "stuck":
                 self.rec.event("walk-stuck", {"at": self.obs.self_.get("pos"), "goal": R["goto"]})
+            if state == "nopath":
+                R.setdefault("unreachable", set()).add(tuple(R["goto"]))
             R["goto"] = None
 
     # ------------------------------------------------------------ 床の輪
@@ -1564,7 +1611,7 @@ class Agent:
             "round": R["no"], "persona": self.persona, "stage_read": stage, "cleared": cleared, "survived": round(survived, 1),
             "limit": limit, "score": round(score, 3), "q_return": round(R["score"], 2), "plan": plan,
             "actions": R["actions"], "decisions": R["decisions"], "chased": R["chased_ever"], "flee": R["flee_count"],
-            "smoke": R["smoke_used"], "items_used": R["items_used"], "caught_by_seen": caught_by_seen,
+            "smoke": R["smoke_used"], "climb_flee": R.get("climb_flee", 0), "climb_known": sorted(k for k in self.brain.abilities if self.can_climb), "items_used": R["items_used"], "caught_by_seen": caught_by_seen,
             "mash_stopped": R.get("mash_stopped", 0), "ring_choice": R.get("ring_choice", {}), "ring_sneak": R.get("ring_sneak", 0), "ring_walk": R.get("ring_walk", 0),
             "sound_fetch": R.get("sound_fetch", 0),
             "treasures_got": R["treasures_last"], "treasures_total": R["treasures_total"], "round_coins": round(earned, 1),

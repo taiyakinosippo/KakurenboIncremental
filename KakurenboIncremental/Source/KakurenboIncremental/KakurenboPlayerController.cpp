@@ -1006,7 +1006,8 @@ void AKakurenboPlayerController::QueueTip(FName Id, const FString& Text)
 			return;
 		}
 	}
-	S->MarkTipSeen(Id); // 出すと決めたら「見た」にする（同じヒントは 1 回だけ）
+	// 「見た」にするのは画面に出てから（UpdateTips）。列に入れた時点で見た扱いにすると、
+	// 前のヒントを出している間にパートが変わったとき、列の後ろのヒントが一度も出ないまま消えていた
 	FKakurenboTip& Tip = Tips.AddDefaulted_GetRef();
 	Tip.Id = Id;
 	Tip.Text = Text;
@@ -1022,6 +1023,13 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 	}
 	if (Tips.Num() > 0)
 	{
+		if (Tips[0].Age == 0.f)
+		{
+			if (UKakurenboSettings* S = Settings())
+			{
+				S->MarkTipSeen(Tips[0].Id); // 画面に出た（同じヒントは 1 回だけ）
+			}
+		}
 		Tips[0].Age += RealDeltaSeconds;
 		if (Tips[0].Age >= TipSeconds)
 		{

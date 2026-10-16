@@ -218,6 +218,7 @@ class Brain:
         self.stage_clear = {}  # ステージ -> ふだんの逃げ切りの割合（ゆっくり動く平均）
         self.insights = {}  # 気づいたこと（key -> 気づいたときの遊んだ秒数）。同じことを 2 回書かない
         self.read_texts = {}  # 初めて読んだ文 -> 回数
+        self.abilities = {}  # 案内の文から読んだ「自分の体でできること」の印（reader.ability_tags）-> 初めて読んだ文
         self.episodes = 0
         self.history = []  # ラウンドごとの得点（学習の進み具合のグラフ用。最後の 5000）
         self.load()
@@ -253,6 +254,7 @@ class Brain:
         self.stage_clear = j.get("stage_clear", {})
         self.insights = j.get("insights", {})
         self.read_texts = j.get("read_texts", {})
+        self.abilities = j.get("abilities", {})
         self.episodes = j.get("episodes", 0)
         self.history = j.get("history", [])
 
@@ -260,7 +262,7 @@ class Brain:
         j = {"spot": self.spot.to_json(), "templates": {k: v.to_json() for k, v in self.templates.items()},
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
-             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts,
+             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts, "abilities": self.abilities,
              "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

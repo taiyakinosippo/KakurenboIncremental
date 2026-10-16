@@ -192,17 +192,21 @@ class World:
         lo, hi = min(vals.values()), max(vals.values())
         return {c: 1.0 - (v - lo) / max(1e-6, hi - lo) for c, v in vals.items()}
 
-    def flee_target(self, me, threat, max_steps=10):
-        """逃げ先：threat（鬼の場所）から遠く・見通しの切れる所で、近いマス"""
-        dist = self.bfs([me], limit=max_steps)
+    def flee_target(self, me, threat, max_steps=10, over=None):
+        """逃げ先：threat（鬼の場所）から遠く・見通しの切れる所で、近いマス。
+        over（段を越えて通れるマスも含めた「通れる」）を渡すと、段を越えた向こうも候補にし、越えないと行けない所を少し高く見る"""
+        dist = self.bfs([me], over, limit=max_steps)
+        walk_only = self.bfs([me], limit=max_steps) if over else dist
         best, best_score = None, -1e9
         for c, d in dist.items():
-            if d == 0:
+            if d == 0 or not self.walkable(c):
                 continue
             away = math.dist(c, threat)
             hidden = 0.0 if self.los((int(round(threat[0])), int(round(threat[1]))), c) else 3.0
             open4 = sum(1 for dx, dy in DIRS4 if self.walkable((c[0] + dx, c[1] + dy)))
-            score = away + hidden - 0.25 * d - (1.5 if open4 <= 1 else 0.0)
+            # 歩くだけでは遠い（段の向こう）なら、追ってくる鬼も回り道になる
+            beyond = min(3.0, 0.5 * (walk_only.get(c, d + 6) - d)) if over else 0.0
+            score = away + hidden + beyond - 0.25 * d - (1.5 if open4 <= 1 else 0.0)
             if score > best_score:
                 best, best_score = c, score
         return best

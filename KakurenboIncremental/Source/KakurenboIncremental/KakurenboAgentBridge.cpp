@@ -512,13 +512,16 @@ void AKakurenboPlayerController::AgentHandleCommand(const FString& Line)
 			FKakurenboPathGrid Walk = Grid->BuildWalkGrid();
 			if (A.bWalkClimb)
 			{
-				// よじ登れるなら、1 段の壁は少し遠い道として通る（越えて逃げる・囲いの外へ出て戻る。回り道が長いときだけ越える）
+				// よじ登れるなら、登れる高さの壁は少し遠い道として通る（越えて逃げる・囲いの外へ出て戻る。回り道が長いときだけ越える）。
+				// 転生のお店の「よじ登る」が ClimbTwoTierLevel からは 2 段にも登れる
+				const int32 MaxTier = Mode->CanClimbTwoTiers(Mode->GetPrestigeLevel(EPrestigeUpgrade::Climb)) ? 2 : 1;
 				for (int32 Y = 0; Y < Walk.SizeY; ++Y)
 				{
 					for (int32 X = 0; X < Walk.SizeX; ++X)
 					{
 						const FIntPoint C(X, Y);
-						if (!Grid->IsObstacle(C) && Grid->GetColumnHeight(C) == 1)
+						const int32 Tier = Grid->GetColumnHeight(C);
+						if (!Grid->IsObstacle(C) && Tier >= 1 && Tier <= MaxTier)
 						{
 							Walk.SetExtra(C, 3.f);
 						}
