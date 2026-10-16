@@ -10,7 +10,7 @@
 #   既定は軽くして動かす（コマ数の上限・画質を一番低く・ゲームと AI の優先度を「通常以下」。パソコンのほかの作業を邪魔しない）。
 #   -Full で軽くしない（-MaxFPS 40 で上限を変える。既定 30。5 つ同時で PC 全体の CPU が 7 割くらい）
 #   Claude のセッションから起動するときは explorer.exe 経由で（Claude のアプリが更新・再起動すると、アプリから起動したゲームと AI も一緒に止まるため）
-#   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md を更新するので、外出先でも GitHub で見られる）
+#   -NoPublish（報告書を GitHub のブランチ agent-reports へ送らない。既定では 15 分ごとに <PC の名前>/README.md と <PC の名前>/<起動日時>/ を更新するので、外出先でも GitHub で見られる。走りの記録 data/ は 1 周の終わりに）
 #   記録は始めた日時のフォルダ（KakurenboIncremental/Saved/AgentPlaytest/<日時>/）。学習とゲームのセーブは前回の続き。-Continue で前回のフォルダに書き足す
 #   8 時間が終わって 5 分キーボード・マウスにさわらなければ、同じデータ（学習・セーブ・記録のフォルダ）のまま、もう 8 時間続ける（何回でも）。
 #   報告書は 1 周目が report.html・report.md、2 周目からは report_2周目.html のように周の番号を付けて足す。-NoRepeat で 1 回で終わる・-IdleMinutes 10 で待つ時間を変える
@@ -234,18 +234,51 @@ function Make-Analysis {
     } catch { Say "バランスの推論を作れませんでした：$_" "Yellow" }
 }
 
-function Make-Report {
+function Make-Report([switch]$Final) {
     try {
         $Out = & $Python (Join-Path $AgentDir "make_report.py") $RunDir $ReportName $ReportLabel 2>&1
         Say "報告書を更新：$(Join-Path $RunDir "$ReportName.html")"
     } catch { Say "報告書を作れませんでした：$_" "Yellow" }
-    if (-not $NoPublish) { Publish-Report }
+    if (-not $NoPublish) { Publish-Report -Final:$Final }
+}
+
+# 走りの記録（ラウンド・不具合・落ちた記録・ランチャーのログ）を送る形にする。大きい .jsonl は gzip に縮める（GitHub の容量を食わないように）
+function Get-RunDataFiles([string]$Pc, [string]$RunName) {
+    $Stage = Join-Path $RunDir ".publish-data"
+    Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $Stage | Out-Null
+    $Out = @()
+    foreach ($Name in @("launcher.log", "run.json")) {
+        $Src = Join-Path $RunDir $Name
+        if (Test-Path $Src) { $Out += @{ Src = $Src; Dst = "$Pc/$RunName/data/$Name" } }
+    }
+    foreach ($P in $PersonaList) {
+        foreach ($Name in @("rounds.jsonl", "bugs.jsonl", "events.jsonl", "crashes.jsonl", "bug_counts.json")) {
+            $Src = Join-Path $RunDir "$P\$Name"
+            if (-not (Test-Path $Src)) { continue }
+            if ($Name -like "*.jsonl") {
+                $Gz = Join-Path $Stage "$P.$Name.gz"
+                $In = [IO.File]::Open($Src, 'Open', 'Read', 'ReadWrite') # AI が書いている途中でも読めるように
+                try {
+                    $OutStream = [IO.File]::Create($Gz)
+                    $Zip = New-Object IO.Compression.GZipStream($OutStream, [IO.Compression.CompressionMode]::Compress)
+                    $In.CopyTo($Zip)
+                    $Zip.Dispose(); $OutStream.Dispose()
+                } finally { $In.Dispose() }
+                $Out += @{ Src = $Gz; Dst = "$Pc/$RunName/data/$P/$Name.gz" }
+            } else {
+                $Out += @{ Src = $Src; Dst = "$Pc/$RunName/data/$P/$Name" }
+            }
+        }
+    }
+    return $Out
 }
 
 # リモートで見られるように、報告書を GitHub の別ブランチ（agent-reports）へ送る（Claude は使わない）。
 # 手元の作業（main・作業中のファイル・インデックス）には触れない：一時的なインデックスでコミットを作って、そのブランチへ push するだけ。
-# 見るとき：GitHub のリポジトリ → ブランチ agent-reports → LATEST.md（または <日時>/report.md）。スマホの GitHub アプリでも表のまま読める
-function Publish-Report {
+# 見るとき：GitHub のリポジトリ → ブランチ agent-reports → <PC の名前>/README.md（最新）か <PC の名前>/<起動日時>/README.md（その走り）。スマホの GitHub アプリでも表のまま読める
+# -Final（1 周の終わり）のときだけ、走りの記録（data/）も送る（15 分ごとに送ると GitHub の履歴が大きくなるので）
+function Publish-Report([switch]$Final) {
     $Branch = "agent-reports"
     $Index = Join-Path $RunDir ".publish-index"
     $OldIndex = $env:GIT_INDEX_FILE
@@ -255,15 +288,23 @@ function Publish-Report {
         $Parent = (git rev-parse -q --verify "refs/remotes/origin/$Branch" 2>$null)
         $env:GIT_INDEX_FILE = $Index
         if ($Parent) { git read-tree $Parent.Trim() } else { git read-tree --empty }
-        # PC ごとのフォルダ（PC の名前）の同じファイルを上書きする（新しく作らない。前の版は Git の履歴に残る）：
-        #   <PC の名前>/README.md（報告書。GitHub でフォルダを開くとそのまま出る）・report.html・<性格>.md
+        # PC ごとのフォルダ（PC の名前）：
+        #   <PC の名前>/README.md・report.html・<性格>.md   最新の報告書（同じファイルを上書き。前の版は Git の履歴に残る）
+        #   <PC の名前>/<起動日時>/                         その走りの報告書（README.md・report*.html・<性格>.md）と記録（data/。1 周の終わりに送る）。走りごとに残る
         $RunName = Split-Path $RunDir -Leaf
         # PC の名前は日本語でもそのまま（GitHub のフォルダ名に使えない記号と空白だけ _ にする。前は英数字以外を全部 _ にしていて、日本語の名前が _______ になった）
         $Pc = ($env:COMPUTERNAME -replace '[\\/:*?"<>|\s]', '_')
-        git rm -r -q --cached --ignore-unmatch "$Pc" 2>$null | Out-Null
-        # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（GitHub のファイルの名前は同じまま上書き）
+        # 最新の報告書は送り直す（前の走りの起動日時のフォルダは消さない）。この走りのフォルダは、data/ を送らない回はそのまま残す
+        $Keep = "^" + [regex]::Escape($Pc) + "/\d{8}-\d{4}/"
+        git ls-files -- "$Pc" | Where-Object { $_ -notmatch $Keep } | ForEach-Object { git rm -q --cached -- $_ 2>$null | Out-Null }
+        # 続けて遊んだ 2 周目からは、その周の報告書（report_2周目 など）を送る（最新の方は同じファイルの名前で上書き）
         $Files = @(@{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/README.md" }, @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/report.html" })
         foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$P.md" } }
+        # その走りのフォルダ：README.md はその走りの最新の周、HTML は周ごとの名前（report.html・report_2周目.html …）
+        $Files += @{ Src = (Join-Path $RunDir "$ReportName.md"); Dst = "$Pc/$RunName/README.md" }
+        $Files += @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$Pc/$RunName/$ReportName.html" }
+        foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$Pc/$RunName/$P.md" } }
+        if ($Final) { $Files += Get-RunDataFiles $Pc $RunName }
         # バランスの推論：最新は balance.md・balance.html、作ったものは全部 analysis/ に残す（新しく作るたびに足していく）
         $AnalysisDir = Join-Path $OutRoot "analysis"
         $Files += @{ Src = (Join-Path $AnalysisDir "latest.md"); Dst = "$Pc/balance.md" }
@@ -279,11 +320,12 @@ function Publish-Report {
         $Message = "AI playtest report $Pc $RunName $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
         $Commit = if ($Parent) { (git commit-tree $Tree -p $Parent.Trim() -m $Message).Trim() } else { (git commit-tree $Tree -m $Message).Trim() }
         git push -q origin "${Commit}:refs/heads/$Branch" 2>$null
-        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/README.md を更新）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
+        if ($LASTEXITCODE -eq 0) { Say "報告書を GitHub のブランチ $Branch に送りました（$Pc/README.md と $Pc/$RunName/$(if ($Final) { '・走りの記録 data/' } else { '' })）" } else { Say "報告書を GitHub に送れませんでした（ネットワーク・ログイン・ほかの PC と同時に送った、など。次の回にもう一度送る）" "Yellow" }
     } catch { Say "報告書を GitHub に送れませんでした：$_" "Yellow" }
     finally {
         if ($OldIndex) { $env:GIT_INDEX_FILE = $OldIndex } else { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue }
         Remove-Item $Index -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $RunDir ".publish-data") -Recurse -Force -ErrorAction SilentlyContinue
         Pop-Location
     }
 }
@@ -390,7 +432,7 @@ try {
         Run-Block
         foreach ($P in $PersonaList) { Stop-Pair $P }
         Make-Analysis
-        Make-Report
+        Make-Report -Final
         $Reported = $true
         Say "$Block 周目が終わりました。報告書：$(Join-Path $RunDir "$ReportName.html")" "Cyan"
         if ($NoRepeat -or -not (Wait-Idle)) { break }
@@ -404,7 +446,7 @@ try {
 }
 finally {
     foreach ($P in $PersonaList) { Stop-Pair $P }
-    if (-not $Reported) { Make-Report }
+    if (-not $Reported) { Make-Report -Final } # Ctrl+C・ウィンドウを閉じた：そこまでの記録も送る
     [KakuAgent.Power]::SetThreadExecutionState($EsContinuous) | Out-Null # スリープしてよい状態に戻す
     Say "おわり。報告書：$(Join-Path $RunDir "$ReportName.html")（Markdown は $ReportName.md）" "Cyan"
     if ($Open) { Start-Process (Join-Path $RunDir "$ReportName.html") }
