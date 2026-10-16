@@ -308,11 +308,17 @@ function Publish-Report([switch]$Final) {
         $Files += @{ Src = (Join-Path $RunDir "$ReportName.html"); Dst = "$BlockDir/report.html" }
         foreach ($P in $PersonaList) { $Files += @{ Src = (Join-Path $RunDir "$P\$ReportName.md"); Dst = "$BlockDir/$P.md" } }
         if ($Final) { $Files += Get-RunDataFiles $BlockDir }
-        # バランスの推論：最新は balance.md・balance.html、作ったものは全部 analysis/ に残す（新しく作るたびに足していく）
+        # バランスの推論（ユーザーの希望：PC の名前 → 起動日時のフォルダの下に）：
+        #   <その周のフォルダ>/balance.md・balance.html（最新）と analysis/balance_<日時>.md（この周の間に作ったもの全部）。
+        #   <PC の名前>/balance.md・balance.html は最新（報告書の README.md と同じく上書き）
         $AnalysisDir = Join-Path $OutRoot "analysis"
-        $Files += @{ Src = (Join-Path $AnalysisDir "latest.md"); Dst = "$Pc/balance.md" }
-        $Files += @{ Src = (Join-Path $AnalysisDir "latest.html"); Dst = "$Pc/balance.html" }
-        foreach ($F in @(Get-ChildItem (Join-Path $AnalysisDir "balance_*.md") -ErrorAction SilentlyContinue)) { $Files += @{ Src = $F.FullName; Dst = "$Pc/analysis/$($F.Name)" } }
+        foreach ($Dir in @($Pc, $BlockDir)) {
+            $Files += @{ Src = (Join-Path $AnalysisDir "latest.md"); Dst = "$Dir/balance.md" }
+            $Files += @{ Src = (Join-Path $AnalysisDir "latest.html"); Dst = "$Dir/balance.html" }
+        }
+        foreach ($F in @(Get-ChildItem (Join-Path $AnalysisDir "balance_*.md") -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $BlockStarted })) {
+            $Files += @{ Src = $F.FullName; Dst = "$BlockDir/analysis/$($F.Name)" }
+        }
         foreach ($F in $Files) {
             if (Test-Path $F.Src) {
                 $Hash = (git hash-object -w $F.Src 2>$null).Trim()
@@ -425,6 +431,7 @@ function Run-Block {
 
 # 1 周目の報告書は report.html、続けて遊んだ 2 周目からは report_2周目.html（同じフォルダに足す。中身はフォルダの最初からの記録）
 $Block = 1
+$BlockStarted = Get-Date # この周に作ったバランスの推論を、その周のフォルダへ送るため
 $ReportName = "report"
 $ReportLabel = ""
 $BlockSpan = $Deadline - (Get-Date)
@@ -440,6 +447,7 @@ try {
         Say "$Block 周目が終わりました。報告書：$(Join-Path $RunDir "$ReportName.html")" "Cyan"
         if ($NoRepeat -or -not (Wait-Idle)) { break }
         $Block++
+        $BlockStarted = Get-Date
         $ReportName = "report_${Block}周目"
         $ReportLabel = "（続けて遊んだ $Block 周目：$(Get-Date -Format 'MM/dd HH:mm') から）"
         $Deadline = (Get-Date) + $BlockSpan
