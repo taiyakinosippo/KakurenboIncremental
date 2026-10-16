@@ -63,6 +63,9 @@ class Wait:
 
 
 class Agent:
+    PRESTIGE_AFTER_FOUND = 5  # 隠れ場所を見つけてから、この回数見つかったら転生（ユーザーの指定）
+    PRESTIGE_STUCK = 30  # 隠れ場所を見つけられないまま、この回数続けて見つかったら転生（行き詰まり）
+
     def __init__(self, persona, link, brain, recorder, speed=1.0, log=print):
         self.persona = persona
         self.P = PERSONAS[persona]
@@ -84,6 +87,8 @@ class Agent:
         self.placed = {"walls": [], "items": []}
         # 進み具合（自分で数えたもの）
         self.fail_streak = {}
+        self.found_spot = set()  # 隠れ場所を見つけた（たどり着けた）ステージ（転生まで）
+        self.fails_after_found = {}  # ステージ -> 隠れ場所を見つけてから見つかった回数（逃げ切ったら 0）
         self.stage_seen = None
         self.prestige_arm = None
         self.lap_best = 0
@@ -445,13 +450,13 @@ class Agent:
         self.lap_best = max(self.lap_best, stage)
         self.shop_basket = []
 
-        # ---- 転生：同じステージで何度もつまずいたら（何回でするかは学ぶ）
+        # ---- 転生（ユーザーの指定）：このステージで隠れ場所を見つけて（たどり着けて）から 5 回見つかったら。
+        #      隠れ場所をまだ見つけていないうちは、学習の途中なので転生しない（30 回続けて見つかったら、行き詰まりとして転生する）
         pb = self.obs.button("Prestige.0")
         if pb and "pt" in pb[1] and "+" in pb[1]:
-            if self.prestige_arm is None:
-                self.prestige_arm = self.brain.choose_prestige_arm()
             streak = self.fail_streak.get(stage, 0)
-            if streak >= self.prestige_arm or streak >= 30:
+            after_found = self.fails_after_found.get(stage, 0)
+            if after_found >= self.PRESTIGE_AFTER_FOUND or streak >= self.PRESTIGE_STUCK:
                 pts = re.search(r"\+\s*(\d+)\s*pt", pb[1])
                 yield Cmd("click Prestige.0")
                 yield Wait(0.3)
@@ -652,13 +657,15 @@ class Agent:
 
     def on_prestige(self, stage, points, streak):
         reward = (self.lap_best - self.prev_lap_best) + 0.5
-        if self.prestige_arm is not None:
-            self.brain.note_prestige(self.prestige_arm, reward)
         for name in self.lap_prestige_items:
             rec = self.brain.items.get(name)
             if rec:
                 self.brain.note_item(name, set(rec.get("roles", [])), reward / 3.0)
+        # なぜ転生したか（報告書の「何回で転生」の欄）：隠れ場所を見つけてから 5 回 / 見つけられず行き詰まり
+        found = stage in self.found_spot
+        self.prestige_arm = f"見つけて{self.fails_after_found.get(stage, 0)}回" if found else f"見つけられず{streak}回"
         self.rec.event("prestige", {"stage": stage, "points": points, "fail_streak": streak, "arm": self.prestige_arm,
+                                    "found_spot": found, "fails_after_found": self.fails_after_found.get(stage, 0),
                                     "lap_best": self.lap_best, "prev_lap_best": self.prev_lap_best,
                                     "lap_minutes": round((time.time() - self.lap_started) / 60.0, 1)})
         self.prev_lap_best = self.lap_best
@@ -666,7 +673,9 @@ class Agent:
         self.lap_started = time.time()
         self.lap_prestige_items = []
         self.fail_streak = {}
-        self.prestige_arm = self.brain.choose_prestige_arm()
+        self.found_spot = set()
+        self.fails_after_found = {}
+        self.prestige_arm = None
         self.brain.save()
 
     def plan_summary(self):
@@ -1688,12 +1697,17 @@ class Agent:
             self.brain.note_word(word, not cleared)
         for name in ((R.get("plan") or {}).get("onis") or {}):
             self.brain.oni(name)["rounds"] += 1
-        # つまずき（同じステージで続けて見つかった数）
+        # つまずき（同じステージで続けて見つかった数・隠れ場所を見つけてから見つかった数）
+        if R.get("reached") == "arrived":
+            self.found_spot.add(stage)
         if cleared:
             self.fail_streak[stage] = 0
+            self.fails_after_found[stage] = 0
             self.lap_best = max(self.lap_best, stage + 1)
         else:
             self.fail_streak[stage] = self.fail_streak.get(stage, 0) + 1
+            if stage in self.found_spot:
+                self.fails_after_found[stage] = self.fails_after_found.get(stage, 0) + 1
         # 宝石のお店の道具：使ったラウンドの結果と、見えた効き目
         for name in R["gem_items"]:
             rec = self.brain.gem_trials.setdefault(name, {"bought": 0, "rounds": 0, "score_sum": 0.0, "clears": 0, "stage_sum": 0, "effects": {}})
@@ -1716,7 +1730,8 @@ class Agent:
             "mash_stopped": R.get("mash_stopped", 0), "ring_choice": R.get("ring_choice", {}), "ring_sneak": R.get("ring_sneak", 0), "ring_walk": R.get("ring_walk", 0),
             "sound_fetch": R.get("sound_fetch", 0),
             "treasures_got": R["treasures_last"], "treasures_total": R["treasures_total"], "round_coins": round(earned, 1),
-            "fail_streak": self.fail_streak.get(stage, 0), "prestige_arm": self.prestige_arm, "real_seconds": round(time.time() - R["real_start"], 1),
+            "fail_streak": self.fail_streak.get(stage, 0), "found_spot": stage in self.found_spot,
+            "fails_after_found": self.fails_after_found.get(stage, 0), "prestige_arm": self.prestige_arm, "real_seconds": round(time.time() - R["real_start"], 1),
         })
         try:
             self.insights.check()

@@ -231,7 +231,7 @@ def persona_markdown(pd):
     if not pres and len(laps) <= 1:
         L.append("まだ転生していません。")
     else:
-        L.append("| 回 | いつ | ステージ | もらったポイント | その前に続けて失敗 | 決めていた回数 | この周の最高 | 前の周の最高 | この周の長さ |")
+        L.append("| 回 | いつ | ステージ | もらったポイント | その前に続けて失敗 | 転生した理由（隠れ場所を見つけてから見つかった回数） | この周の最高 | 前の周の最高 | この周の長さ |")
         L.append("|---|---|---|---|---|---|---|---|---|")
         for i, e in enumerate(pres):
             d = e["data"]
@@ -260,11 +260,9 @@ def persona_markdown(pd):
             best = max(r.get("stage") or 0 for r in rounds)
             L.append(f"- {lap + 1} 周目：{len(rounds)} ラウンド・逃げ切り {cl}・最高ステージ {best}")
     L.append("")
-    arms = (pd.brain.get("prestige") or {})
-    if arms:
-        L.append("転生のタイミングの学習（同じステージで何回続けて失敗したら転生するか → その周でどれだけ先へ進めたか）： " +
-                 "、".join(f"{k} 回 → {v['mean']:+.1f}（{v['n']} 回）" for k, v in arms.items() if v.get("n")))
-        L.append("")
+    L.append("転生のタイミング（ユーザーの指定）：そのステージで隠れ場所を見つけて（たどり着けて）から 5 回見つかったら。"
+             "見つけられないうちは転生しない（30 回続けて見つかったら行き詰まりとして転生）")
+    L.append("")
 
     # ---- 中央から隠れ場所へ
     trav = [r for r in pd.rounds if r.get("phase_at_end") is not None]
@@ -586,7 +584,7 @@ def overview_markdown(datas, run_dir, label=""):
         L.append(f"開始：{time.strftime('%Y-%m-%d %H:%M', time.localtime(started))}　この報告を作った時刻：{time.strftime('%Y-%m-%d %H:%M')}")
     L.append("")
     L.append("AI はゲームの仕様（CSV・設計書・鬼の数値）を一切知らず、画面の文・ボタン・見えている物・聞こえた音・上から見た館の形だけで遊ぶ。"
-             "長く隠れられるほど得点が高い強化学習（隠れ場所・囲い方はベイズ線形モデル＋トンプソン抽出、かくれんぼ中の動きは Q 学習、お店と転生のタイミングは多腕バンディット）で上達する。"
+             "長く隠れられるほど得点が高い強化学習（隠れ場所・囲い方はベイズ線形モデル＋トンプソン抽出、かくれんぼ中の動きは Q 学習、お店は多腕バンディット。転生は隠れ場所を見つけてから 5 回見つかったら）で上達する。"
              "まず上から見た館全体を見渡して隠れやすい場所を探し、そこを拠点に壁で囲み、鬼の様子を見て連打・静かにする・逃げる・お宝を取るを選ぶ。")
     L.append("")
     # ---- 今の状況（この報告を作った時点）

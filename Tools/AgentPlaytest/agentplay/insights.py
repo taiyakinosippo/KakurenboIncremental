@@ -156,8 +156,4 @@ class InsightTracker:
                     self.note(f"gem:{name}:good", f"宝石の道具「{name}」を使うと隠れやすい（得点の平均 {avg:.2f}、ふだん {overall:.2f}）")
                 elif overall - avg >= 0.1:
                     self.note(f"gem:{name}:bad", f"宝石の道具「{name}」はあまり効かない（得点の平均 {avg:.2f}、ふだん {overall:.2f}）")
-        # ---- 転生のタイミング
-        arms = {k: v for k, v in b.prestige.items() if v.get("n", 0) >= 2}
-        if len(arms) >= 2:
-            best = max(arms, key=lambda k: arms[k]["mean"])
-            self.note(f"prestige:{best}", f"転生は、同じステージで {best} 回続けて見つかったらするのが良い（その周で先へ進めた）")
+        # 転生のタイミングは学ばない（ユーザーの指定：隠れ場所を見つけてから 5 回見つかったら。agent.py の PRESTIGE_AFTER_FOUND）
