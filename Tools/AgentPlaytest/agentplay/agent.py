@@ -5,7 +5,9 @@
   2. そこを拠点にして（壁で囲む・罠を置く）、長く隠れる・逃げる
   3. 性格は 5 つ：動かない慎重型（stay）・近くのお宝だけ取りに行く慎重型（near）・お宝をほぼ全部取りに行く強欲型（greedy）・
      建築大好き（builder：壁と罠を優先して買い、鬼を足止めして稼ぐ）・壁なし（nowall：壁を一切置かない・買わない。煙幕ダッシュで逃げる）
-  4. かくれんぼはマップの中央から始める。隠れ場所に着くまでは、お宝を優先して取りつつ、鬼の足音から遠ざかる（どの性格も）
+  4. 初めての館のかくれんぼはマップの中央から始める（見渡して隠れ場所を見つける）。隠れ場所までたどり着けたことのある館は、隠れ場所のそばから始める。
+     隠れ場所に着くまでは、お宝を優先して取りつつ、鬼の足音から遠ざかる（どの性格も）
+  4b. 登りたい所（2 段の柱の上）には、となりに 1 段の踏み台を置いて階段にする（踏み台はクライミング壁を優先して買う・置く）
   5. 鬼の足音が近いときは連打をやめる。お宝の音がしたら、その方角・距離にお宝があると見当をつける（音の聞き分けは学ぶ）
   5b. 床の輪（クリックの輪・足音の輪）：自分の足元に出る輪の見た目・大きさと、輪の中の鬼が気づいて来るかを学ぶ。
       「連打したら輪が鬼に届くか」を Q 学習の状態に入れ（連打するかは Q 学習が決める）、歩く輪が鬼に届くと分かったらしのび足にする
@@ -375,16 +377,36 @@ class Agent:
             tmpl_scores[k] = self.brain.templates[k].predict(wt, tf)
             if self.P.get("wall_lean") and k != "open":
                 tmpl_scores[k] += 0.06  # ユーザーの希望：建築大好き・壁なし以外も、壁を気持ち積極的に置く
+        # 柱の上に乗る型：よじ登れて、案内の文で「鬼は 2 段の壁に飛び乗れない」と読んだときだけ（柱 2 段＋踏み台 1 段＝壁 3 個）
+        if self.climb_use("perch") and not self.P.get("no_walls") and stock_walls >= 3:
+            wt = self.brain.templates["perch"].sample(self.rng, scale=1.0)
+            tmpl_scores["perch"] = self.brain.templates["perch"].predict(wt, tf) + (0.06 if self.P.get("wall_lean") else 0.0)
         template = max(tmpl_scores, key=tmpl_scores.get)
         plan = {"base": best, "features": best_f, "value": best_v, "template": template, "tfeat": tf, "mapkey": mapkey,
                 "ctx": {k: round(v, 2) for k, v in ctx.items() if not k.startswith("_")}, "onis": dict(ctx.get("_names", {})),
                 "gates": gates[:6], "stage": stage, "alts": alts}
         plan.update(self.layout_for(w, best, template, gates))
+        if template == "perch" and not plan.get("pillar"):
+            # 踏み台を置ける所が無かった：柱の型はやめて、次に良い型で（柱の型の学習に混ぜない）
+            tmpl_scores.pop("perch")
+            plan["template"] = max(tmpl_scores, key=tmpl_scores.get)
+            plan.update(self.layout_for(w, best, plan["template"], gates))
         return plan
 
     def layout_for(self, w, base, template, gates):
         """型から、壁を置くマス（段ごと）と出入り口を決める"""
         gate_dist = w.bfs(gates, w.is_floor)
+        if template == "perch":
+            # 隠れ場所に 2 段の柱を立て、となりに 1 段の踏み台（階段）。踏み台は鬼の門から遠い側で、その先に立てる床がある所
+            cands = []
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                step = (base[0] + dx, base[1] + dy)
+                stand = (base[0] + 2 * dx, base[1] + 2 * dy)
+                if w.placeable(step) and w.is_floor(stand):
+                    cands.append((gate_dist.get(step, 0), step))
+            if cands:
+                return {"ring1": [], "ring2": [], "door": None, "door2": None, "pillar": tuple(base), "step": max(cands)[1]}
+            return {"ring1": [], "ring2": [], "door": None, "door2": None}
         inner = [c for c in w.ring(base, 1) if w.placeable(c)]
         door = None
         if template in ("door_far", "double"):
@@ -478,9 +500,23 @@ class Agent:
         if self.plan:
             tiers = self.want_tiers(stage)
             need = len(self.plan["ring1"]) * tiers + len(self.plan["ring2"]) * max(1, tiers - 1)
+            if self.plan.get("pillar"):
+                tiers, need = 2, 3  # 柱 2 段＋踏み台 1 段
             self.plan["tiers"] = tiers
         have_total = walls_owned + placed_walls
         buys = 0
+        # 柱の型：階段の 1 段目（踏み台）にする「登る壁」を、ほかの壁より先に 1 個（持っていなければ）
+        if self.plan and self.plan.get("pillar"):
+            st = reader.read_status(self.obs)
+            ladders = [i for i in reader.read_shop_items(self.obs) if {"blocker", "climb"} <= i["roles"] and i["available"]
+                       and (i["stock"] or 0) < 1 and (i["cost"] or 1e18) <= (st["coins"] or 0)]
+            if ladders:
+                yield Cmd("click " + ladders[0]["id"])
+                yield Wait(0.25)
+                self.bought(ladders[0], "coin")
+                self.plan["ladder_bought"] = True
+                have_total += 1
+                buys += 1
         while have_total < need and buys < 60:
             st = reader.read_status(self.obs)
             coins = st["coins"] or 0
@@ -584,15 +620,26 @@ class Agent:
     def pick_item(self, items, budget, special):
         best, best_v = None, 0.05
         for i in items:
+            if {"blocker", "climb"} <= i["roles"] and i.get("stock") is not None and i["available"]:
+                self.can_climb = True  # 置ける「登る壁」が買える＝もう登れる（起動してまだかくれんぼの案内を見ていなくても分かる）
             if i["cost"] is None or i["cost"] > budget:
                 continue
             if self.P.get("no_walls") and i["roles"] & {"blocker", "toughen"}:
                 continue  # 壁なし：壁も壁の補強も買わない
             v = self.brain.item_value(i["name"], i["roles"], self.item_prior(i))
             v -= 0.02 * math.log10(max(1.0, i["cost"]))  # 同じくらいなら安い方
+            if self.wants_ladder(i):
+                v += 0.3  # 柱に登る階段の 1 段目（踏み台）に使う。2 個までは先に買う
             if v > best_v:
                 best, best_v = i, v
         return best
+
+    def wants_ladder(self, item):
+        """この商品を階段の踏み台として欲しいか：置ける壁ですばやく登れる物（説明に「登」）で、柱に乗る型を使える（読んだ）とき。持っているのが 2 個未満"""
+        if not ({"blocker", "climb"} <= item["roles"]) or item.get("stock") is None or item["stock"] >= 2:
+            return False
+        # 置ける「登る壁」が売られている＝もう登れる（お店に出るのは登れるようになってから）。使い方は前に読んだもの
+        return "climb:perch" in self.brain.abilities and not self.P.get("no_walls")
 
     def bought(self, item, shop):
         self.shop_basket.append(item)
@@ -627,7 +674,8 @@ class Agent:
             return None
         p = self.plan
         return {"base": p["base"], "template": p["template"], "tiers": p.get("tiers"), "ring1": len(p["ring1"]), "ring2": len(p["ring2"]),
-                "door": p["door"], "value": round(p["value"], 3), "ctx": p["ctx"], "onis": p["onis"]}
+                "door": p["door"], "value": round(p["value"], 3), "ctx": p["ctx"], "onis": p["onis"],
+                "step": p.get("step"), "start": p.get("start"), "start_from": p.get("start_from")}
 
     # ------------------------------------------------------------ 設置パート
     def r_build(self):
@@ -642,16 +690,16 @@ class Agent:
         if not self.plan or self.plan.get("mapkey") != str(hash("\n".join(self.map_rows or [])) & 0xffffffff):
             self.plan = self.make_plan(stock_walls + placed_walls)
             if self.plan:
-                self.plan["tiers"] = self.want_tiers(self.plan["stage"])
+                self.plan["tiers"] = 2 if self.plan.get("pillar") else self.want_tiers(self.plan["stage"])
         plan = self.plan
         if not plan:
             yield Cmd("click NextPhase.0")
             return
         base = plan["base"]
-        wanted = set(plan["ring1"]) | set(plan["ring2"])
-        # 前の隠れ場所の壁が残っていて、今の計画と違う所が多ければ全部回収してから置き直す
+        wanted = set(plan["ring1"]) | set(plan["ring2"]) | {c for c in (plan.get("pillar"), plan.get("step")) if c}
+        # 前の隠れ場所の壁が残っていて、今の計画と違う所が多ければ全部回収してから置き直す（柱の型は隠れ場所に壁があってよい）
         current = {(x, y) for (x, y, h, p, n) in self.placed.get("walls", [])}
-        blocks_door = any(d and tuple(d) in current for d in (plan.get("door"), plan.get("door2"))) or tuple(base) in current
+        blocks_door = any(d and tuple(d) in current for d in (plan.get("door"), plan.get("door2"))) or (tuple(base) in current and not plan.get("pillar"))
         if current and (len(current - wanted) > max(2, len(current) // 3) or blocks_door):
             yield Cmd("click ClearAll.0")
             yield Wait(0.2)
@@ -664,13 +712,16 @@ class Agent:
         layers = [(1, plan["ring1"] + plan["ring2"])]
         for t in range(2, tiers + 1):
             layers.append((t, plan["ring1"] + (plan["ring2"] if t <= tiers - 1 else [])))
+        if plan.get("pillar"):
+            # 柱（2 段）と踏み台（1 段）：踏み台は階段の 1 段目なのでクライミング壁を先に使う
+            layers = [(1, [plan["pillar"], plan["step"]]), (2, [plan["pillar"]])]
         selected = None
         for tier, cells in layers:
             for c in cells:
                 h = {(x, y): hh for (x, y, hh, p, n) in self.placed.get("walls", [])}.get(c, 0)
                 if h >= tier:
                     continue
-                slot = self.pick_wall_slot(reader.read_build_slots(self.obs), tier)
+                slot = self.pick_wall_slot(reader.read_build_slots(self.obs), tier, prefer_climb=(c == plan.get("step")))
                 if not slot:
                     break
                 if slot["id"] != selected:
@@ -681,6 +732,8 @@ class Agent:
                 if res and res.startswith("ok"):
                     build_log["placed"] += 1
                     self.slot_roles.setdefault(slot["name"], "wall")
+                    if c == plan.get("step"):
+                        build_log["step_wall"] = slot["name"]  # 階段の踏み台に使った壁
                 else:
                     build_log["failed"] += 1
         # 道具（罠・宝石の道具）：役割の見当で置く場所を決める
@@ -712,12 +765,18 @@ class Agent:
                             break
                         yield Cmd(f"place {cell[0]} {cell[1]}", timeout=6)
                         yield Wait(0.2)
-        # スタートはマップの中央（ユーザーの指定）。中央に置けなければ近い順に試す。隠れ場所へは、かくれんぼが始まってから歩いて行く
-        for c in self.center_cells(plan)[:6]:
+        # スタート（ユーザーの指定）：初めての館はマップの中央から（歩いて見渡し、隠れ場所を見つける）。
+        # 隠れ場所までたどり着けたことのある館は、隠れ場所のそば（だめなら中央）。置けなければ近い順に試す
+        spot = self.brain.start_spots.get(plan["mapkey"])
+        plan["start_from"] = "spot" if spot else "center"
+        cands = (self.cells_near(plan, plan["base"])[:4] if spot else []) + self.center_cells(plan)[:6]
+        for c in cands:
             res = yield Cmd(f"setstart {c[0]} {c[1]}", timeout=6)
             build_log["setstart"].append([list(c), res])
             if res and res.startswith("ok"):
                 plan["start"] = c
+                if spot and math.dist(c, plan["base"]) > 3.0:
+                    plan["start_from"] = "center"  # 隠れ場所のそばに置けなかった
                 break
         plan["build"] = build_log
         self.rec.event("build", {"stage": plan["stage"], "plan": self.plan_summary(), "log": build_log})
@@ -732,10 +791,17 @@ class Agent:
         w = self.current_world()
         if not w:
             return []
-        cx, cy = (w.w - 1) / 2.0, (w.h - 1) / 2.0
-        avoid = set(plan.get("ring1", [])) | set(plan.get("ring2", [])) | set(w.items)
+        return self.cells_near(plan, ((w.w - 1) / 2.0, (w.h - 1) / 2.0))
+
+    def cells_near(self, plan, center):
+        """center に近い順の、スタートにできそうなマス（置いた壁・囲い・柱と踏み台の予定・赤い床・道具の所は除く）。
+        隠れ場所のそばなら、囲いの中（隠れ場所そのもの）が先に来る"""
+        w = self.current_world()
+        if not w:
+            return []
+        avoid = set(plan.get("ring1", [])) | set(plan.get("ring2", [])) | set(w.items) | {c for c in (plan.get("pillar"), plan.get("step")) if c}
         cells = [c for c in w.floors() if w.placeable(c) and w.walls.get(c, 0) == 0 and w.plans.get(c, 0) == 0 and c not in avoid]
-        return sorted(cells, key=lambda c: (c[0] - cx) ** 2 + (c[1] - cy) ** 2)
+        return sorted(cells, key=lambda c: (c[0] - center[0]) ** 2 + (c[1] - center[1]) ** 2)
 
     def slot_role(self, slot):
         known = self.slot_roles.get(slot["name"])
@@ -743,13 +809,22 @@ class Agent:
             return known
         return "wall" if "blocker" in slot["roles"] else "item"
 
-    def pick_wall_slot(self, slots, tier):
-        cands = [s for s in slots if self.slot_role(s) == "wall" and s["stock"] > 0 and "climb" not in s["roles"]]
+    def full_roles(self, slot):
+        """置く物の役割：欄の文の言葉と、お店で説明を読んだときの役割（欄には説明が無いので、名前で引く）"""
+        return set(slot["roles"]) | set(self.brain.items.get(slot["name"], {}).get("roles", []))
+
+    def pick_wall_slot(self, slots, tier, prefer_climb=False):
+        walls = [s for s in slots if self.slot_role(s) == "wall" and s["stock"] > 0]
+        climbs = [s for s in walls if "climb" in self.full_roles(s)]
+        if prefer_climb and climbs:
+            return climbs[0]  # 階段の踏み台：すばやく登れる壁（説明に「登」）を先に。無ければふつうの壁
+        # ふつうの段は登る壁以外から（登る壁は踏み台に取っておく。ほかに無ければ使う）
+        cands = [s for s in walls if s not in climbs] or climbs
         if not cands:
             return None
         # 1 段目は音を消しそうな壁を先に（持っていれば）、上の段は安い壁から（在庫の多い物）
         if tier == 1:
-            quiet = [s for s in cands if "quiet" in s["roles"]]
+            quiet = [s for s in cands if "quiet" in self.full_roles(s)]
             if quiet:
                 return quiet[0]
         return max(cands, key=lambda s: s["stock"])
@@ -840,6 +915,8 @@ class Agent:
             R["travel_treasures"] += got - R["treasures_last"]
         R["coins_last"] = coins
         R["treasures_last"] = got
+        if self.on_perch():
+            R["perch_time"] = R.get("perch_time", 0.0) + dt  # 柱の上にいた秒数
         R["score"] += r
         R["reward"] += r
         self.keep_action()
@@ -935,8 +1012,9 @@ class Agent:
                     R["base"] = info["mec"]
                     self.start_hiding("nopath")
                     return
-        if math.dist(me, base) < 0.8:
-            self.start_hiding("arrived")
+        perch_base = bool((self.plan or {}).get("pillar")) and tuple(base) == tuple(self.plan["pillar"])
+        if (self.on_perch() if perch_base else math.dist(me, base) < 0.8):
+            self.start_hiding("arrived")  # 柱の型は柱の上に乗ってから
             return
         if (R["t0"] is not None and o.t - R["t0"] > 0.4 * R["limit"]) or not w:
             # 時間がかかりすぎた：ここから先は性格ごとの隠れ方で（動かない性格はその場を隠れ場所にする）
@@ -969,9 +1047,24 @@ class Agent:
                 R["goto"], R["goto_at"], R["goto_kind"] = t, o.t, "treasure"
                 R["fetch_from_sound"] = t not in R["treasure_known"]
             return
-        if R["goto"] != base:
-            self.send(f"goto {base[0]} {base[1]}{sneak}{self.climb_flag('out_back')}")
-            R["goto"], R["goto_at"], R["goto_kind"] = base, o.t, "base"
+        goal, climb = self.base_goal(base)
+        if R["goto"] != goal:
+            self.send(f"goto {goal[0]} {goal[1]}{sneak}{climb}")
+            R["goto"], R["goto_at"], R["goto_kind"] = goal, o.t, "base"
+
+    def on_perch(self):
+        """柱の上（2 段の高さ）にいるか"""
+        p = self.plan or {}
+        return bool(p.get("pillar")) and float(self.obs.self_.get("h") or 0) >= 1.5
+
+    def base_goal(self, base):
+        """隠れ場所へ行くときの行き先と goto の印。柱の型は階段を 1 段ずつ：床にいるなら踏み台へ、踏み台に乗ったら柱へ"""
+        p = self.plan or {}
+        if p.get("pillar") and tuple(base) == tuple(p["pillar"]) and self.can_climb:
+            if float(self.obs.self_.get("h") or 0) < 0.5:
+                return tuple(p["step"]), " climb"
+            return tuple(base), " climb"
+        return base, self.climb_flag("out_back")
 
     def travel_treasure(self, me, info):
         R = self.round
@@ -1204,7 +1297,9 @@ class Agent:
             allowed.append(idx["ITEM"])
         if not self.P["move"]:
             return allowed
-        if info["threat"] >= 1 or info["chased"]:
+        # 柱の上（鬼が飛び乗れないと読んだ高さ）にいる間は、降りて逃げない
+        perched = self.on_perch()
+        if (info["threat"] >= 1 or info["chased"]) and not perched:
             allowed.append(idx["FLEE"])
         if info["at_base"] > 0:
             allowed.append(idx["RETURN"])
@@ -1212,7 +1307,7 @@ class Agent:
             allowed.append(idx["FETCH"])
         elif info.get("explore_ok"):
             allowed.append(idx["EXPLORE"])
-        if info["smoke"] and info["chased"]:
+        if info["smoke"] and info["chased"] and not perched:
             allowed.append(idx["SMOKE"])
         return allowed
 
@@ -1275,9 +1370,9 @@ class Agent:
                 R["goto_at"] = self.obs.t
             return
         if a == "RETURN":
-            b = R["base"]
+            b, climb = self.base_goal(R["base"])
             if R["goto"] != b:
-                self.send(f"goto {b[0]} {b[1]} sneak{self.climb_flag('out_back')}")
+                self.send(f"goto {b[0]} {b[1]} sneak{climb}")
                 R["goto"] = b
                 R["goto_at"] = self.obs.t
             return
@@ -1555,6 +1650,12 @@ class Agent:
             mem[0] += 1
             mem[1] += frac
             self.brain.templates[self.plan["template"]].update(self.plan["tfeat"], frac)
+            # 隠れ場所までたどり着けた館：次からはスタートを隠れ場所のそばに（着いた所を覚える）
+            if R.get("reached") == "arrived":
+                ss = self.brain.start_spots.setdefault(self.plan["mapkey"], {"cell": None, "n": 0, "score": 0.0})
+                ss["cell"] = list(R["base"])
+                ss["n"] += 1
+                ss["score"] += frac
             ts = self.brain.template_stats.setdefault(self.plan["template"], [0, 0.0])
             ts[0] += 1
             ts[1] += score
@@ -1611,7 +1712,7 @@ class Agent:
             "round": R["no"], "persona": self.persona, "stage_read": stage, "cleared": cleared, "survived": round(survived, 1),
             "limit": limit, "score": round(score, 3), "q_return": round(R["score"], 2), "plan": plan,
             "actions": R["actions"], "decisions": R["decisions"], "chased": R["chased_ever"], "flee": R["flee_count"],
-            "smoke": R["smoke_used"], "climb_flee": R.get("climb_flee", 0), "climb_known": sorted(k for k in self.brain.abilities if self.can_climb), "items_used": R["items_used"], "caught_by_seen": caught_by_seen,
+            "smoke": R["smoke_used"], "climb_flee": R.get("climb_flee", 0), "perch_time": round(R.get("perch_time", 0.0), 1), "climb_known": sorted(k for k in self.brain.abilities if self.can_climb), "items_used": R["items_used"], "caught_by_seen": caught_by_seen,
             "mash_stopped": R.get("mash_stopped", 0), "ring_choice": R.get("ring_choice", {}), "ring_sneak": R.get("ring_sneak", 0), "ring_walk": R.get("ring_walk", 0),
             "sound_fetch": R.get("sound_fetch", 0),
             "treasures_got": R["treasures_last"], "treasures_total": R["treasures_total"], "round_coins": round(earned, 1),

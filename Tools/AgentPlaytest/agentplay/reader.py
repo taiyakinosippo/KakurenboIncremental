@@ -147,7 +147,8 @@ def text_tags(text):
 
 def ability_tags(text):
     """自分の体でできること（操作の案内・ヒントの文）の印。ふつうの日本語の読み方だけ：
-    「登」＝段を越えられる / 登る文に「逃げ」＝追われたら越えて逃げる / 「外に出」と「戻」＝囲いから出て戻ってこられる"""
+    「登」＝段を越えられる / 登る文に「逃げ」＝追われたら越えて逃げる / 「外に出」と「戻」＝囲いから出て戻ってこられる /
+    「鬼は〇〇に飛び乗れない」＝その上は鬼が来られない（2 段の壁・クライミング壁）"""
     tags = set()
     t = text
     if "登" not in t:
@@ -157,6 +158,13 @@ def ability_tags(text):
         tags.add("climb:escape")
     if ("外に出" in t or "外へ出" in t) and "戻" in t:
         tags.add("climb:out_back")
+    # 「鬼は〇〇には飛び乗れない」：その上は鬼が来られない場所
+    m = re.search(r"鬼は(.+?)(?:には|に)飛び乗れない", t)
+    if m:
+        if "2 段" in m.group(1) or "2段" in m.group(1):
+            tags.add("climb:perch")  # 2 段に積んだ上に乗れば、鬼は来られない
+        if "クライミング" in m.group(1):
+            tags.add("climb:ladder_safe")  # クライミング壁にも飛び乗れない（踏み台に使っても鬼の足場にならない）
     return tags
 
 

@@ -521,9 +521,26 @@ void AKakurenboPlayerController::AgentHandleCommand(const FString& Line)
 					{
 						const FIntPoint C(X, Y);
 						const int32 Tier = Grid->GetColumnHeight(C);
-						if (!Grid->IsObstacle(C) && Tier >= 1 && Tier <= MaxTier)
+						if (Grid->IsObstacle(C) || Tier < 1)
+						{
+							continue;
+						}
+						if (Tier <= MaxTier)
 						{
 							Walk.SetExtra(C, 3.f);
+						}
+						else if (Tier == MaxTier + 1)
+						{
+							// 階段：となりに 1 段低い壁（踏み台）があれば、そこから 1 段ずつ登れる。わざわざ通る道にはしない（遠い道）
+							for (const FIntPoint D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+							{
+								const FIntPoint N = C + D;
+								if (Grid->IsInside(N) && !Grid->IsObstacle(N) && Grid->GetColumnHeight(N) == Tier - 1)
+								{
+									Walk.SetExtra(C, 8.f);
+									break;
+								}
+							}
 						}
 					}
 				}

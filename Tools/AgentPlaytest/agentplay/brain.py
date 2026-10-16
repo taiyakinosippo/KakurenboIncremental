@@ -113,6 +113,8 @@ TEMPLATES = {
     "sealed": "まわりを全部壁で閉じる",
     "double": "二重の囲い（内と外で出入り口をずらす）",
     "decoy_far": "囲わずに、罠・おとりを門と隠れ場所の間に置く",
+    # よじ登れて、案内の文で「鬼は 2 段の壁に飛び乗れない」と読んだときだけ使う（agent.py の make_plan）
+    "perch": "2 段に積んだ柱の上に乗る（となりに 1 段の踏み台＝階段。踏み台はクライミング壁を優先）",
 }
 CTX_TAGS = ["breaks_walls", "searches_enclosed", "hears_mash", "hears_steps", "fast", "wide_sight", "summons", "treasure_lover", "systematic", "weak_breaker"]
 
@@ -219,6 +221,9 @@ class Brain:
         self.insights = {}  # 気づいたこと（key -> 気づいたときの遊んだ秒数）。同じことを 2 回書かない
         self.read_texts = {}  # 初めて読んだ文 -> 回数
         self.abilities = {}  # 案内の文から読んだ「自分の体でできること」の印（reader.ability_tags）-> 初めて読んだ文
+        # 館ごとに、隠れ場所までたどり着けたか："館の形の印" -> {"cell": [x, y]（最後に着いた隠れ場所）, "n": 着いた回数, "score": 得点の合計}。
+        # 着いたことのある館は、次からスタートを隠れ場所のそばにする（初めての館はマップの中央から）
+        self.start_spots = {}
         self.episodes = 0
         self.history = []  # ラウンドごとの得点（学習の進み具合のグラフ用。最後の 5000）
         self.load()
@@ -255,6 +260,7 @@ class Brain:
         self.insights = j.get("insights", {})
         self.read_texts = j.get("read_texts", {})
         self.abilities = j.get("abilities", {})
+        self.start_spots = j.get("start_spots", {})
         self.episodes = j.get("episodes", 0)
         self.history = j.get("history", [])
 
@@ -262,7 +268,7 @@ class Brain:
         j = {"spot": self.spot.to_json(), "templates": {k: v.to_json() for k, v in self.templates.items()},
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
-             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts, "abilities": self.abilities,
+             "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts, "abilities": self.abilities, "start_spots": self.start_spots,
              "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
