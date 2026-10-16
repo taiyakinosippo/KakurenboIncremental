@@ -151,6 +151,7 @@ function Start-Pair([string]$P, [int]$Index) {
     $S.GameLog = $GameLog
     $S.Started = Get-Date
     $S.Lowered = $false
+    $S.TitlePid = $null
     Say "$P を起動（$($S.Launch) 回目・ポート $Port）"
 }
 
@@ -178,6 +179,45 @@ function Set-LowPriority([string]$P) {
         Where-Object { $_.CommandLine -match "KakuAgentPort=$($BasePort + $S.Index)\b" } | ForEach-Object {
             try { (Get-Process -Id $_.ProcessId -ErrorAction Stop).PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; if ($_.ExecutablePath -match "Binaries") { $S.Lowered = $true } } catch {}
         }
+}
+
+# どのウィンドウがどの性格か分かるように、ゲームとログのウィンドウの題名に性格を入れる（タスクバーにもその名前で出る）
+Add-Type -Namespace KakuAgent -Name Title -MemberDefinition @'
+delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder s, int n);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder s, int n);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool SetWindowText(IntPtr hWnd, string s);
+// pid のゲームの窓（UnrealWindow）とログの窓（ConsoleWindowClass）の題名を変える。ゲームの窓を見つけたら true
+public static bool Apply(uint pid, string game, string log) {
+    bool found = false;
+    EnumWindows((h, l) => {
+        uint p; GetWindowThreadProcessId(h, out p);
+        if (p != pid) return true;
+        var c = new System.Text.StringBuilder(64); GetClassName(h, c, 64);
+        string want = c.ToString() == "UnrealWindow" ? game : c.ToString() == "ConsoleWindowClass" ? log : null;
+        if (want == null) return true;
+        if (want == game) found = true;
+        var t = new System.Text.StringBuilder(256); GetWindowText(h, t, 256);
+        if (t.ToString() != want) SetWindowText(h, want);
+        return true;
+    }, IntPtr.Zero);
+    return found;
+}
+'@
+$PersonaLabels = @{ stay = "動かない慎重型"; near = "近くのお宝だけ"; greedy = "強欲型"; builder = "建築大好き"; nowall = "壁なし" }
+function Set-Titles([string]$P) {
+    $S = $State[$P]
+    if (-not $S.TitlePid) {
+        # パッケージの .exe は本体（Binaries の .exe）を別に起動する。窓を持つのは本体
+        $Proc = Get-CimInstance Win32_Process -Filter "Name LIKE 'KakurenboIncremental%'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -match "Binaries" -and $_.CommandLine -match "KakuAgentPort=$($BasePort + $S.Index)\b" } | Select-Object -First 1
+        if (-not $Proc) { return }
+        $S.TitlePid = [uint32]$Proc.ProcessId
+    }
+    $Label = if ($PersonaLabels.ContainsKey($P)) { "$P（$($PersonaLabels[$P])）" } else { $P }
+    try { [KakuAgent.Title]::Apply($S.TitlePid, "かせぐんぼ - $Label", "ログ - $Label") | Out-Null } catch {}
 }
 
 function Get-LogErrors([string]$Path) {
@@ -290,7 +330,7 @@ function Run-Block {
     $NextAnalysis = (Get-Date).AddMinutes(60)
     while ($true) {
         Start-Sleep -Seconds 5
-        foreach ($P in $PersonaList) { Set-LowPriority $P }
+        foreach ($P in $PersonaList) { Set-LowPriority $P; if (-not $State[$P].Done) { Set-Titles $P } }
         $AllDone = $true
         foreach ($P in $PersonaList) {
             $S = $State[$P]
