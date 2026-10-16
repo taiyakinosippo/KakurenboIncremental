@@ -145,6 +145,21 @@ def text_tags(text):
     return tags
 
 
+def ability_tags(text):
+    """自分の体でできること（操作の案内・ヒントの文）の印。ふつうの日本語の読み方だけ：
+    「登」＝段を越えられる / 登る文に「逃げ」＝追われたら越えて逃げる / 「外に出」と「戻」＝囲いから出て戻ってこられる"""
+    tags = set()
+    t = text
+    if "登" not in t:
+        return tags
+    tags.add("climb")
+    if "逃げ" in t:
+        tags.add("climb:escape")
+    if ("外に出" in t or "外へ出" in t) and "戻" in t:
+        tags.add("climb:out_back")
+    return tags
+
+
 def item_role_prior(name, desc):
     """お店の商品・置く物の役割の見当（名前と説明の言葉から）"""
     t = name + " " + desc

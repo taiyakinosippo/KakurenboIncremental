@@ -1055,7 +1055,9 @@ void AKakurenboPlayerController::UpdateTips(float RealDeltaSeconds)
 		}
 		if (GM->IsClimbUnlocked())
 		{
-			QueueTip(TEXT("Climb"), FString::Printf(TEXT("壁や低い家具に向かって %s でよじ登る（1 段ずつ。鬼はクライミング壁と 2 段の壁には飛び乗れない）"), *K(EKakurenboAction::Climb)));
+			QueueTip(TEXT("Climb"), FString::Printf(TEXT("壁や低い家具に向かって %s でよじ登る（1 マスぶんの段に上れる。鬼はクライミング壁と 2 段の壁には飛び乗れない）"), *K(EKakurenboAction::Climb)));
+			// 使い方（ユーザーの説明）。テストプレイ AI もこの文を読んで使い方を知る
+			QueueTip(TEXT("ClimbUse"), TEXT("よじ登るの使い方：追われたら段に登って越えて逃げる。囲んだ壁も登って一度外に出て、また戻ってこられる"));
 		}
 		if (GM->IsDashUnlocked())
 		{

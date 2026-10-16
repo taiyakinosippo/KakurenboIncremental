@@ -120,6 +120,7 @@ struct FKakurenboAgentBridge
 	TArray<FIntPoint> WalkPath;
 	int32 WalkIndex = 0;
 	bool bWalkClimb = false;
+	double NextClimbTap = 0.0;
 	bool bForwardDown = false;
 	FVector StuckPos = FVector::ZeroVector;
 	double StuckTime = 0.0;
@@ -497,7 +498,8 @@ void AKakurenboPlayerController::AgentHandleCommand(const FString& Line)
 	else if (Verb == TEXT("goto") && Parts.Num() >= 4)
 	{
 		A.WalkGoal = FIntPoint(ArgInt(2), ArgInt(3));
-		A.bWalkClimb = HasFlag(TEXT("climb"));
+		const AKakurenboGameMode* Mode = GetKakurenboGameMode();
+		A.bWalkClimb = HasFlag(TEXT("climb")) && Mode && Mode->IsClimbUnlocked(); // まだ登れないなら、登る前提の道は選ばない
 		A.WantCrouch = HasFlag(TEXT("sneak")) ? 1 : 0;
 		A.WalkPath.Reset();
 		A.WalkIndex = 0;
@@ -508,10 +510,9 @@ void AKakurenboPlayerController::AgentHandleCommand(const FString& Line)
 		{
 			const FIntPoint MyCell = Grid->WorldToCell(Hider->GetActorLocation());
 			FKakurenboPathGrid Walk = Grid->BuildWalkGrid();
-			bool bFound = MyCell == A.WalkGoal || KakurenboPathfinding::FindPath(Walk, MyCell, A.WalkGoal, A.WalkPath);
-			if (!bFound && A.bWalkClimb)
+			if (A.bWalkClimb)
 			{
-				// よじ登れるなら、1 段の壁は回り道より少し遠い道として通る
+				// よじ登れるなら、1 段の壁は少し遠い道として通る（越えて逃げる・囲いの外へ出て戻る。回り道が長いときだけ越える）
 				for (int32 Y = 0; Y < Walk.SizeY; ++Y)
 				{
 					for (int32 X = 0; X < Walk.SizeX; ++X)
@@ -519,12 +520,12 @@ void AKakurenboPlayerController::AgentHandleCommand(const FString& Line)
 						const FIntPoint C(X, Y);
 						if (!Grid->IsObstacle(C) && Grid->GetColumnHeight(C) == 1)
 						{
-							Walk.SetExtra(C, 6.f);
+							Walk.SetExtra(C, 3.f);
 						}
 					}
 				}
-				bFound = KakurenboPathfinding::FindPath(Walk, MyCell, A.WalkGoal, A.WalkPath);
 			}
+			const bool bFound = MyCell == A.WalkGoal || KakurenboPathfinding::FindPath(Walk, MyCell, A.WalkGoal, A.WalkPath);
 			if (bFound)
 			{
 				A.bWalking = A.WalkPath.Num() > 0;
@@ -919,6 +920,17 @@ void AKakurenboPlayerController::AgentTickBody(float RealDeltaSeconds)
 		A.bForwardDown = true;
 		A.StuckPos = Hider->GetActorLocation();
 		A.StuckTime = A.Clock;
+	}
+	// 登る道なら、次のマスの段の手前で引っかかるのを待たずに登る（追われているときは待つ時間が惜しい）
+	if (A.bWalkClimb && !Hider->IsClimbing() && A.Clock >= A.NextClimbTap && To.Size() < Grid->GetCellSize() * 0.9f)
+	{
+		const FIntPoint Here = Grid->WorldToCell(Hider->GetActorLocation());
+		const FIntPoint Next = A.WalkPath[A.WalkIndex];
+		if (Next != Here && Grid->GetColumnHeight(Next) > Grid->GetColumnHeight(Here))
+		{
+			PlaytestTap(EKakurenboAction::Climb);
+			A.NextClimbTap = A.Clock + 0.4;
+		}
 	}
 	// 引っかかったら：よじ登ってよければ登る・道を選び直す・あきらめる（あきらめたら不具合かもしれないので記録）
 	if (A.Clock - A.StuckTime > 1.0 / FMath::Max(A.Speed, 0.25f) * 1.2)

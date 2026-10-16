@@ -205,13 +205,13 @@ public:
 	double WallReinforceBase = 1.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallReinforcePerLevel = 0.5;
+	double WallReinforcePerLevel = 1.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallReinforceBaseCost = 40.0;
+	double WallReinforceBaseCost = 20.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
-	double WallReinforceCostGrowth = 1.9;
+	double WallReinforceCostGrowth = 1.6;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy")
 	FText WallReinforceName;
