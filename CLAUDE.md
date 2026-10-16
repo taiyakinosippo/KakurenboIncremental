@@ -127,6 +127,7 @@ powershell -ExecutionPolicy Bypass -File Tools\RunAutoTest.ps1 -Scenario Camera 
 powershell -ExecutionPolicy Bypass -File Tools\RunSaveRestartTest.ps1           # 再起動をまたぐセーブ（2 回起動する）
 powershell -ExecutionPolicy Bypass -File Tools\Package.ps1                     # 配布用の .exe（Packaged/Windows）。Data/*.csv もコピーする
 powershell -ExecutionPolicy Bypass -File Tools\AgentPlaytest.ps1 -Hours 0.25   # テストプレイ AI（パッケージ版を 3 つの性格で。-Fresh ではじめから・-Personas near）
+powershell -ExecutionPolicy Bypass -File Tools\ResetAgentPlaytest.ps1 -DryRun   # テストプレイ AI の学習・セーブ・記録をリセット（backup_<日時> へ移す。-DryRun は見せるだけ）
 ```
 
 - `RunAutoTest` はゲームを実際に起動し、`[AutoTest]` ログと `KakurenboIncremental/Saved/AutoTest/*.png` を出力する。
