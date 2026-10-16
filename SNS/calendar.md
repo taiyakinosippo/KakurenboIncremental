@@ -13,7 +13,7 @@
 
 | 日 | 曜日の目安 | 下書き | シリーズ | 画像 |
 |---|---|---|---|---|
-| 1 | - | [01 はじめまして：コンセプト](drafts/01_hajimemashite.md)（固定） | 紹介 | title.png |
+| 1 | - | [01 はじめまして：コンセプト](posted/01_hajimemashite.md)（固定・**投稿済み 10/15**） | 紹介 | title.png |
 | 2 | 月 | [1a 連打と音：仕組み](drafts/system/s1a_renda.md) | システム 1 | oni_gate.png |
 | 4 | 水 | [1b 連打と音：試して直した](drafts/system/s1b_renda_tuning.md) | システム 1 | shop.png |
 | 6 | 金 | [1c 連打と音：今の形](drafts/system/s1c_renda_now.md) | システム 1 | build.png |
