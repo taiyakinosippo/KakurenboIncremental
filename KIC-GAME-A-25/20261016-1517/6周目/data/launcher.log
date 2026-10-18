@@ -1,0 +1,509 @@
+﻿[15:17:27] テストプレイ AI：stay, near, greedy, builder, nowall・10/16 23:17 まで・速さ ×2・軽くして動かす・記録 C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517
+[15:17:27] Python: C:\Users\student\.local\bin\python3.14.exe
+[15:17:27] 遊んでいる間はスリープしないようにしました（終わったら元に戻ります）
+[15:17:28] stay を起動（1 回目・ポート 7701）
+[15:17:32] near を起動（1 回目・ポート 7702）
+[15:17:36] greedy を起動（1 回目・ポート 7703）
+[15:17:40] builder を起動（1 回目・ポート 7704）
+[15:17:44] nowall を起動（1 回目・ポート 7705）
+[15:32:52] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[15:33:00] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[15:48:02] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[15:48:09] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[16:03:11] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[16:03:17] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[16:17:49] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-1617.md
+[16:18:19] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[16:18:26] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[16:33:28] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[16:33:35] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[16:48:37] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[16:48:44] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[17:03:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[17:03:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[17:17:50] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-1717.md
+[17:18:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[17:19:03] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[17:34:05] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[17:34:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[17:49:14] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[17:49:21] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[18:04:23] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[18:04:30] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[18:17:52] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-1817.md
+[18:19:32] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[18:19:40] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[18:34:42] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[18:34:49] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[18:49:51] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[18:49:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[19:05:00] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[19:05:07] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[19:17:54] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-1917.md
+[19:20:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[19:20:17] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[19:35:19] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[19:35:26] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[19:50:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[19:50:36] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[20:05:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[20:05:45] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[20:17:57] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-2017.md
+[20:20:48] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[20:20:55] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[20:35:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[20:36:05] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[20:51:07] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[20:51:14] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[21:06:17] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[21:06:24] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[21:18:01] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-2118.md
+[21:21:27] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[21:21:35] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[21:36:37] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[21:36:44] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[21:51:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[21:51:54] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[22:06:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[22:07:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[22:18:05] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-2218.md
+[22:22:07] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[22:22:14] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[22:37:17] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[22:37:24] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[22:52:27] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[22:52:34] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[23:07:37] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[23:07:44] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/）
+[23:17:30] stay は時間になったので終わり
+[23:17:33] near は時間になったので終わり
+[23:17:37] greedy は時間になったので終わり
+[23:17:40] builder は時間になったので終わり
+[23:17:43] nowall は時間になったので終わり
+[23:17:52] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261016-2317.md
+[23:17:53] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[23:18:03] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/・走りの記録 data/）
+[23:18:03] 1 周目が終わりました。報告書：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report.html
+[23:18:03] 5 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊びます（さわると終わります）
+[23:23:04] さわらなかったので、同じデータのまま 2 周目を始めます（10/17 07:23 まで・報告書は report_2周目.html）
+[23:23:04] stay を起動（2 回目・ポート 7701）
+[23:23:08] near を起動（2 回目・ポート 7702）
+[23:23:12] greedy を起動（2 回目・ポート 7703）
+[23:23:16] builder を起動（2 回目・ポート 7704）
+[23:23:20] nowall を起動（2 回目・ポート 7705）
+[23:38:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[23:38:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[23:53:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[23:53:47] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[00:08:50] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[00:08:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[00:23:30] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0023.md
+[00:24:01] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[00:24:09] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[00:39:11] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[00:39:19] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[00:54:22] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[00:54:29] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[01:09:32] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[01:09:39] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[01:23:32] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0123.md
+[01:24:43] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[01:24:50] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[01:39:53] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[01:40:01] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[01:55:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[01:55:11] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[02:10:14] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[02:10:21] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[02:23:33] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0223.md
+[02:25:25] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[02:25:33] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[02:40:35] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[02:40:43] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[02:55:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[02:55:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[03:10:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[03:11:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[03:23:36] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0323.md
+[03:26:08] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[03:26:16] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[03:41:18] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[03:41:27] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[03:56:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[03:56:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[04:11:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[04:11:48] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[04:23:40] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0423.md
+[04:26:52] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[04:27:00] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[04:42:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[04:42:11] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[04:57:14] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[04:57:22] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[05:12:25] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[05:12:33] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[05:23:45] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0523.md
+[05:27:37] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[05:27:45] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[05:42:48] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[05:42:56] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[05:57:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[05:58:07] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[06:13:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[06:13:18] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[06:23:50] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0623.md
+[06:28:22] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[06:28:30] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[06:43:33] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[06:43:42] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[06:58:45] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[06:58:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[07:13:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[07:14:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/）
+[07:23:05] stay は時間になったので終わり
+[07:23:09] near は時間になったので終わり
+[07:23:12] greedy は時間になったので終わり
+[07:23:15] builder は時間になったので終わり
+[07:23:18] nowall は時間になったので終わり
+[07:23:28] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0723.md
+[07:23:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[07:23:40] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/2周目/・走りの記録 data/）
+[07:23:41] 2 周目が終わりました。報告書：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_2周目.html
+[07:23:41] 5 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊びます（さわると終わります）
+[07:28:42] さわらなかったので、同じデータのまま 3 周目を始めます（10/17 15:28 まで・報告書は report_3周目.html）
+[07:28:42] stay を起動（3 回目・ポート 7701）
+[07:28:46] near を起動（3 回目・ポート 7702）
+[07:28:50] greedy を起動（3 回目・ポート 7703）
+[07:28:54] builder を起動（3 回目・ポート 7704）
+[07:28:58] nowall を起動（3 回目・ポート 7705）
+[07:44:07] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[07:44:16] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[07:59:20] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[07:59:28] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[08:14:32] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[08:14:41] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[08:29:04] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0829.md
+[08:29:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[08:29:54] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[08:44:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[08:45:07] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[09:00:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[09:00:19] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[09:15:22] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[09:15:38] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[09:29:06] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-0929.md
+[09:30:43] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[09:30:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[09:45:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[09:46:06] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[10:01:09] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[10:01:18] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[10:16:21] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[10:16:31] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[10:29:09] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1029.md
+[10:31:36] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[10:31:45] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[10:46:48] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[10:46:57] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[11:02:01] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[11:02:11] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[11:17:14] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[11:17:24] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[11:29:12] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1129.md
+[11:32:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[11:32:38] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[11:47:42] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[11:47:51] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[12:02:55] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[12:03:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[12:18:08] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[12:18:17] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[12:29:15] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1229.md
+[12:33:22] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[12:33:32] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[12:48:36] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[12:48:46] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[13:03:50] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[13:03:59] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[13:19:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[13:19:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[13:29:20] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1329.md
+[13:34:18] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[13:34:28] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[13:49:31] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[13:49:41] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[14:04:45] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[14:04:54] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[14:19:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[14:20:08] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[14:29:26] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1429.md
+[14:35:13] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[14:35:23] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[14:50:27] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[14:50:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[15:05:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[15:05:50] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[15:20:54] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[15:21:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/）
+[15:28:45] stay は時間になったので終わり
+[15:28:48] near は時間になったので終わり
+[15:28:52] greedy は時間になったので終わり
+[15:28:55] builder は時間になったので終わり
+[15:28:58] nowall は時間になったので終わり
+[15:29:08] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1529.md
+[15:29:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[15:29:22] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/3周目/・走りの記録 data/）
+[15:29:22] 3 周目が終わりました。報告書：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_3周目.html
+[15:29:22] 5 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊びます（さわると終わります）
+[15:34:24] さわらなかったので、同じデータのまま 4 周目を始めます（10/17 23:34 まで・報告書は report_4周目.html）
+[15:34:24] stay を起動（4 回目・ポート 7701）
+[15:34:28] near を起動（4 回目・ポート 7702）
+[15:34:32] greedy を起動（4 回目・ポート 7703）
+[15:34:36] builder を起動（4 回目・ポート 7704）
+[15:34:40] nowall を起動（4 回目・ポート 7705）
+[15:49:50] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[15:50:01] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[16:05:05] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[16:05:16] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[16:20:20] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[16:20:30] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[16:34:49] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1634.md
+[16:35:37] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[16:35:48] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[16:50:52] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[16:51:03] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[17:06:07] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[17:06:18] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[17:21:22] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[17:21:32] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[17:34:56] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1734.md
+[17:36:39] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[17:36:49] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[17:51:54] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[17:52:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[18:07:08] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[18:07:19] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[18:22:23] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[18:22:34] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[18:35:03] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1835.md
+[18:37:41] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[18:37:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[18:52:56] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[18:53:07] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[19:08:11] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[19:08:22] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[19:23:26] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[19:23:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[19:35:06] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-1935.md
+[19:38:44] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[19:38:55] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[19:53:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[19:54:10] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[20:09:14] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[20:09:25] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[20:24:30] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[20:24:41] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[20:35:09] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-2035.md
+[20:39:47] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[20:40:03] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[20:55:08] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[20:55:20] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[21:10:24] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[21:10:36] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[21:25:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[21:25:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[21:35:16] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-2135.md
+[21:40:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[21:41:11] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[21:56:16] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[21:56:27] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[22:11:31] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[22:11:43] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[22:26:47] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[22:26:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[22:35:22] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-2235.md
+[22:42:06] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[22:42:17] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[22:57:21] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[22:57:33] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[23:12:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[23:12:49] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[23:27:54] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[23:28:05] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/）
+[23:34:26] stay は時間になったので終わり
+[23:34:29] near は時間になったので終わり
+[23:34:32] greedy は時間になったので終わり
+[23:34:35] builder は時間になったので終わり
+[23:34:39] nowall は時間になったので終わり
+[23:34:50] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261017-2334.md
+[23:34:52] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[23:35:06] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/4周目/・走りの記録 data/）
+[23:35:07] 4 周目が終わりました。報告書：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_4周目.html
+[23:35:07] 5 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊びます（さわると終わります）
+[23:40:08] さわらなかったので、同じデータのまま 5 周目を始めます（10/18 07:40 まで・報告書は report_5周目.html）
+[23:40:08] stay を起動（5 回目・ポート 7701）
+[23:40:12] near を起動（5 回目・ポート 7702）
+[23:40:16] greedy を起動（5 回目・ポート 7703）
+[23:40:20] builder を起動（5 回目・ポート 7704）
+[23:40:24] nowall を起動（5 回目・ポート 7705）
+[23:55:35] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[23:55:47] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[00:10:52] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[00:11:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[00:26:09] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[00:26:21] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[00:40:36] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0040.md
+[00:41:29] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[00:41:41] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[00:56:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[00:56:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[01:12:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[01:12:16] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[01:27:21] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[01:27:34] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[01:40:43] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0140.md
+[01:42:42] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[01:42:54] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[01:57:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[01:58:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[02:13:17] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[02:13:29] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[02:28:34] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[02:28:46] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[02:40:51] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0240.md
+[02:43:55] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[02:44:07] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[02:59:12] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[02:59:25] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[03:14:31] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[03:14:43] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[03:29:49] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[03:30:01] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[03:40:56] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0340.md
+[03:45:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[03:45:23] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[04:00:28] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[04:00:41] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[04:15:46] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[04:15:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[04:31:04] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[04:31:16] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[04:41:00] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0441.md
+[04:46:25] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[04:46:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[05:01:43] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[05:01:55] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[05:17:00] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[05:17:13] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[05:32:18] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[05:32:31] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[05:41:05] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0541.md
+[05:47:35] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[05:47:48] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[06:02:53] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[06:03:06] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[06:18:11] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[06:18:29] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[06:33:34] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[06:33:47] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[06:41:11] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0641.md
+[06:48:51] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[06:49:04] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[07:04:10] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[07:04:23] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[07:19:28] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[07:19:42] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[07:34:47] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[07:35:00] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/）
+[07:40:10] stay は時間になったので終わり
+[07:40:14] near は時間になったので終わり
+[07:40:17] greedy は時間になったので終わり
+[07:40:20] builder は時間になったので終わり
+[07:40:23] nowall は時間になったので終わり
+[07:40:35] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0740.md
+[07:40:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[07:40:54] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/5周目/・走りの記録 data/）
+[07:40:54] 5 周目が終わりました。報告書：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_5周目.html
+[07:40:54] 5 分のあいだキーボード・マウスにさわらなければ、同じデータのまま続けてもう 8 時間遊びます（さわると終わります）
+[07:45:56] さわらなかったので、同じデータのまま 6 周目を始めます（10/18 15:45 まで・報告書は report_6周目.html）
+[07:45:56] stay を起動（6 回目・ポート 7701）
+[07:46:00] near を起動（6 回目・ポート 7702）
+[07:46:04] greedy を起動（6 回目・ポート 7703）
+[07:46:08] builder を起動（6 回目・ポート 7704）
+[07:46:12] nowall を起動（6 回目・ポート 7705）
+[08:01:24] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[08:01:37] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[08:16:43] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[08:16:58] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[08:32:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[08:32:17] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[08:46:22] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0846.md
+[08:47:21] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[08:47:35] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[09:02:41] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[09:02:55] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[09:18:01] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[09:18:14] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[09:33:20] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[09:33:35] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[09:46:30] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-0946.md
+[09:48:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[09:48:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[10:03:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[10:04:13] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[10:19:19] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[10:19:33] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[10:34:39] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[10:34:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[10:46:38] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1046.md
+[10:49:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[10:50:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[11:05:18] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[11:05:32] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[11:20:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[11:20:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[11:35:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[11:36:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[11:46:47] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1146.md
+[11:51:17] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[11:51:31] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[12:06:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[12:06:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[12:21:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[12:22:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[12:37:18] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[12:37:32] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[12:46:52] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1246.md
+[12:52:38] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[12:52:52] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[13:07:58] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[13:08:12] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[13:23:19] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[13:23:33] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[13:38:39] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[13:38:53] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[13:46:58] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1346.md
+[13:53:59] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[13:54:13] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[14:09:20] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[14:09:34] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[14:24:40] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[14:24:55] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[14:40:01] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[14:40:15] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[14:47:05] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1447.md
+[14:55:21] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[14:55:36] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[15:10:42] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[15:10:57] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[15:26:03] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[15:26:18] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[15:41:24] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
+[15:41:40] 報告書を GitHub のブランチ agent-reports に送りました（KIC-GAME-A-25/README.md と KIC-GAME-A-25/20261016-1517/6周目/）
+[15:45:55] stay は時間になったので終わり
+[15:45:58] near は時間になったので終わり
+[15:46:02] greedy は時間になったので終わり
+[15:46:05] builder は時間になったので終わり
+[15:46:08] nowall は時間になったので終わり
+[15:46:20] バランスの推論を作りました：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\analysis\balance_20261018-1546.md
+[15:46:24] 報告書を更新：C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest\20261016-1517\report_6周目.html
