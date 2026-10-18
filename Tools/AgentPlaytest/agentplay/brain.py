@@ -16,6 +16,7 @@ import json
 import math
 import os
 import random
+import time
 
 from .world import SPOT_FEATURES
 
@@ -273,7 +274,15 @@ class Brain:
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(j, f, ensure_ascii=False)
-        os.replace(tmp, self.path)
+        # Windows では、報告書を作るほうがちょうど読んでいると置き換えられない（PermissionError）。少し待ってやり直す。
+        # それでもだめなら今回はあきらめる（次の保存で書く。遊ぶのは止めない）
+        for attempt in range(10):
+            try:
+                os.replace(tmp, self.path)
+                return True
+            except PermissionError:
+                time.sleep(0.1 * (attempt + 1))
+        return False
 
     # ---- 鬼の特徴
     def oni(self, name):

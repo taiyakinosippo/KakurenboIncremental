@@ -86,7 +86,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("WalkGrid"), ESearchCase::IgnoreCase)
 		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
@@ -6912,6 +6912,87 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 			UE_LOG(LogTemp, Display, TEXT("[AutoTest] shelfgap blocked/open by furniture:%s"), *ByKey);
 			Check(FString::Printf(TEXT("every gap in front of tall furniture (shelves) fits the player (%d of %d cells do not)"), Total->Blocked, Total->Cells), Total->Blocked == 0 && Total->Cells > 0);
+		} });
+	}
+	// ================================================================ WalkGrid（テストプレイ AI の stuck-walk：歩けるはずのマスどうしの間を、立った体が通れるかを全部の館で調べる）
+	else if (Scenario.Equals(TEXT("WalkGrid"), ESearchCase::IgnoreCase))
+	{
+		struct FWalkStats { int32 Edges = 0; int32 Blocked = 0; TMap<FString, int32> ByBlocker; };
+		TSharedRef<FWalkStats> Total = MakeShared<FWalkStats>();
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 0.5f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				KeepOnlyOni(-1);
+				GS()->HideTimeRemaining = 600.f;
+			} });
+			Steps.Add({ 0.6f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				// 立ったプレイヤーの体（半径 35・高さの半分 80）。床から 3cm 浮かせて、マスの真ん中から隣のマスの真ん中へ動かしてみる
+				const FCollisionShape Body = FCollisionShape::MakeCapsule(35.f, 80.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuWalkGrid), false, GetPawn());
+				for (AOniCharacter* Oni : GM->GetOnis())
+				{
+					Params.AddIgnoredActor(Oni);
+				}
+				int32 MapEdges = 0, MapBlocked = 0;
+				FString Examples;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint A(X, Y);
+						if (!G->IsWalkable(A))
+						{
+							continue;
+						}
+						for (const FIntPoint& Step : { FIntPoint(1, 0), FIntPoint(0, 1) })
+						{
+							const FIntPoint B = A + Step;
+							if (!G->IsInside(B) || !G->IsWalkable(B))
+							{
+								continue;
+							}
+							++MapEdges;
+							const FVector From = G->CellFloorCenter(A) + FVector(0.f, 0.f, 83.f);
+							const FVector To = G->CellFloorCenter(B) + FVector(0.f, 0.f, 83.f);
+							FHitResult Hit;
+							if (!GetWorld()->SweepSingleByChannel(Hit, From, To, FQuat::Identity, ECC_Pawn, Body, Params)
+								&& !GetWorld()->SweepSingleByChannel(Hit, To, From, FQuat::Identity, ECC_Pawn, Body, Params))
+							{
+								continue;
+							}
+							++MapBlocked;
+							const FString Name = Hit.GetActor() ? Hit.GetActor()->GetClass()->GetName() + TEXT("/") + (Hit.GetComponent() ? Hit.GetComponent()->GetName() : TEXT("?")) : TEXT("?");
+							Total->ByBlocker.FindOrAdd(Name)++;
+							if (Examples.Len() < 400)
+							{
+								Examples += FString::Printf(TEXT(" (%d,%d)-(%d,%d)%s"), A.X, A.Y, B.X, B.Y, *Name);
+							}
+						}
+					}
+				}
+				Total->Edges += MapEdges;
+				Total->Blocked += MapBlocked;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] walkgrid %s: %d edges between walkable cells, %d blocked:%s"), *MapName.ToString(), MapEdges, MapBlocked, *Examples);
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			FString ByBlocker;
+			for (const TPair<FString, int32>& Pair : Total->ByBlocker)
+			{
+				ByBlocker += FString::Printf(TEXT(" %s:%d"), *Pair.Key, Pair.Value);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] walkgrid blocked by:%s"), *ByBlocker);
+			Check(FString::Printf(TEXT("the standing player can walk between every pair of neighbouring walkable cells (%d of %d edges blocked)"), Total->Blocked, Total->Edges),
+				Total->Blocked == 0 && Total->Edges > 0);
 		} });
 	}
 	// ================================================================ Lineup（M14：Furniture.csv の家具を全部、壁ぎわに並べて部屋の側から写す。向きと大きさの確認用）

@@ -310,6 +310,12 @@ protected:
 	/** その幅に収まる文字の大きさ */
 	int32 FitSize(const FString& Str, int32 Size, float MaxW, bool bRich);
 
+	/**
+	 * 幅 MaxW（1080p 基準）に収まるように、文を MaxLines 行までに折り返す（句読点・括弧・空白の後ろで切れるならそこで。[キー] の途中では切らない）。
+	 * 入りきらないときは最後の行に残りを全部入れる（描くときに TextFit / RichTextFit で小さくする）
+	 */
+	TArray<FString> WrapLines(const FString& Str, int32 Size, float MaxW, int32 MaxLines, bool bRich);
+
 	/** キーの形（キーキャップ）を描く。幅を返す（1080p 基準） */
 	float KeyCap(const FString& Label, float X, float Y, int32 Size, float Alpha = 1.f);
 

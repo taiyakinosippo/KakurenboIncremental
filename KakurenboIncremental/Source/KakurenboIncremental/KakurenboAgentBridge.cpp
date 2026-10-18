@@ -28,6 +28,7 @@
 #include "KakurenboPlayerController.h"
 
 #include "Common/TcpSocketBuilder.h"
+#include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerInput.h"
@@ -982,9 +983,30 @@ void AKakurenboPlayerController::AgentTickBody(float RealDeltaSeconds)
 				// 次のマスが歩けるはずなのに進めないなら、引っかかる場所（家具の当たり判定のずれなど）かもしれない
 				if (Grid->IsWalkable(Next))
 				{
+					// 何に当たって進めないか（体の形で次のマスの方へ少し動かしてみる）。次に起きたとき原因が分かるように
+					FString Blocker = TEXT("none");
+					const FVector CellOrigin = Grid->CellFloorCenter(FIntPoint(0, 0)); // マスの座標は整数がマスの真ん中（SEE と同じ）
+					const float Cs = Grid->GetCellSize();
+					if (const UCapsuleComponent* Capsule = Hider->GetCapsuleComponent())
+					{
+						const FVector From = Hider->GetActorLocation();
+						FVector Dir = Grid->CellFloorCenter(Next) - From;
+						Dir.Z = 0.f;
+						FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuAgentStuck), false, Hider);
+						Params.AddIgnoredActors(Capsule->GetMoveIgnoreActors());
+						FHitResult Hit;
+						if (GetWorld()->SweepSingleByChannel(Hit, From, From + Dir.GetSafeNormal() * 40.f, FQuat::Identity, Capsule->GetCollisionObjectType(),
+							FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight()), Params, Capsule->GetCollisionResponseToChannels()))
+						{
+							const AActor* HitActor = Hit.GetActor();
+							Blocker = FString::Printf(TEXT("%s/%s@%.2f,%.2f,%.0f"), HitActor ? *HitActor->GetClass()->GetName() : TEXT("?"),
+								Hit.GetComponent() ? *Hit.GetComponent()->GetName() : TEXT("?"),
+								(Hit.ImpactPoint.X - CellOrigin.X) / Cs, (Hit.ImpactPoint.Y - CellOrigin.Y) / Cs, Hit.ImpactPoint.Z - CellOrigin.Z);
+						}
+					}
 					AgentBug(FString::Printf(TEXT("stuck-walk:%d,%d"), MyCell.X, MyCell.Y),
-						FString::Printf(TEXT("stuck-walk at=%d,%d next=%d,%d goal=%d,%d map=%s"), MyCell.X, MyCell.Y, Next.X, Next.Y, A.WalkGoal.X, A.WalkGoal.Y,
-							*GM->GetCurrentMapName().ToString()), true);
+						FString::Printf(TEXT("stuck-walk at=%d,%d next=%d,%d goal=%d,%d map=%s pos=%.2f,%.2f blocker=%s"), MyCell.X, MyCell.Y, Next.X, Next.Y, A.WalkGoal.X, A.WalkGoal.Y,
+							*GM->GetCurrentMapName().ToString(), (Hider->GetActorLocation().X - CellOrigin.X) / Cs, (Hider->GetActorLocation().Y - CellOrigin.Y) / Cs, *Blocker), true);
 				}
 			}
 		}

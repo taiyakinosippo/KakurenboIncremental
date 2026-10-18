@@ -242,8 +242,12 @@ bool AKakurenboHUD::HasDrawnText(const FString& Part) const
 
 void AKakurenboHUD::DrawPopupsAndFlash()
 {
-	// 大きな文字：ふわっと上がりながら消える。新しいものほど下に出す
+	// 大きな文字：ふわっと上がりながら消える。新しいものほど上に出し、古いものは下へずらす。
+	// かくれんぼ中は上の残り時間・だるまさんがころんだの表示（〜150）の下から、結果画面は結果のパネルの下から並べる（文が重ならないように）
 	constexpr float Lifetime = 1.4f;
+	const AKakurenboGameState* State = GetWorld()->GetGameState<AKakurenboGameState>();
+	const EKakurenboPhase Phase = State ? State->Phase : EKakurenboPhase::Hide;
+	const float TopY = Phase == EKakurenboPhase::Result ? 690.f : Phase == EKakurenboPhase::Hide ? 172.f : 210.f;
 	for (int32 i = Popups.Num() - 1; i >= 0; --i)
 	{
 		FBigPopup& Popup = Popups[i];
@@ -258,7 +262,7 @@ void AKakurenboHUD::DrawPopupsAndFlash()
 		const FBigPopup& Popup = Popups[i];
 		const float T = Popup.Age / Lifetime;
 		const float Alpha = T < 0.7f ? 1.f : 1.f - (T - 0.7f) / 0.3f;
-		const float Y = 250.f + (Popups.Num() - 1 - i) * -46.f - 40.f * T;
+		const float Y = TopY + 40.f * (1.f - T) + (Popups.Num() - 1 - i) * 46.f;
 		FCanvasTextItem Item(FVector2D(Canvas->ClipX * 0.5f, Y * UIScale), FText::FromString(Popup.Text), MakeFont(36),
 			FLinearColor(Popup.Color.R, Popup.Color.G, Popup.Color.B, Alpha));
 		Item.bCentreX = true;
@@ -417,6 +421,61 @@ int32 AKakurenboHUD::FitSize(const FString& Str, int32 Size, float MaxW, bool bR
 		--Fit;
 	}
 	return Fit;
+}
+
+TArray<FString> AKakurenboHUD::WrapLines(const FString& Str, int32 Size, float MaxW, int32 MaxLines, bool bRich)
+{
+	TArray<FString> Lines;
+	FString Rest = Str;
+	auto Measure = [this, Size, bRich](const FString& S) { return bRich ? MeasureRich(S, Size) : MeasureText(S, Size); };
+	while (Lines.Num() < MaxLines - 1 && Rest.Len() > 1 && Measure(Rest) > MaxW)
+	{
+		// [キー] の途中で切らない：先頭から i 文字で切ってよいか（キーの外か）
+		TArray<bool> CanCut;
+		CanCut.SetNum(Rest.Len() + 1);
+		bool bInKey = false;
+		CanCut[0] = true;
+		for (int32 i = 0; i < Rest.Len(); ++i)
+		{
+			if (Rest[i] == TEXT('[')) { bInKey = true; }
+			else if (Rest[i] == TEXT(']')) { bInKey = false; }
+			CanCut[i + 1] = !bInKey;
+		}
+		// 入る長さを二分探索で（文の幅は長いほど広い）
+		int32 Lo = 1, Hi = Rest.Len();
+		while (Lo < Hi)
+		{
+			const int32 Mid = (Lo + Hi + 1) / 2;
+			if (Measure(Rest.Left(Mid)) <= MaxW) { Lo = Mid; } else { Hi = Mid - 1; }
+		}
+		int32 Cut = Lo;
+		while (Cut > 1 && !CanCut[Cut])
+		{
+			--Cut;
+		}
+		// 句読点・括弧・空白の後ろで切れるなら、そこで切る（読みやすく）
+		for (int32 Pos = Cut; Pos > Cut * 2 / 3; --Pos)
+		{
+			const TCHAR C = Rest[Pos - 1];
+			if (CanCut[Pos] && (C == TEXT('、') || C == TEXT('。') || C == TEXT('）') || C == TEXT('」') || C == TEXT('・') || C == TEXT('！') || C == TEXT(' ') || C == TEXT('　')))
+			{
+				Cut = Pos;
+				break;
+			}
+		}
+		Lines.Add(Rest.Left(Cut).TrimEnd());
+		Rest = Rest.Mid(Cut).TrimStart();
+		// 全角の空白も行の頭には残さない
+		while (Rest.StartsWith(TEXT("　")))
+		{
+			Rest.RightChopInline(1);
+		}
+	}
+	if (!Rest.IsEmpty() || Lines.Num() == 0)
+	{
+		Lines.Add(Rest);
+	}
+	return Lines;
 }
 
 void AKakurenboHUD::TextFit(const FString& Str, float X, float Y, int32 Size, float MaxW, const FLinearColor& Color, bool bCenterX)
@@ -787,17 +846,52 @@ void AKakurenboHUD::DrawTip()
 	const float Alpha = FMath::Min(FadeIn, FadeOut);
 	const float CanvasW = Canvas->ClipX / UIScale;
 	const float CanvasH = Canvas->ClipY / UIScale;
-	// 購入・設置パートは画面の下が混んでいる（商品・置く物の欄とボタン）ので上に出す。お知らせが出ていればその下
+	const float Slide = (1.f - FadeIn) * 12.f;
+	const FLinearColor Back(0.06f, 0.03f, 0.12f, 0.85f * Alpha);
+	const FLinearColor Accent(1.f, 0.8f, 0.3f, 0.9f * Alpha);
 	const AKakurenboGameState* State = GetWorld()->GetGameState<AKakurenboGameState>();
-	const bool bTop = State && (State->Phase == EKakurenboPhase::Shop || State->Phase == EKakurenboPhase::Build);
+	const EKakurenboPhase Phase = State ? State->Phase : EKakurenboPhase::Hide;
+
+	// 購入パート：左の状態表示の下（お店のパネルの左の空き）。上のお知らせ・お店の切り替えボタンと重ならない
+	if (Phase == EKakurenboPhase::Shop)
+	{
+		constexpr float X = 20.f, W = 430.f, LineH = 30.f;
+		const TArray<FString> Lines = WrapLines(Tip->Text, 20, W - 40.f, 5, true);
+		const float Y = BelowStatusY + Slide;
+		const float H = 44.f + Lines.Num() * LineH;
+		Panel(X, Y, W, H, Back);
+		Panel(X, Y, 6, H, Accent);
+		Text(TEXT("ヒント"), X + 20, Y + 8, 16, FLinearColor(1.f, 0.8f, 0.3f, Alpha));
+		for (int32 i = 0; i < Lines.Num(); ++i)
+		{
+			RichTextFit(Lines[i], X + 20, Y + 36 + i * LineH, 20, W - 40.f, FLinearColor::White, false, Alpha);
+		}
+		return;
+	}
+
+	// ほかのパート：画面の真ん中の列。左の状態表示・鬼の様子・自分の様子（左）と右のボタンにかからない幅。長ければ 2 行
+	// 設置パートは画面の下が混んでいる（置く物の欄とボタン）ので上に出す。お知らせが出ていればその下
 	const bool bNotice = State && !State->NoticeText.IsEmpty() && GetWorld()->GetTimeSeconds() < State->NoticeUntilTime;
-	const float BaseY = bTop ? (bNotice ? 182.f : 112.f) : CanvasH - 236.f;
-	const float Y = BaseY + (1.f - FadeIn) * 12.f;
-	const float W = FMath::Min(CanvasW - 80.f, MeasureText(Tip->Text, 22) + 320.f);
-	Panel((CanvasW - W) * 0.5f, Y - 12, W, 56, FLinearColor(0.06f, 0.03f, 0.12f, 0.85f * Alpha));
-	Panel((CanvasW - W) * 0.5f, Y - 12, 6, 56, FLinearColor(1.f, 0.8f, 0.3f, 0.9f * Alpha));
-	Text(TEXT("ヒント"), (CanvasW - W) * 0.5f + 20, Y - 2, 16, FLinearColor(1.f, 0.8f, 0.3f, Alpha));
-	RichText(Tip->Text, -1.f, Y, 22, FLinearColor::White, true, Alpha);
+	const float BaseY = Phase == EKakurenboPhase::Build ? (bNotice ? 182.f : 112.f) : CanvasH - 236.f;
+	const float Y = BaseY + Slide;
+	const float MaxW = FMath::Max(520.f, CanvasW - 880.f);
+	constexpr float LabelW = 104.f; // 左の「ヒント」の分
+	const TArray<FString> Lines = WrapLines(Tip->Text, 22, MaxW - LabelW - 30.f, 2, true);
+	float TextW = 0.f;
+	for (const FString& Line : Lines)
+	{
+		TextW = FMath::Max(TextW, MeasureRich(Line, 22));
+	}
+	const float W = FMath::Min(MaxW, TextW + LabelW + 30.f);
+	const float Left = (CanvasW - W) * 0.5f;
+	const float H = 56.f + (Lines.Num() - 1) * 30.f;
+	Panel(Left, Y - 12, W, H, Back);
+	Panel(Left, Y - 12, 6, H, Accent);
+	Text(TEXT("ヒント"), Left + 20, Y - 2, 16, FLinearColor(1.f, 0.8f, 0.3f, Alpha));
+	for (int32 i = 0; i < Lines.Num(); ++i)
+	{
+		RichTextFit(Lines[i], Left + LabelW, Y + i * 30.f, 22, W - LabelW - 20.f, FLinearColor::White, false, Alpha);
+	}
 }
 
 TArray<FString> AKakurenboHUD::GetHelpLines(EKakurenboPhase Phase) const
@@ -1412,27 +1506,15 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		{
 			RichTextFit(bAffordable ? (bPad ? FString(TEXT("[A] 買う")) : FString(TEXT("クリックで買う"))) : FString(TEXT("足りない")), CostX, RowY + RowH * 0.42f, 15, CostW, bAffordable ? Good : Bad);
 		}
-		// 説明：長いときは 2 行に折り返す（壊れた数の行が無いとき）。それでも入らなければ小さく
+		// 説明：長いときは 2 行に折り返す（説明は全部読めるように。入らなければ小さく）
 		const FString Desc = Item.Description.ToString();
-		if (Item.RepairText.IsEmpty() && MeasureText(Desc, 15) > DescW)
+		if (MeasureText(Desc, 15) > DescW)
 		{
-			int32 Cut = Desc.Len();
-			while (Cut > 1 && MeasureText(Desc.Left(Cut), 14) > DescW)
+			const TArray<FString> DescLines = WrapLines(Desc, 14, DescW, 2, false);
+			for (int32 Line = 0; Line < DescLines.Num(); ++Line)
 			{
-				--Cut;
+				TextFit(DescLines[Line], X + 64, RowY + RowH * (Line == 0 ? 0.40f : 0.66f), 14, DescW, Gray);
 			}
-			// 句読点・括弧の後ろで切れるなら、そこで切る（読みやすく）
-			for (int32 Pos = Cut; Pos > Cut * 2 / 3; --Pos)
-			{
-				const TCHAR C = Desc[Pos - 1];
-				if (C == TEXT('、') || C == TEXT('。') || C == TEXT('）') || C == TEXT('・') || C == TEXT(' ') || C == TEXT('　'))
-				{
-					Cut = Pos;
-					break;
-				}
-			}
-			TextFit(Desc.Left(Cut), X + 64, RowY + RowH * 0.40f, 14, DescW, Gray);
-			TextFit(Desc.Mid(Cut), X + 64, RowY + RowH * 0.66f, 14, DescW, Gray);
 		}
 		else
 		{
@@ -1440,8 +1522,8 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		}
 		if (!Item.RepairText.IsEmpty())
 		{
-			// 壊れた壁・使った罠の数（足りなければ橙、在庫で直せるなら緑）
-			TextFit(Item.RepairText.ToString(), X + 64, RowY + RowH * 0.68f, 15, DescW, Item.bNeedsMoreForRepair ? Warn : Good);
+			// 壊れた壁・使った罠の数（足りなければ橙、在庫で直せるなら緑）。値段の列の下（説明の 2 行目とかぶらないように）
+			TextFit(Item.RepairText.ToString(), CostX, RowY + RowH * 0.68f, 15, CostW, Item.bNeedsMoreForRepair ? Warn : Good);
 		}
 	}
 	if (bGemTab && Items.Num() == 0)
