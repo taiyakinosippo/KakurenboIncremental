@@ -101,6 +101,18 @@ AOniCharacter::AOniCharacter()
 	TypeMarker->SetRelativeScale3D(FVector(0.28f));
 	TypeMarker->SetHiddenInGame(true);
 
+	// 「!」：縦長にのばした球（棒）と、その下の小さな球（点）
+	ExclaimBar = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ExclaimBar"));
+	ExclaimDot = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ExclaimDot"));
+	for (UStaticMeshComponent* Part : { ExclaimBar.Get(), ExclaimDot.Get() })
+	{
+		Part->SetupAttachment(RootComponent);
+		Part->SetStaticMesh(SphereFinder.Object);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCastShadow(false);
+		Part->SetHiddenInGame(true);
+	}
+
 	// キャラクターのモデル（スケルタルメッシュ）は見た目だけ。視線や設置のカーソルの邪魔をしない
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
@@ -246,6 +258,9 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	StunScale = Row.StunScale;
 	bDisarmTraps = Row.bDisarmTraps;
 	SummonRadius = Row.SummonRadius;
+	CornerTurnAngle = Row.CornerTurnAngle;
+	CornerSlowScale = Row.CornerSlowScale;
+	CornerSlowDuration = Row.CornerSlowDuration;
 
 	// 足音（どたどた）の大きさと高さ：大きい鬼ほど低く重く、すばしこい鬼ほど軽く
 	switch (Type)
@@ -267,6 +282,9 @@ void AOniCharacter::BeginPlay()
 	UKakurenboLibrary::ApplyColor(BodyMesh, BodyColor);
 	UKakurenboLibrary::ApplyColor(FaceMesh, FLinearColor(0.02f, 0.02f, 0.02f));
 	UKakurenboLibrary::ApplyColor(TypeMarker, BodyColor);
+	// 「!」は暗い館でも目立つよう、種類の色で光らせる（鬼の赤い目と同じ光るマテリアル）
+	ExclaimBar->SetMaterial(0, UKakurenboLibrary::CreateGlowMaterial(ExclaimBar, BodyColor, 6.f));
+	ExclaimDot->SetMaterial(0, UKakurenboLibrary::CreateGlowMaterial(ExclaimDot, BodyColor, 6.f));
 	for (UStaticMeshComponent* Star : StunStars)
 	{
 		UKakurenboLibrary::ApplyColor(Star, FLinearColor(1.f, 0.9f, 0.2f));
@@ -510,6 +528,10 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 	BeginLookAround();
 	IdleTimer = 0.5f;
 	LastStepLocation = GetActorLocation();
+	CornerHeading = FVector2D::ZeroVector;
+	CornerSlowTimer = 0.f;
+	SummonTimer = 0.f;
+	ChaseStartTime = -1.f; // 前のラウンドの「!」を持ち越さない
 
 	// 探知鬼は決まった見張りの場所へ向かう（無ければ今いる場所で見張る）
 	if (OniType == EOniType::Detector)
@@ -648,6 +670,7 @@ void AOniCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	UpdateMeshAnimation(); // 止まっている間（見つけた後など）もアニメーションは切り替える
 	UpdateEyes(DeltaSeconds);
+	UpdateExclaim();
 	TickFootsteps();
 
 	UKakurenboGridSubsystem* G = Grid();
@@ -716,6 +739,8 @@ void AOniCharacter::Tick(float DeltaSeconds)
 		TickLeap(DeltaSeconds);
 		return;
 	}
+
+	TickCornerSlow(DeltaSeconds);
 
 	IntentElapsed += DeltaSeconds;
 	SightCooldown = FMath::Max(0.f, SightCooldown - DeltaSeconds);
@@ -916,6 +941,114 @@ void AOniCharacter::TickFootsteps()
 	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Feet, StepVolume * Urgency, Pitch * (Intent == EOniState::Chase ? 1.08f : 1.f));
 }
 
+// ---------------------------------------------------------------- 見つけたときの「!」
+
+void AOniCharacter::UpdateExclaim()
+{
+	const UWorld* World = GetWorld();
+	const float Since = World && ChaseStartTime >= 0.f ? World->GetTimeSeconds() - ChaseStartTime : -1.f;
+	const bool bShow = Since >= 0.f && Since < ExclaimSeconds && State != EOniState::Stunned;
+	ExclaimBar->SetHiddenInGame(!bShow);
+	ExclaimDot->SetHiddenInGame(!bShow);
+	TypeMarker->SetHiddenInGame(bShow || !UsesSkeletalMesh()); // 玉は「!」の間だけ隠す（円柱の鬼は玉を出さない）
+	if (!bShow)
+	{
+		return;
+	}
+	// ポンと大きく出て（0.12 秒で 1.4 倍）、少し縮んで戻る。そのあとは上下にふわふわ
+	const float Pop = Since < 0.12f ? FMath::Lerp(0.2f, 1.4f, Since / 0.12f)
+		: Since < 0.28f ? FMath::Lerp(1.4f, 1.f, (Since - 0.12f) / 0.16f) : 1.f;
+	const float Bob = FMath::Sin(Since * 9.f) * 4.f;
+	// 玉の場所に、玉よりずっと大きく（棒の高さ 70cm・太さ 22cm、点 22cm）
+	const FVector Base = TypeMarker->GetRelativeLocation() + FVector(0.f, 0.f, 20.f + Bob);
+	ExclaimBar->SetRelativeLocation(Base + FVector(0.f, 0.f, 30.f * Pop));
+	ExclaimBar->SetRelativeScale3D(FVector(0.22f, 0.22f, 0.7f) * Pop);
+	ExclaimDot->SetRelativeLocation(Base - FVector(0.f, 0.f, 22.f * Pop));
+	ExclaimDot->SetRelativeScale3D(FVector(0.22f) * Pop);
+}
+
+// ---------------------------------------------------------------- 曲がり角が苦手（スピード鬼）
+
+float AOniCharacter::CornerSpeedFactor(float Timer, float Duration, float MinScale)
+{
+	if (Duration <= 0.f || Timer <= 0.f)
+	{
+		return 1.f;
+	}
+	// 曲がった瞬間（残り＝Duration）がいちばん遅く、まっすぐ元の速さへ戻していく
+	const float Alpha = FMath::Clamp(Timer / Duration, 0.f, 1.f);
+	return FMath::Lerp(1.f, FMath::Clamp(MinScale, 0.f, 1.f), Alpha);
+}
+
+float AOniCharacter::GetStateMoveSpeed() const
+{
+	switch (State)
+	{
+	case EOniState::Wander:      return WanderSpeed;
+	case EOniState::Investigate:
+	case EOniState::Inspect:     return InvestigateSpeed;
+	case EOniState::Chase:       return ChaseSpeed;
+	default:                     return 0.f;
+	}
+}
+
+void AOniCharacter::TickCornerSlow(float DeltaSeconds)
+{
+	if (CornerTurnAngle <= 0.f || CornerSlowDuration <= 0.f)
+	{
+		return; // 曲がり角が苦手ではない鬼
+	}
+	const float BaseSpeed = GetStateMoveSpeed();
+	if (BaseSpeed <= 0.f)
+	{
+		return; // 攻撃中・罠で動けない間（SetState が止めている）
+	}
+	CornerSlowTimer = FMath::Max(0.f, CornerSlowTimer - DeltaSeconds);
+
+	// 進もうとしている向き（経路の次のマスへの向き。前のフレームに移動に使われた入力）
+	const FVector Input = GetLastMovementInputVector();
+	const FVector2D Dir = FVector2D(Input.X, Input.Y).GetSafeNormal();
+	if (GetVelocity().Size2D() < 100.f)
+	{
+		// 止まっている（見回し・待ち）：次に歩き出す向きは曲がり角とみなさない
+		CornerHeading = FVector2D::ZeroVector;
+	}
+	else if (Dir.IsNearlyZero())
+	{
+		// マスに着いたフレームは入力が無い（FollowPath が次のマスへ進めただけ）：向きは覚えたまま
+	}
+	else if (CornerHeading.IsNearlyZero())
+	{
+		CornerHeading = Dir;
+	}
+	else
+	{
+		const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector2D::DotProduct(CornerHeading, Dir), -1.f, 1.f)));
+		if (Angle >= CornerTurnAngle)
+		{
+			// 角を曲がった・急に向きを変えた → 減速
+			CornerSlowTimer = CornerSlowDuration;
+			++CornerSlowCount;
+			CornerHeading = Dir;
+		}
+		else
+		{
+			// ゆるいカーブ・斜めへの曲がり：向きを変えられる速さだけ今の向きへ寄せる（速く回りこまれると、ずれがたまって角になる）
+			const float Step = CornerTurnRate * DeltaSeconds;
+			if (Angle <= Step)
+			{
+				CornerHeading = Dir;
+			}
+			else
+			{
+				const float Cross = CornerHeading.X * Dir.Y - CornerHeading.Y * Dir.X; // 正なら左回り
+				CornerHeading = CornerHeading.GetRotated(Cross >= 0.f ? Step : -Step).GetSafeNormal();
+			}
+		}
+	}
+	GetCharacterMovement()->MaxWalkSpeed = BaseSpeed * CornerSpeedFactor(CornerSlowTimer, CornerSlowDuration, CornerSlowScale);
+}
+
 void AOniCharacter::TickWander(float DeltaSeconds)
 {
 	if (bHasGoal)
@@ -998,8 +1131,19 @@ void AOniCharacter::TickGuard(float DeltaSeconds)
 	{
 		FaceTowards(GetChaseTarget()->GetActorLocation(), DeltaSeconds, 240.f);
 		GuardLookYaw = GetActorRotation().Yaw;
+		return;
 	}
-	else if (GuardNoiseLookTimer > 0.f)
+	// まわりに壁があれば壊す（視線をふさがれないように）
+	GuardClearTimer -= DeltaSeconds;
+	if (GuardClearInterval > 0.f && GuardClearTimer <= 0.f)
+	{
+		GuardClearTimer = GuardClearInterval;
+		if (TryClearAroundGuardPost())
+		{
+			return;
+		}
+	}
+	if (GuardNoiseLookTimer > 0.f)
 	{
 		// 音のした方を向く（首を回すのは止める）
 		GuardNoiseLookTimer -= DeltaSeconds;
@@ -1011,6 +1155,45 @@ void AOniCharacter::TickGuard(float DeltaSeconds)
 		GuardLookYaw = FRotator::NormalizeAxis(GuardLookYaw + ScanDegreesPerSecond * DeltaSeconds);
 		SetActorRotation(FRotator(0.f, GuardLookYaw, 0.f));
 	}
+}
+
+bool AOniCharacter::TryClearAroundGuardPost()
+{
+	UKakurenboGridSubsystem* G = Grid();
+	if (!G || AttackRadius <= 0.f)
+	{
+		return false;
+	}
+	// 攻撃（自分を中心に AttackRadius）が一番下の段に届くマスだけを選ぶ（届かない壁を狙うと、いつまでも壊し終わらない）
+	const FVector Me = GetActorLocation();
+	const FIntPoint Here = G->WorldToCell(Me);
+	const int32 Reach = FMath::CeilToInt(AttackRadius / G->GetCellSize());
+	FIntPoint Best = FIntPoint::NoneValue;
+	float BestDistSq = FMath::Square(AttackRadius * 0.95f);
+	for (int32 DY = -Reach; DY <= Reach; ++DY)
+	{
+		for (int32 DX = -Reach; DX <= Reach; ++DX)
+		{
+			const FIntPoint Cell = Here + FIntPoint(DX, DY);
+			if ((DX == 0 && DY == 0) || !G->IsInside(Cell) || G->GetColumnHeight(Cell) <= 0)
+			{
+				continue;
+			}
+			const float DistSq = FVector::DistSquared(G->CellToWorld(Cell, 0), Me);
+			if (DistSq <= BestDistSq)
+			{
+				BestDistSq = DistSq;
+				Best = Cell;
+			}
+		}
+	}
+	if (Best == FIntPoint::NoneValue)
+	{
+		return false;
+	}
+	++GuardClearCount;
+	BeginAttack(Best);
+	return true;
 }
 
 void AOniCharacter::HandleGuardSighting()
@@ -2018,7 +2201,7 @@ bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const
 void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKakurenboNoise Kind)
 {
 	UKakurenboGridSubsystem* G = Grid();
-	// 音の種類ごとに別の距離で聞く（スピード鬼はおとりにだまされない・パワー鬼はおとりだけに寄っていく・宝物鬼は足音に敏感）
+	// 音の種類ごとに別の距離で聞く（スピード鬼はおとりにも遠くから寄っていく・パワー鬼はおとりが少し聞こえにくい・宝物鬼は足音に敏感）
 	// 迷い猫の鳴き声は、どの鬼にも同じ距離で聞こえる（猫はかわいいので、音を気にしない鬼も寄ってくる）
 	const float Radius = Kind == EKakurenboNoise::Decoy ? DecoyHearingRadius
 		: Kind == EKakurenboNoise::Step ? StepHearingRadius

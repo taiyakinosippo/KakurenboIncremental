@@ -540,6 +540,19 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float Intuition = 0.3f;
 
+	/**
+	 * 曲がり角が苦手（スピード鬼）：進む向きが一度に CornerTurnAngle 度以上変わると、速さが CornerSlowScale 倍まで落ち、
+	 * CornerSlowDuration 秒かけて元に戻る。直線は速いが、角を曲がって逃げられると引き離される。0 なら無し
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerTurnAngle = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerSlowScale = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerSlowDuration = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	FLinearColor Color = FLinearColor(0.9f, 0.1f, 0.08f);
 

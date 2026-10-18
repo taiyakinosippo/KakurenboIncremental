@@ -275,7 +275,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		const FWallTypeDef& Def = GM->WallTypes[0];
 		Grid()->PlaceBlock(Cell, 0, Def.MaxHP, Def.Color);
 	};
-	// テスト用：出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ。どのステージでも同じにする）
+	// テスト用：出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ。どのステージでも同じにする）。
+	// 鬼の種類を確かめるテストなので、ステージ 1 の易しさ（ルールを覚えるステージ：鬼が遅い・耳が遠い・時間が短い。2026-10-18）は外して、
+	// その前のステージ 1 の値（速さの足し算 0・耳 1200・30 秒）で動かす（種類を決めないテストは本当のステージ 1 のまま）
 	auto SetStageOniTypes = [GM](const TArray<EOniType>& Types)
 	{
 		if (GM->StageRows.Num() == 0)
@@ -285,6 +287,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		for (FKakurenboStageRow& Row : GM->StageRows)
 		{
 			Row.OniTypes = Types;
+			Row.OniSpeedBonus = FMath::Max(Row.OniSpeedBonus, 0.f);
+			Row.OniHearingRadius = FMath::Max(Row.OniHearingRadius, 1200.f);
+			Row.HideDuration = FMath::Max(Row.HideDuration, 30.f);
 		}
 	};
 	// 商品を番号キーと同じ経路（KakuBuy）で買う。商品の番号は並びが変わってもよいように GameMode に聞く
@@ -884,8 +889,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 3.5f, [=, this]
 		{
 			Check(FString::Printf(TEXT("onis spawned as the stage table says (%d / %d)"), GM->GetOnis().Num(), GM->GetNumOnis()), GM->GetOnis().Num() == GM->GetNumOnis() && GM->GetNumOnis() >= 1);
-			Check(FString::Printf(TEXT("oni chase speed is about twice the player's (%.0f / %.0f)"), OniA()->ChaseSpeed, GetHider()->GetCharacterMovement()->MaxWalkSpeed),
-				OniA()->ChaseSpeed >= GetHider()->GetCharacterMovement()->MaxWalkSpeed * 1.9f);
+			// 追いかける速さ＝基本（プレイヤーの 2 倍）＋ステージの足し算（ステージ 1 は覚えるためのステージなので遅め。2026-10-18）
+			Check(FString::Printf(TEXT("oni chase speed follows the stage (%.0f = %.0f + %.0f) and is faster than the player (%.0f)"), OniA()->ChaseSpeed,
+				GM->OniChaseSpeedBase * GM->GetOniTypeRow(OniA()->OniType).SpeedScale, GM->GetStageSettings().OniSpeedBonus, GetHider()->GetCharacterMovement()->MaxWalkSpeed),
+				FMath::IsNearlyEqual(OniA()->ChaseSpeed, GM->OniChaseSpeedBase * GM->GetOniTypeRow(OniA()->OniType).SpeedScale + GM->GetStageSettings().OniSpeedBonus, 1.f)
+				&& OniA()->ChaseSpeed >= GetHider()->GetCharacterMovement()->MaxWalkSpeed * 1.5f);
 			AOniCharacter* A = OniA();
 			if (GM->GetOnis().Num() > 1)
 			{
@@ -1766,8 +1774,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ Matchup（鬼の種類と罠の相性）
 	else if (Scenario.Equals(TEXT("Matchup"), ESearchCase::IgnoreCase))
 	{
-		// スピード鬼：おとりにだまされない・トリモチで長く止まる
-		// パワー鬼：おとりに遠くから寄っていく・トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す
+		// スピード鬼：おとりに遠くから寄っていく・トリモチで長く止まる（2026-10-18 におとりの相性を入れ替え）
+		// パワー鬼：おとりは近くでしか聞こえない（0.6 倍）・トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す
 		constexpr int32 Sticky = 0;
 		constexpr int32 Decoy = 1;
 		const FIntPoint DecoyCell(6, 6), StickyA(14, 4), StickyB(14, 8), StickyC(14, 16);
@@ -1790,21 +1798,27 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->InvestigateMaxDuration = 100.f;
 				Oni->NoiseInaccuracyCells = 0.f;
 			}
-			Check(FString::Printf(TEXT("speed oni is not fooled by decoys, power oni hears them from far (decoy hearing %.0f / %.0f)"), Scout()->DecoyHearingRadius, Breaker()->DecoyHearingRadius),
-				Scout()->DecoyHearingRadius == 0.f && Breaker()->DecoyHearingRadius > GM->GetOniHearingRadius());
+			Check(FString::Printf(TEXT("speed oni hears decoys from far, power oni only from near (decoy hearing %.0f / %.0f)"), Scout()->DecoyHearingRadius, Breaker()->DecoyHearingRadius),
+				Scout()->DecoyHearingRadius > GM->GetOniHearingRadius() && Breaker()->DecoyHearingRadius > 0.f && Breaker()->DecoyHearingRadius < GM->GetOniHearingRadius());
 			Grid()->PlaceTrap(DecoyCell, Decoy, GM->TrapTypes[Decoy]);
 			Grid()->PlaceTrap(StickyA, Sticky, GM->TrapTypes[Sticky]);
 			Grid()->PlaceTrap(StickyB, Sticky, GM->TrapTypes[Sticky]);
 			Grid()->PlaceTrap(StickyC, Sticky, GM->TrapTypes[Sticky]);
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 22)));
 			Put(Scout(), DecoyCell + FIntPoint(7, 0));
-			Put(Breaker(), DecoyCell + FIntPoint(0, 7));
+			Put(Breaker(), DecoyCell + FIntPoint(0, 9)); // スピード鬼より遠く：パワー鬼には届かない（1000 × 0.6 × 1.2 = 7.2m）
+			// 出てきてからの 3 秒でプレイヤーを見つけて追いかけていたら、うろうろに戻す（追いかけ中はおとりを聞かない）
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->GetCharacterMovement()->StopMovementImmediately();
+				Oni->Activate(GetHider());
+			}
 		} });
 		Steps.Add({ 1.2f, [=, this]
 		{
-			Check(FString::Printf(TEXT("decoy: the power oni goes to it, the speed oni ignores it (power %s, speed %s)"),
-				*UEnum::GetValueAsString(Breaker()->GetIntent()), *UEnum::GetValueAsString(Scout()->GetIntent())),
-				Breaker()->GetIntent() == EOniState::Investigate && Scout()->GetIntent() != EOniState::Investigate);
+			Check(FString::Printf(TEXT("decoy: the speed oni goes to it from 7 cells, the power oni does not hear it from 9 (speed %s, power %s)"),
+				*UEnum::GetValueAsString(Scout()->GetIntent()), *UEnum::GetValueAsString(Breaker()->GetIntent())),
+				Scout()->GetIntent() == EOniState::Investigate && Breaker()->GetIntent() != EOniState::Investigate);
 			// トリモチ：スピード鬼を乗せる
 			Put(Scout(), StickyA);
 		} });
@@ -2056,6 +2070,108 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("the onis passed each other in the corridor (west oni at (%d,%d), east oni at (%d,%d))"), A.X, A.Y, B.X, B.Y),
 				FMath::Abs(A.X - EastEnd.X) <= 1 && FMath::Abs(B.X - WestEnd.X) <= 1);
 			Check(FString::Printf(TEXT("no walls were broken to get past (%d)"), GS()->LastRoundWallsDestroyed), GS()->LastRoundWallsDestroyed == 0);
+		} });
+	}
+	// ================================================================ ScoutCorner（スピード鬼は曲がり角が苦手）
+	else if (Scenario.Equals(TEXT("ScoutCorner"), ESearchCase::IgnoreCase))
+	{
+		// 2 体のスピード鬼：1 体はまっすぐの通路、もう 1 体は L 字の通路（東へ 5 マス → 北へ 5 マス）を同じ長さだけ走る。
+		// まっすぐの鬼は減速しない・角を曲がった鬼は減速して遅れる
+		const FIntPoint StraightStart(4, 6), StraightEnd(14, 6);
+		const FIntPoint CornerStart(4, 12), CornerTurn(9, 12), CornerEnd(9, 17);
+		TSharedRef<FTimerHandle> SampleHandle = MakeShared<FTimerHandle>();
+		TSharedRef<TArray<int32>> StartCount = MakeShared<TArray<int32>>(TArray<int32>{ 0, 0 });
+		TSharedRef<TArray<float>> MinFactor = MakeShared<TArray<float>>(TArray<float>{ 1.f, 1.f });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Scout, EOniType::Scout });
+			// まっすぐの通路（y=6）
+			for (int32 X = 3; X <= 15; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 5));
+				PlaceTestWall(FIntPoint(X, 7));
+			}
+			// L 字の通路（y=12 を東へ → x=9 を北へ）。角は斜めに抜けられない（壁の角をすり抜けない）
+			for (int32 X = 3; X <= 10; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 11));
+			}
+			for (int32 X = 3; X <= 8; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 13));
+			}
+			for (int32 Y = 12; Y <= 18; ++Y)
+			{
+				PlaceTestWall(FIntPoint(10, Y));
+			}
+			for (int32 Y = 14; Y <= 18; ++Y)
+			{
+				PlaceTestWall(FIntPoint(8, Y));
+			}
+			PlaceTestWall(FIntPoint(9, 18));
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(18, 20)));
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(TEXT("two speed onis"), GM->GetOnis().Num() == 2 && GM->GetOnis()[0]->OniType == EOniType::Scout && GM->GetOnis()[1]->OniType == EOniType::Scout);
+			Check(FString::Printf(TEXT("the speed oni is bad at corners (turn %.0f deg -> x%.2f for %.1f s), the standard oni is not (%.0f)"),
+				GM->GetOnis()[0]->CornerTurnAngle, GM->GetOnis()[0]->CornerSlowScale, GM->GetOnis()[0]->CornerSlowDuration, GM->GetOniTypeRow(EOniType::Balanced).CornerTurnAngle),
+				GM->GetOnis()[0]->CornerTurnAngle > 0.f && GM->GetOnis()[0]->CornerSlowScale < 1.f && GM->GetOniTypeRow(EOniType::Balanced).CornerTurnAngle <= 0.f);
+			const FIntPoint Starts[2] = { StraightStart, CornerStart };
+			for (int32 i = 0; i < 2; ++i)
+			{
+				AOniCharacter* Oni = GM->GetOnis()[i];
+				Oni->SightRadius = 0.f; // プレイヤーには反応させない
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+				Oni->InvestigateMaxDuration = 100.f;
+				Oni->SearchDuration = 10.f; // 着いたらその場で見回し続ける
+				Oni->bDrawDebug = true;
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Starts[i]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				// いったん止めて、スタートのマスで見回させる（テレポート前の向きで減速しないように）
+				Oni->GetCharacterMovement()->StopMovementImmediately();
+				Oni->DebugGoTo(Starts[i]);
+			}
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			for (int32 i = 0; i < 2; ++i)
+			{
+				(*StartCount)[i] = GM->GetOnis()[i]->GetCornerSlowCount();
+			}
+			GM->GetOnis()[0]->DebugGoTo(StraightEnd);
+			GM->GetOnis()[1]->DebugGoTo(CornerEnd);
+			SetControlRotation(FRotator(-60.f, (Grid()->CellFloorCenter(FIntPoint(9, 10)) - GetPawn()->GetActorLocation()).Rotation().Yaw, 0.f));
+			// 減速の深さを毎フレーム記録する
+			GetWorldTimerManager().SetTimer(*SampleHandle, FTimerDelegate::CreateWeakLambda(this, [this, GM, MinFactor]
+			{
+				for (int32 i = 0; i < 2 && i < GM->GetOnis().Num(); ++i)
+				{
+					(*MinFactor)[i] = FMath::Min((*MinFactor)[i], GM->GetOnis()[i]->GetCornerSpeedFactor());
+				}
+			}), 0.02f, true);
+		} });
+		// 走っている間はスクリーンショットを撮らない（撮るときのコマ落ちで角を行き過ぎて壁にぶつかる）
+		Steps.Add({ 3.9f, [=, this]
+		{
+			GetWorldTimerManager().ClearTimer(*SampleHandle);
+			const AOniCharacter* Straight = GM->GetOnis()[0];
+			const AOniCharacter* Corner = GM->GetOnis()[1];
+			const FIntPoint A = Grid()->WorldToCell(Straight->GetActorLocation());
+			const FIntPoint B = Grid()->WorldToCell(Corner->GetActorLocation());
+			Log(TEXT("after"));
+			Check(FString::Printf(TEXT("both onis reached the end (straight (%d,%d), corner (%d,%d))"), A.X, A.Y, B.X, B.Y),
+				FMath::Abs(A.X - StraightEnd.X) <= 1 && A.Y == StraightEnd.Y && B.X == CornerEnd.X && FMath::Abs(B.Y - CornerEnd.Y) <= 1);
+			const int32 StraightSlows = Straight->GetCornerSlowCount() - (*StartCount)[0];
+			const int32 CornerSlows = Corner->GetCornerSlowCount() - (*StartCount)[1];
+			Check(FString::Printf(TEXT("the straight run never slowed down (%d times, min x%.2f)"), StraightSlows, (*MinFactor)[0]),
+				StraightSlows == 0 && (*MinFactor)[0] > 0.99f);
+			Check(FString::Printf(TEXT("the corner slowed the oni down once (%d times, min x%.2f)"), CornerSlows, (*MinFactor)[1]),
+				CornerSlows == 1 && (*MinFactor)[1] < 0.45f);
+			Check(FString::Printf(TEXT("the speed is back after the corner (max walk %.0f, investigate %.0f)"), Corner->GetCharacterMovement()->MaxWalkSpeed, Corner->InvestigateSpeed),
+				FMath::IsNearlyEqual(Corner->GetCharacterMovement()->MaxWalkSpeed, Corner->InvestigateSpeed, 1.f) || Corner->GetCharacterMovement()->MaxWalkSpeed <= 0.f);
+			Shot(TEXT("scoutcorner_01_after"));
 		} });
 	}
 	// ================================================================ Quiet（消音壁）
@@ -3007,6 +3123,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->DecoyHearingRadius = 0.f;
 				Oni->PocketInspectChance = 0.f;
 			}
+			// ステージ 1 の鬼は遅い（覚えるステージ。2026-10-18）ので、見張りの場所へ間に合うよう探知鬼は種類の基本の速さにする
+			const float GuardSpeed = GM->OniWanderSpeedBase * GM->GetOniTypeRow(EOniType::Detector).SpeedScale;
+			Detector()->WanderSpeed = Detector()->InvestigateSpeed = GuardSpeed;
+			Detector()->GetCharacterMovement()->MaxWalkSpeed = GuardSpeed;
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
 		} });
 		Steps.Add({ 9.f, [=, this]
@@ -4069,7 +4189,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.3f, [=, this]
 		{
 			AOniCharacter* Oni = GM->GetOnis()[0];
-			Oni->SetActorLocation(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 8)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// 連打が届く距離（ステージ 1 は 1000 × 0.75 = 7.5m。2026-10-18）の内側
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 6)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
 			Oni->Activate(GetHider());
 			Oni->SightRadius = 0.f;
 			Oni->CloseSenseRadius = 0.f;
@@ -5719,6 +5840,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			AOniCharacter* Watcher = KeepOnlyOni(0);
 			const FIntPoint Post(T->Cell.X + 4, T->Cell.Y);
 			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// まだ門から歩いている途中なら止める（残った速度の向きへ体が回って、見ている向きが変わらないように）
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
 			Watcher->SetGuardCell(Post);
 			Watcher->SetActorRotation(FRotator(0.f, 180.f, 0.f));
 			Watcher->SightRadius = 1500.f;
@@ -5741,9 +5864,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	// ================================================================ DetectorEar（探知鬼は連打の音がした方へ振り向き、見つけたら仲間を呼ぶ）
 	else if (Scenario.Equals(TEXT("DetectorEar"), ESearchCase::IgnoreCase))
 	{
-		struct FEarTest { FVector Player; int32 Summons = 0; };
+		struct FEarTest { FVector Player; int32 Summons = 0; int32 SummonsAtSetup = 0; };
 		TSharedRef<FEarTest> T = MakeShared<FEarTest>();
-		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Detector }); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Detector });
+			// 見張りの場所へ歩いている間に見つからないよう、門から遠い隅で待つ（見つけると 5 秒は仲間を呼べない）
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
 		Steps.Add({ 3.3f, [=, this]
 		{
 			AOniCharacter* Watcher = KeepOnlyOni(0);
@@ -5752,10 +5880,15 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			// 真ん中を見張りの場所にして、首を回さないようにする（音で振り向くかだけを見る）
 			const FIntPoint Post(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
 			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// まだ門から歩いている途中なら止める（残った速度の向きへ体が回って、見ている向きが変わらないように）
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
 			Watcher->SetGuardCell(Post);
 			Watcher->ScanDegreesPerSecond = 0.f;
 			Watcher->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 東を向く
 			Watcher->SightRadius = 1500.f;
+			// 歩いている途中にプレイヤーを見つけていても、ここからやり直す（仲間を呼ぶ 5 秒の待ちも戻す）
+			Watcher->Activate(GetHider());
+			T->SummonsAtSetup = GS()->SummonsThisRound;
 			TeleportPlayer(Grid()->CellFloorCenter(Post + FIntPoint(-5, 0))); // 真後ろ（西）5 マス
 		} });
 		Steps.Add({ 1.0f, [=, this]
@@ -5763,7 +5896,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const AOniCharacter* Watcher = GM->GetOnis()[0];
 			T->Player = GetPawn()->GetActorLocation();
 			T->Summons = GS()->SummonsThisRound;
-			Check(FString::Printf(TEXT("the detector does not see the player behind it (summons %d, at post %d)"), T->Summons, Watcher->IsAtGuardPost()), T->Summons == 0 && Watcher->IsAtGuardPost());
+			Check(FString::Printf(TEXT("the detector does not see the player behind it (summons %d -> %d, at post %d)"), T->SummonsAtSetup, T->Summons, Watcher->IsAtGuardPost()), T->Summons == T->SummonsAtSetup && Watcher->IsAtGuardPost());
 			KakuMash(1);
 		} });
 		Steps.Add({ 1.5f, [=, this]
@@ -5774,6 +5907,100 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Facing > 0.8f && GS()->SummonsThisRound > T->Summons);
 			LookAtOni();
 			Shot(TEXT("detectorear_01"));
+		} });
+	}
+	// ================================================================ DetectorClear（探知鬼は見張りの場所のまわりの壁を壊す）
+	else if (Scenario.Equals(TEXT("DetectorClear"), ESearchCase::IgnoreCase))
+	{
+		// 見張りの場所のまわり（となり・2 マス先）に壁を置くと、探知鬼が壊して視線を通す。攻撃の届かない 3 マス先の壁は壊さない（いつまでも攻撃し続けない）
+		struct FClear { FIntPoint Post = FIntPoint::ZeroValue; FVector At = FVector::ZeroVector; };
+		TSharedRef<FClear> T = MakeShared<FClear>();
+		auto Near = [](const FIntPoint& Post) { return TArray<FIntPoint>{ Post + FIntPoint(1, 0), Post + FIntPoint(-1, 1), Post + FIntPoint(0, -2), Post + FIntPoint(-2, 0) }; };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Detector });
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			Check(FString::Printf(TEXT("the detector is fast and breaks walls quickly in a wide circle (speed x%.2f, windup %.2f s, radius %.0f, damage %.1f)"),
+				GM->GetOniTypeRow(EOniType::Detector).SpeedScale, Watcher->AttackWindup, Watcher->AttackRadius, Watcher->AttackDamage),
+				GM->GetOniTypeRow(EOniType::Detector).SpeedScale > 1.f && Watcher->AttackWindup < GM->GetOniTypeRow(EOniType::Balanced).AttackWindup
+				&& Watcher->AttackRadius >= 200.f && GM->GetOniTypeRow(EOniType::Detector).DamageScale > GM->GetOniTypeRow(EOniType::Balanced).DamageScale);
+			T->Post = FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			for (const FIntPoint& Cell : Near(T->Post))
+			{
+				PlaceTestWall(Cell);
+			}
+			PlaceTestWall(T->Post + FIntPoint(0, 3)); // 届かない
+			Watcher->SightRadius = 0.f;
+			Watcher->HearingRadius = 0.f;
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(T->Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
+			Watcher->SetGuardCell(T->Post);
+			Watcher->Activate(GetHider());
+			Watcher->bDrawDebug = true;
+			T->At = Watcher->GetActorLocation();
+			SetControlRotation(FRotator(-70.f, 0.f, 0.f));
+			TeleportPlayer(Grid()->CellFloorCenter(T->Post + FIntPoint(-6, 0)));
+		} });
+		Steps.Add({ 5.0f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			int32 Left = 0;
+			for (const FIntPoint& Cell : Near(T->Post))
+			{
+				Left += Grid()->GetColumnHeight(Cell) > 0 ? 1 : 0;
+			}
+			Log(TEXT("after"));
+			Check(FString::Printf(TEXT("the detector broke the walls around its post (left %d / 4, tries %d, destroyed %d)"), Left, Watcher->GetGuardClearCount(), GS()->LastRoundWallsDestroyed),
+				Left == 0 && Watcher->GetGuardClearCount() >= 1);
+			Check(FString::Printf(TEXT("a wall out of reach is left alone and the detector is back to watching (far wall %d, state %s)"),
+				Grid()->GetColumnHeight(T->Post + FIntPoint(0, 3)), *UEnum::GetValueAsString(Watcher->GetIntent())),
+				Grid()->GetColumnHeight(T->Post + FIntPoint(0, 3)) > 0 && Watcher->GetIntent() != EOniState::Attack);
+			Check(FString::Printf(TEXT("the detector stays at its post (moved %.0f cm)"), FVector::Dist2D(Watcher->GetActorLocation(), T->At)),
+				Watcher->IsAtGuardPost() && FVector::Dist2D(Watcher->GetActorLocation(), T->At) < 60.f);
+			LookAtOni();
+			Shot(TEXT("detectorclear_01"));
+		} });
+	}
+	// ================================================================ Exclaim（見つけたとき頭の上の玉が「!」になる）
+	else if (Scenario.Equals(TEXT("Exclaim"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Scout }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			const FIntPoint Me(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			// 鬼をプレイヤーの東 4 マスに、こちらを向けて置く（追いかけても捕まえないくらい遅く）
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Me + FIntPoint(4, 0)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->GetCharacterMovement()->StopMovementImmediately();
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			Oni->Activate(GetHider());
+			Oni->WanderSpeed = Oni->InvestigateSpeed = Oni->ChaseSpeed = 1.f;
+			SetControlRotation(FRotator(-15.f, 0.f, 0.f)); // 東（鬼の方）を向く
+			// 出てきてから見つけていても、Activate でやり直す（「!」も消える）
+			Check(TEXT("no exclamation before it spots you (reset by Activate)"), Oni->GetChaseStartTime() < 0.f);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			const bool bLabel = HUD && HUD->GetWorldLabels().ContainsByPredicate([](const FKakurenboWorldLabel& L) { return L.Text == TEXT("！"); });
+			Check(FString::Printf(TEXT("spotting the player turns the head ball into a '!' (intent %s, shown %d, ball hidden %d)"),
+				*UEnum::GetValueAsString(Oni->GetIntent()), Oni->IsExclaimShown() ? 1 : 0, Oni->TypeMarker->bHiddenInGame ? 1 : 0),
+				Oni->GetIntent() == EOniState::Chase && Oni->IsExclaimShown() && Oni->TypeMarker->bHiddenInGame);
+			Check(TEXT("the text interface still gets the '！' label"), bLabel);
+			Shot(TEXT("exclaim_01_spotted"));
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("the '!' goes back to the ball after a while (shown %d, ball hidden %d, model %d)"), Oni->IsExclaimShown() ? 1 : 0, Oni->TypeMarker->bHiddenInGame ? 1 : 0, Oni->UsesSkeletalMesh() ? 1 : 0),
+				!Oni->IsExclaimShown() && Oni->TypeMarker->bHiddenInGame == !Oni->UsesSkeletalMesh());
+			Shot(TEXT("exclaim_02_after"));
 		} });
 	}
 	// ================================================================ Daruma（M15：だるまさんがころんだ）

@@ -6,6 +6,7 @@
 #include "KakurenboBalance.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboSaveGame.h"
+#include "OniCharacter.h"
 #include "KakurenboLayout.h"
 #include "KakurenboMaps.h"
 #include "KakurenboSettings.h"
@@ -284,6 +285,13 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		{
 			TestTrue(TEXT("stage 1 has onis and time"), Rows[0]->OniTypes.Num() >= 1 && Rows[0]->HideDuration > 0.f);
 		}
+		if (Rows.Num() > 1)
+		{
+			// ステージ 1 はルールを覚えるステージ（2026-10-18）：鬼が遅く・耳が遠く・時間が短い。でも追いかけるときはプレイヤー（420）より速い
+			TestTrue(TEXT("stage 1 is gentler than stage 2"), Rows[0]->OniSpeedBonus < Rows[1]->OniSpeedBonus && Rows[0]->OniHearingRadius < Rows[1]->OniHearingRadius
+				&& Rows[0]->HideDuration < Rows[1]->HideDuration);
+			TestTrue(TEXT("stage 1 oni still chases faster than the player"), GetDefault<AKakurenboGameMode>()->OniChaseSpeedBase + Rows[0]->OniSpeedBonus > 420.f * 1.5f);
+		}
 	}
 	if (UDataTable* Upgrades = Load(FKakurenboUpgradeRow::StaticStruct(), TEXT("Upgrades.csv")))
 	{
@@ -390,13 +398,15 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		{
 			TestTrue(TEXT("careful breaks one wall at a time"), Careful->bSingleTargetAttack);
 		}
-		// 相性：スピード鬼はおとりに強く（だまされない）トリモチに弱い。パワー鬼はおとりに弱く（遠くから寄る）トリモチに強い
+		// 相性（2026-10-18 に入れ替え）：スピード鬼はおとりにもトリモチにも弱い（音を拾う範囲がいちばん広い）。パワー鬼はおとりが少し聞こえにくく、トリモチに強い
 		const FKakurenboOniTypeRow* Scout = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Scout"), TEXT("Test"));
 		const FKakurenboOniTypeRow* Breaker = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Breaker"), TEXT("Test"));
-		TestTrue(TEXT("speed oni: sensitive to sound, not fooled by decoys, weak to sticky"),
-			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale == 0.f && Scout->StunScale > 1.f);
-		TestTrue(TEXT("power oni: lured by decoys, strong against sticky and disarms it"),
-			Breaker && Breaker->DecoyHearingScale > 1.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
+		const FKakurenboOniTypeRow* BalancedRowForPower = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Balanced"), TEXT("Test"));
+		TestTrue(TEXT("speed oni: sensitive to sound, lured by decoys from far, weak to sticky"),
+			Scout && Scout->HearingScale > 1.f && Scout->DecoyHearingScale > 1.f && Scout->StunScale > 1.f);
+		TestTrue(TEXT("power oni: deaf to the player, hears decoys a bit less than the standard oni, strong against sticky and disarms it"),
+			Breaker && BalancedRowForPower && Breaker->DecoyHearingScale > 0.f && Breaker->DecoyHearingScale < BalancedRowForPower->DecoyHearingScale
+			&& Breaker->HearingScale == 0.f && Breaker->StepHearingScale == 0.f && Breaker->StunScale < 1.f && Breaker->bDisarmTraps);
 		// 宝物鬼：連打・おとりには一切反応しない代わりに足音に敏感（M14。標準鬼の 2 倍。3 倍だと歩けなかった）・壁を壊すのが苦手・勘は無い。探知鬼：仲間を呼ぶ
 		const FKakurenboOniTypeRow* BalancedRow = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Balanced"), TEXT("Test"));
 		const FKakurenboOniTypeRow* Treasure = OniTypes->FindRow<FKakurenboOniTypeRow>(TEXT("Treasure"), TEXT("Test"));
@@ -405,11 +415,28 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			Treasure && Treasure->HearingScale == 0.f && Treasure->DecoyHearingScale == 0.f && BalancedRow && Treasure->StepHearingScale >= BalancedRow->StepHearingScale * 1.5f
 			&& Treasure->StepHearingScale <= 1.5f && Treasure->DamageScale < 1.0 && Treasure->PocketInspectChance == 0.f && Treasure->Intuition == 0.f);
 		TestTrue(TEXT("detector: summons others from far"), Detector && Detector->SummonRadius >= 1500.f && Detector->SightRadius > 1000.f);
+		// 2026-10-18：探知鬼は速く、壁を壊すのも速く強く広い（見張りの場所のまわりの壁を壊す）
+		TestTrue(TEXT("detector: fast, breaks walls quickly, hard and wide"), Detector && BalancedRow && Detector->SpeedScale > BalancedRow->SpeedScale
+			&& Detector->AttackWindup < BalancedRow->AttackWindup && Detector->DamageScale > BalancedRow->DamageScale && Detector->AttackRadius > BalancedRow->AttackRadius);
 		TestTrue(TEXT("enum has Treasure and Detector"), StaticEnum<EOniType>()->GetValueByNameString(TEXT("Treasure")) != INDEX_NONE && StaticEnum<EOniType>()->GetValueByNameString(TEXT("Detector")) != INDEX_NONE);
 		// M15：パワー鬼は前方 2×2×2 の壁に当たる代わりに、溜めが長く・目が近い
 		TestTrue(TEXT("power oni: 2x2x2 forward attack, slow windup, short sight"),
 			Breaker && Breaker->AttackBoxWidth == 2 && Breaker->AttackBoxDepth == 2 && Breaker->AttackBoxLevels == 2 && Breaker->AttackWindup >= 1.5f
 			&& Scout && Breaker->SightRadius < 700.f);
+		// 2026-10-18：スピード鬼は動く鬼の中で音（連打・おとり）を拾う範囲がいちばん広い（探知鬼は動かない）
+		for (const TCHAR* Name : { TEXT("Balanced"), TEXT("Breaker"), TEXT("Careful"), TEXT("Treasure") })
+		{
+			const FKakurenboOniTypeRow* Row = OniTypes->FindRow<FKakurenboOniTypeRow>(Name, TEXT("Test"));
+			TestTrue(FString::Printf(TEXT("speed oni hears mashing and decoys from farther than %s"), Name),
+				Scout && Row && Scout->HearingScale > Row->HearingScale && Scout->DecoyHearingScale > Row->DecoyHearingScale);
+		}
+		// 2026-10-18：スピード鬼は直線は速いが曲がり角が苦手。ほかの鬼は曲がり角で減速しない
+		TestTrue(TEXT("speed oni slows down at corners"), Scout && Scout->CornerTurnAngle > 0.f && Scout->CornerTurnAngle < 90.f && Scout->CornerSlowScale < 1.f && Scout->CornerSlowDuration > 0.f);
+		for (const TCHAR* Name : { TEXT("Balanced"), TEXT("Breaker"), TEXT("Careful"), TEXT("Treasure"), TEXT("Detector") })
+		{
+			const FKakurenboOniTypeRow* Row = OniTypes->FindRow<FKakurenboOniTypeRow>(Name, TEXT("Test"));
+			TestTrue(FString::Printf(TEXT("%s does not slow down at corners"), Name), Row && (Row->CornerTurnAngle <= 0.f || Row->CornerSlowScale >= 1.f));
+		}
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{
@@ -547,6 +574,18 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 			TestTrue(FString::Printf(TEXT("wall %s surface '%s' exists"), *Row->DisplayName.ToString(), *Row->Surface.ToString()), Row->Surface.IsNone() || SurfaceNames.Contains(Row->Surface));
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKakurenboCornerSlowTest, "Kakurenbo.Oni.CornerSlow", TestFlags)
+bool FKakurenboCornerSlowTest::RunTest(const FString& Parameters)
+{
+	// 曲がった瞬間がいちばん遅く、Duration 秒でまっすぐ元の速さへ戻る
+	TestEqual(TEXT("right after the turn"), AOniCharacter::CornerSpeedFactor(0.8f, 0.8f, 0.35f), 0.35f);
+	TestEqual(TEXT("halfway"), AOniCharacter::CornerSpeedFactor(0.4f, 0.8f, 0.35f), 0.675f);
+	TestEqual(TEXT("recovered"), AOniCharacter::CornerSpeedFactor(0.f, 0.8f, 0.35f), 1.f);
+	TestEqual(TEXT("no duration = never slows"), AOniCharacter::CornerSpeedFactor(0.5f, 0.f, 0.35f), 1.f);
+	TestEqual(TEXT("timer above duration is clamped"), AOniCharacter::CornerSpeedFactor(2.f, 0.8f, 0.35f), 0.35f);
 	return true;
 }
 

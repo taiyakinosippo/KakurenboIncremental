@@ -120,6 +120,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<UStaticMeshComponent> TypeMarker;
 
+	/** プレイヤーを見つけたとき、頭の上の玉が変わる「!」の棒と点（ユーザーの希望 2026-10-18：「！」の文字が地味だったので） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<UStaticMeshComponent> ExclaimBar;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<UStaticMeshComponent> ExclaimDot;
+
+	/** 見つけてから「!」を出しておく秒数（HUD の「！」の記録と同じ長さ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float ExclaimSeconds = 1.5f;
+
+	/** 今、頭の上が「!」になっているか（テスト用） */
+	bool IsExclaimShown() const { return ExclaimBar && ExclaimBar->IsVisible(); }
+
 	/** スケルタルメッシュに重ねる小物（包帯など） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<USkeletalMeshComponent> AccessoryMesh;
@@ -160,6 +174,31 @@ public:
 	/** 追いかけるときの速さ（標準の鬼はプレイヤー 420 の 2 倍） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
 	float ChaseSpeed = 840.f;
+
+	/**
+	 * 曲がり角が苦手（スピード鬼）：進む向きが一度に CornerTurnAngle 度以上変わると、速さが CornerSlowScale 倍まで落ち、
+	 * CornerSlowDuration 秒かけて元に戻る。少しずつ曲がっても、向きを変えられる速さ（CornerTurnRate 度/秒）より速ければ角とみなす。0 なら無し
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerTurnAngle = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerSlowScale = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerSlowDuration = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerTurnRate = 180.f;
+
+	/** 曲がり角で減速した回数（テスト用） */
+	int32 GetCornerSlowCount() const { return CornerSlowCount; }
+
+	/** 今の曲がり角の減速の倍率（1 なら減速していない。テスト用） */
+	float GetCornerSpeedFactor() const { return CornerSpeedFactor(CornerSlowTimer, CornerSlowDuration, CornerSlowScale); }
+
+	/** 曲がり角の減速：残り Timer 秒（Duration 秒から数える）のときの速さの倍率。曲がった瞬間 MinScale、Duration 秒で 1 に戻る（単体テストあり） */
+	static float CornerSpeedFactor(float Timer, float Duration, float MinScale);
 
 	// ===== 感覚 =====
 
@@ -219,7 +258,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float BaseHearingRadius = 1200.f;
 
-	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（スピード鬼：音に敏感で、にせものとわかる） */
+	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（宝物鬼・探知鬼。スピード鬼は遠くから、パワー鬼は近くからだけ寄っていく） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float DecoyHearingRadius = 1200.f;
 
@@ -245,6 +284,16 @@ public:
 
 	/** 探知鬼が今、聞こえた音の方を向いているか（テスト用） */
 	bool IsLookingAtNoise() const { return GuardNoiseLookTimer > 0.f; }
+
+	/**
+	 * 探知鬼：見張りの場所のまわりに壁（ブロック）があれば壊す（視線をふさがれないように。ユーザーの希望 2026-10-18）。
+	 * この秒数ごとに、攻撃が届くまわりのマス（AttackRadius 以内）に壁があるか調べる。0 なら壊さない
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float GuardClearInterval = 0.5f;
+
+	/** 探知鬼が見張りの場所のまわりの壁を壊しに行った回数（テスト用） */
+	int32 GetGuardClearCount() const { return GuardClearCount; }
 
 	/** 慎重鬼：歩きながら見渡して「調べた」ことにする距離（マス。壁・家具の向こうは見えない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
@@ -629,10 +678,16 @@ private:
 	void TickGuard(float DeltaSeconds);
 	/** 探知鬼：プレイヤーが見えた（仲間を呼ぶ） */
 	void HandleGuardSighting();
+	/** 探知鬼：見張りの場所のまわり（攻撃が届く所）の壁を探して壊し始める。壊し始めたら true */
+	bool TryClearAroundGuardPost();
 	/** 慎重鬼：見渡せるマスを「調べた」と記録する */
 	void MarkVisibleCellsChecked(float Now);
 	/** 歩いた距離に合わせて足音を鳴らす */
 	void TickFootsteps();
+	/** 曲がり角が苦手（スピード鬼）：向きが大きく変わったら減速し、だんだん元の速さに戻す */
+	void TickCornerSlow(float DeltaSeconds);
+	/** 今の状態の速さ（減速する前。止まっている状態は 0） */
+	float GetStateMoveSpeed() const;
 	/** 種類ごとの飾り（宝物鬼の王冠・探知鬼のアンテナ） */
 	void BuildTypeDecoration();
 	/** 壁に囲まれた場所（出入り口の前を壁で囲まれたときなど）にいたら、壁を壊して外へ出る */
@@ -716,6 +771,11 @@ private:
 	static constexpr int32 RegionSize = 4;
 	TArray<float> RegionVisitTime;
 
+	/** スピード鬼：曲がり角の判定に使う向き（CornerTurnRate でしか向きを変えられない）・減速の残り時間・回数 */
+	FVector2D CornerHeading = FVector2D::ZeroVector;
+	float CornerSlowTimer = 0.f;
+	int32 CornerSlowCount = 0;
+
 	/** 慎重鬼：担当の区画 */
 	int32 CarefulSector = 0;
 	int32 CarefulSectorCount = 1;
@@ -733,6 +793,8 @@ private:
 	bool bAtGuardPost = false;
 	float GuardLookYaw = 0.f;
 	float GuardNoiseLookTimer = 0.f;
+	float GuardClearTimer = 0.f;
+	int32 GuardClearCount = 0;
 	FVector GuardNoiseLocation = FVector::ZeroVector;
 	float SummonTimer = 0.f;
 	float LastSummonTime = -1.f;
@@ -772,6 +834,8 @@ private:
 	void SetupEyes();
 	/** 追いかけているかで目の光を変える（毎フレーム） */
 	void UpdateEyes(float DeltaSeconds);
+	/** 見つけた直後は頭の上の玉を「!」にする（ポンと大きく出て戻る） */
+	void UpdateExclaim();
 
 	/** Attack 中 */
 	FIntPoint AttackCell = FIntPoint::ZeroValue;

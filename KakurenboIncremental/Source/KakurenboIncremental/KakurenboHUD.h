@@ -266,6 +266,8 @@ protected:
 
 	/** ワールド上の位置に文字だけを出す（画面外なら出さない）。OffsetY は画面上で下へずらす量（1080p 基準） */
 	void DrawWorldLabel(const FVector& WorldLocation, const FString& Label, const FLinearColor& Color, float OffsetY = 0.f);
+	/** 画面には描かず、ワールドの名前の記録（テキストの窓口の LABELS）にだけ足す（見た目は 3D の物で出しているとき） */
+	void NoteWorldLabel(const FVector& WorldLocation, const FString& Label);
 
 	/** 連打したときに「+〇」を画面中央の下に浮かべる（カメラを揺らさない手応え） */
 	void DrawMashPopups(const AKakurenboGameState* State, AKakurenboGameMode* GM);

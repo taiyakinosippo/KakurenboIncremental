@@ -726,6 +726,16 @@ void AKakurenboHUD::DrawWorldLabel(const FVector& WorldLocation, const FString& 
 	}
 }
 
+void AKakurenboHUD::NoteWorldLabel(const FVector& WorldLocation, const FString& Label)
+{
+	APlayerController* PC = GetOwningPlayerController();
+	FVector2D Screen;
+	if (PC && PC->ProjectWorldLocationToScreen(WorldLocation, Screen, true))
+	{
+		WorldLabels.Add({ Label, WorldLocation });
+	}
+}
+
 // ---------------------------------------------------------------- 共通
 
 void AKakurenboHUD::DrawStatusPanel(AKakurenboGameState* State, AKakurenboGameMode* GM)
@@ -1242,7 +1252,7 @@ FString AKakurenboHUD::GetOniCatchphrase(EOniType Type)
 	switch (Type)
 	{
 	case EOniType::Balanced: return TEXT("いちばん普通の鬼。音に寄ってきて、見つけたら追いかけてくる");
-	case EOniType::Scout:    return TEXT("足が速くて耳がいい。館じゅうを大ざっぱに走り回る");
+	case EOniType::Scout:    return TEXT("足が速くて耳がいい。でも曲がり角は苦手");
 	case EOniType::Breaker:  return TEXT("自分からは探さない力持ち。見えた壁を壊しに来る");
 	case EOniType::Careful:  return TEXT("仲間と手分けして、広い場所から順にしらみつぶし");
 	case EOniType::Treasure: return TEXT("お宝が大好き。お宝のまわりをぐるぐる見回る");
@@ -1267,16 +1277,25 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		break;
 	case EOniType::Scout:
 		Lines.Add(TEXT("館を区画に分けて、しばらく行っていない所へ走る"));
-		Lines.Add(FString::Printf(TEXT("視界が広い（%s）。連打の音が %s 倍遠くから聞こえる"), *Sight, *UKakurenboLibrary::FormatStatNumber(Row.HearingScale)));
-		Lines.Add(TEXT("おとりは、にせものと見破る。壁を壊す力は弱い"));
-		Lines.Add(FString::Printf(TEXT("対策：トリモチに弱い（%s 倍の時間動けない）。連打は控えめに"), *UKakurenboLibrary::FormatStatNumber(Row.StunScale)));
+		Lines.Add(FString::Printf(TEXT("視界が広い（%s）。連打は %s 倍・おとりは %s 倍遠くから聞こえる"), *Sight,
+			*UKakurenboLibrary::FormatStatNumber(Row.HearingScale), *UKakurenboLibrary::FormatStatNumber(Row.DecoyHearingScale)));
+		if (Row.CornerTurnAngle > 0.f && Row.CornerSlowScale < 1.f)
+		{
+			// 直線は速いが、曲がり角は苦手（ユーザーの決定 2026-10-18）
+			Lines.Add(FString::Printf(TEXT("直線は速いが、曲がり角では %s 倍まで遅くなる"), *UKakurenboLibrary::FormatStatNumber(Row.CornerSlowScale)));
+		}
+		else
+		{
+			Lines.Add(TEXT("壁を壊す力は弱い"));
+		}
+		Lines.Add(FString::Printf(TEXT("対策：おとりで遠くへ呼ぶ。角を曲がって逃げる。トリモチに弱い（%s 倍の時間）"), *UKakurenboLibrary::FormatStatNumber(Row.StunScale)));
 		break;
 	case EOniType::Breaker:
-		Lines.Add(TEXT("連打の音は気にしない。代わりに、見えた壁を壊しに行く"));
+		Lines.Add(FString::Printf(TEXT("連打の音は気にしない。おとりは聞こえにくい（%s 倍）。見えた壁を壊しに行く"), *UKakurenboLibrary::FormatStatNumber(Row.DecoyHearingScale)));
 		Lines.Add(FString::Printf(TEXT("攻撃は前の %d×%d マス × %d 段をまとめて壊す（ためが長い：%s 秒）"), FMath::Max(1, Row.AttackBoxWidth), FMath::Max(1, Row.AttackBoxDepth),
 			FMath::Max(1, Row.AttackBoxLevels), *UKakurenboLibrary::FormatStatNumber(Row.AttackWindup)));
 		Lines.Add(FString::Printf(TEXT("目は近め（%s）。トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す"), *Sight));
-		Lines.Add(FString::Printf(TEXT("対策：おとりに弱い（%s 倍遠くから寄っていく）。壁は離して置く"), *UKakurenboLibrary::FormatStatNumber(Row.DecoyHearingScale)));
+		Lines.Add(TEXT("対策：壁は離して置く（目が近い）。おとりはすぐそばに置く"));
 		break;
 	case EOniType::Careful:
 		Lines.Add(TEXT("見たマスを「調べた」と仲間と分け合い、まだの場所へ行く"));
@@ -1292,10 +1311,11 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		Lines.Add(TEXT("対策：隠れたら動かずに連打。お宝はしのび足で取りに行く"));
 		break;
 	case EOniType::Detector:
-		Lines.Add(FString::Printf(TEXT("決まった見張りの場所へ行き、首を回して遠くまで見張る（%s）"), *Sight));
+		Lines.Add(FString::Printf(TEXT("決まった見張りの場所へ走り、首を回して遠くまで見張る（%s）"), *Sight));
+		Lines.Add(FString::Printf(TEXT("見張りの場所のまわり（%sm）の壁は、すぐに壊してしまう"), *M(Row.AttackRadius)));
 		Lines.Add(FString::Printf(TEXT("あなたを見つけると、%sm 以内の鬼をみんな呼び寄せる"), *M(Row.SummonRadius)));
 		Lines.Add(FString::Printf(TEXT("自分は追いかけない。耳がとてもよく、連打の音がした方へ振り向く（%s 倍遠くから）"), *UKakurenboLibrary::FormatStatNumber(Row.HearingScale)));
-		Lines.Add(TEXT("対策：部屋の壁・家具・置いた壁で見張りの視線を切る。見張りの近くでは連打しない"));
+		Lines.Add(TEXT("対策：見張りから離れた壁・家具で視線を切る。見張りの近くでは連打しない"));
 		break;
 	default:
 		break;
@@ -1804,7 +1824,8 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	const UKakurenboSettings* S = UKakurenboSettings::Get(this);
 	const bool bHints = !S || S->bShowHints;
 
-	// 鬼とお宝の場所は矢印では出さない（音で見当をつける）。見えている鬼にだけ、追いかけ始めた直後の「！」を頭の上に出す
+	// 鬼とお宝の場所は矢印では出さない（音で見当をつける）。追いかけ始めた直後の「！」は、鬼の頭の上の玉が 3D の「!」に変わる（AOniCharacter::UpdateExclaim）。
+	// 文字は描かないが、テキストの窓口には今までどおり「！」として渡す
 	for (const AOniCharacter* Oni : GM->GetOnis())
 	{
 		const bool bJustSpotted = Oni && Oni->GetChaseStartTime() >= 0.f && GetWorld()->GetTimeSeconds() - Oni->GetChaseStartTime() < 1.5f;
@@ -1818,7 +1839,7 @@ void AKakurenboHUD::DrawHide(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		}
 		else if (bJustSpotted)
 		{
-			DrawWorldLabel(Oni->GetActorLocation() + FVector(0.f, 0.f, 150.f), TEXT("！"), Bad);
+			NoteWorldLabel(Oni->GetActorLocation() + FVector(0.f, 0.f, 150.f), TEXT("！"));
 		}
 	}
 

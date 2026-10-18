@@ -174,23 +174,28 @@ AKakurenboGameMode::AKakurenboGameMode()
 		Row.StepHearingScale = StepHearing;
 		Row.SummonRadius = Summon;
 	};
-	// スピード鬼: 音に敏感（プレイヤーの音は遠くから聞こえ、おとりにはだまされない）・トリモチに弱い
-	// パワー鬼: 連打は気にしないが、おとりには遠くから寄っていく・トリモチに強い（すぐ抜け出し、直後に踏んだトリモチは壊す）
+	// スピード鬼: 音に敏感（プレイヤーの音もおとりも遠くから聞こえる。2026-10-18 からおとりにも寄っていく）・トリモチに弱い
+	// パワー鬼: 連打・足音は気にしない。おとりは少し聞こえにくい（2026-10-18 に 1.25 → 0.6）・トリモチに強い（すぐ抜け出し、直後に踏んだトリモチは壊す）
 	// 宝物鬼: お宝の周りを回る。壁を壊す力が弱く、空洞も調べない。連打・おとりには一切反応しない代わりに足音にとても敏感（M14）
 	// 探知鬼: 見張りの場所から動かず、見つけたら周りの鬼を呼ぶ。音は聞かない
 	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
-	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 0.f, 1.5f, false, 1.f, 0.f);
-	// M15：パワー鬼は目と耳（おとり）を弱く・溜めを長くした代わりに、前方 2×2×2 マスの壁にまとめて当たる
-	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 550.f, 45.f, 0.f, false, 200.f, 1.8f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f, 1.25f, 0.4f, true, 0.f, 0.f);
+	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 1.5f, 1.5f, false, 1.f, 0.f);
+	// M15：パワー鬼は目を弱く・溜めを長くした代わりに、前方 2×2×2 マスの壁にまとめて当たる
+	AddOniType(EOniType::Breaker, TEXT("パワー鬼"), 0.65f, 2.5, 550.f, 45.f, 0.f, false, 200.f, 1.8f, 0.5f, FLinearColor(1.f, 0.5f, 0.05f), 1.2f, 0.6f, 0.4f, true, 0.f, 0.f);
 	OniTypeRows[EOniType::Breaker].AttackBoxWidth = 2;
 	OniTypeRows[EOniType::Breaker].AttackBoxDepth = 2;
 	OniTypeRows[EOniType::Breaker].AttackBoxLevels = 2;
 	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
 	AddOniType(EOniType::Treasure, TEXT("宝物鬼"), 0.9f, 0.4, 900.f, 45.f, 0.f, false, 140.f, 1.0f, 0.f, FLinearColor(1.f, 0.85f, 0.2f), 1.0f, 0.f, 1.f, false, 3.0f, 0.f);
-	AddOniType(EOniType::Detector, TEXT("探知鬼"), 0.9f, 1.0, 1500.f, 32.f, 0.f, false, 160.f, 0.8f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 0.f, 1.f, false, 0.f, 2400.f);
+	// 2026-10-18：探知鬼は速く（0.9 → 1.15）、壁を壊すのも速く強く（攻撃力 ×2・ため 0.5 秒・半径 2.4m）。見張りの場所のまわりの壁を壊す
+	AddOniType(EOniType::Detector, TEXT("探知鬼"), 1.15f, 2.0, 1500.f, 32.f, 0.f, false, 240.f, 0.5f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 0.f, 1.f, false, 0.f, 2400.f);
 	// 勘：スピード鬼は低め・慎重鬼は高め・ほかは普通（0.3）
 	OniTypeRows[EOniType::Scout].Intuition = 0.1f;
 	OniTypeRows[EOniType::Careful].Intuition = 0.6f;
+	// スピード鬼：直線は速いが、曲がり角は苦手（60 度以上向きを変えると 0.35 倍まで落ち、0.8 秒で戻る）
+	OniTypeRows[EOniType::Scout].CornerTurnAngle = 60.f;
+	OniTypeRows[EOniType::Scout].CornerSlowScale = 0.35f;
+	OniTypeRows[EOniType::Scout].CornerSlowDuration = 0.8f;
 }
 
 AKakurenboGameState* AKakurenboGameMode::GS() const
