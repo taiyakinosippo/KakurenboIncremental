@@ -177,7 +177,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	// スピード鬼: 音に敏感（プレイヤーの音もおとりも遠くから聞こえる。2026-10-18 からおとりにも寄っていく）・トリモチに弱い
 	// パワー鬼: 連打・足音は気にしない。おとりは少し聞こえにくい（2026-10-18 に 1.25 → 0.6）・トリモチに強い（すぐ抜け出し、直後に踏んだトリモチは壊す）
 	// 宝物鬼: お宝の周りを回る。壁を壊す力が弱く、空洞も調べない。連打・おとりには一切反応しない代わりに足音にとても敏感（M14）
-	// 探知鬼: 見張りの場所から動かず、見つけたら周りの鬼を呼ぶ。音は聞かない
+	// 探知鬼: 見張りの場所から動かず、見つけたら周りの鬼を呼ぶ。連打の音には振り向くだけ。おとり・迷い猫の音が聞こえたら、その場所へ周りの鬼を呼ぶ（2026-10-18）
 	AddOniType(EOniType::Balanced, TEXT("標準鬼"), 1.0f, 1.0, 900.f, 40.f, 1.f, false, 160.f, 0.8f, 0.5f, FLinearColor(0.9f, 0.1f, 0.08f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
 	AddOniType(EOniType::Scout, TEXT("スピード鬼"), 1.25f, 0.5, 1300.f, 55.f, 1.5f, false, 160.f, 0.8f, 0.f, FLinearColor(0.1f, 0.75f, 0.95f), 0.9f, 1.5f, 1.5f, false, 1.f, 0.f);
 	// M15：パワー鬼は目を弱く・溜めを長くした代わりに、前方 2×2×2 マスの壁にまとめて当たる
@@ -188,7 +188,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddOniType(EOniType::Careful, TEXT("慎重鬼"), 1.15f, 1.0, 900.f, 40.f, 1.f, true, 160.f, 0.6f, 1.f, FLinearColor(0.95f, 0.4f, 0.75f), 1.0f, 1.f, 1.f, false, 0.6f, 0.f);
 	AddOniType(EOniType::Treasure, TEXT("宝物鬼"), 0.9f, 0.4, 900.f, 45.f, 0.f, false, 140.f, 1.0f, 0.f, FLinearColor(1.f, 0.85f, 0.2f), 1.0f, 0.f, 1.f, false, 3.0f, 0.f);
 	// 2026-10-18：探知鬼は速く（0.9 → 1.15）、壁を壊すのも速く強く（攻撃力 ×2・ため 0.5 秒・半径 2.4m）。見張りの場所のまわりの壁を壊す
-	AddOniType(EOniType::Detector, TEXT("探知鬼"), 1.15f, 2.0, 1500.f, 32.f, 0.f, false, 240.f, 0.5f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 0.f, 1.f, false, 0.f, 2400.f);
+	AddOniType(EOniType::Detector, TEXT("探知鬼"), 1.15f, 2.0, 1500.f, 32.f, 0.f, false, 240.f, 0.5f, 0.f, FLinearColor(0.6f, 0.3f, 1.f), 1.1f, 2.f, 1.f, false, 0.f, 2400.f);
 	// 勘：スピード鬼は低め・慎重鬼は高め・ほかは普通（0.3）
 	OniTypeRows[EOniType::Scout].Intuition = 0.1f;
 	OniTypeRows[EOniType::Careful].Intuition = 0.6f;
@@ -2220,11 +2220,19 @@ void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& T
 	{
 		return;
 	}
-	// 呼んだ鬼の周り SummonRadius 以内の鬼が、プレイヤーを見つけた場所へ集まってくる
+	// 呼んだ鬼の周り SummonRadius 以内の鬼が、プレイヤーを見つけた場所へ集まってくる。
+	// おとり・迷い猫の音で呼んだときは、音の周り SummonRadius 以内の鬼も呼ぶ（おとりで鬼をまとめて引きつけられるように）
+	const bool bForSound = Caller->WasLastSummonForSound();
 	int32 Count = 0;
 	for (AOniCharacter* Oni : Onis)
 	{
-		if (Oni && Oni != Caller && Oni->IsActive() && FVector::Dist2D(Oni->GetActorLocation(), Caller->GetActorLocation()) <= Caller->SummonRadius)
+		if (!Oni || Oni == Caller || !Oni->IsActive())
+		{
+			continue;
+		}
+		const bool bNearCaller = FVector::Dist2D(Oni->GetActorLocation(), Caller->GetActorLocation()) <= Caller->SummonRadius;
+		const bool bNearSound = bForSound && FVector::Dist2D(Oni->GetActorLocation(), TargetLocation) <= Caller->SummonRadius;
+		if (bNearCaller || bNearSound)
 		{
 			Oni->Summon(TargetLocation);
 			++Count;
@@ -2240,7 +2248,14 @@ void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& T
 		F->Ring(Caller->GetActorLocation(), 60.f, Caller->SummonRadius, 0.9f, FLinearColor(0.75f, 0.3f, 1.f), 18.f);
 	}
 	// 身代わり人形が見つかったときは、プレイヤーが見つかったと思わないよう文は出さない（音と輪だけ）
-	if (!Caller->WasLastSummonForDoll())
+	if (bForSound)
+	{
+		if (Count > 0)
+		{
+			ShowPopup(FString::Printf(TEXT("見張りが音を聞きつけた　鬼が %d 体、音のほうへ"), Count), FLinearColor(0.6f, 0.9f, 1.f));
+		}
+	}
+	else if (!Caller->WasLastSummonForDoll())
 	{
 		ShowPopup(Count > 0 ? FString::Printf(TEXT("見張りに見つかった…　鬼が %d 体あつまってくる"), Count) : FString(TEXT("見張りに見つかった…")), FLinearColor(0.8f, 0.5f, 1.f));
 	}

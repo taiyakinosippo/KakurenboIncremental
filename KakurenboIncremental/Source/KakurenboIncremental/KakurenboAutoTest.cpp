@@ -153,6 +153,26 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			UE_LOG(LogTemp, Error, TEXT("[AutoTest] CHECK FAILED: %s"), *What);
 		}
 	};
+	// 置きたいマスが家具・壁・場外なら、まわりの歩けるマス（近い順）にする（鬼を置く場所がたまたま家具の上にならないように）
+	auto NearestWalkable = [Grid](const FIntPoint& Want) -> FIntPoint
+	{
+		const UKakurenboGridSubsystem* G = Grid();
+		for (int32 R = 0; G && R <= 4; ++R)
+		{
+			for (int32 DX = -R; DX <= R; ++DX)
+			{
+				for (int32 DY = -R; DY <= R; ++DY)
+				{
+					const FIntPoint C = Want + FIntPoint(DX, DY);
+					if (FMath::Max(FMath::Abs(DX), FMath::Abs(DY)) == R && G->IsWalkable(C))
+					{
+						return C;
+					}
+				}
+			}
+		}
+		return Want;
+	};
 	auto Log = [this, GM, GS, Grid](const FString& Label)
 	{
 		const AKakurenboGameState* S = GS();
@@ -3175,7 +3195,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const float GuardSpeed = GM->OniWanderSpeedBase * GM->GetOniTypeRow(EOniType::Detector).SpeedScale;
 			Detector()->WanderSpeed = Detector()->InvestigateSpeed = GuardSpeed;
 			Detector()->GetCharacterMovement()->MaxWalkSpeed = GuardSpeed;
-			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			// 見張りの場所は毎回ランダム。(1,1) のそばに決まるとプレイヤーが邪魔で着けないので、そのときは反対の角へ
+			const FIntPoint GuardCell = Detector()->GetGuardCell();
+			TeleportPlayer(Grid()->CellFloorCenter((GuardCell.X <= 4 && GuardCell.Y <= 4) ? FIntPoint(Grid()->GetSizeX() - 2, Grid()->GetSizeY() - 2) : FIntPoint(1, 1)));
 		} });
 		Steps.Add({ 9.f, [=, this]
 		{
@@ -3191,7 +3213,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const FIntPoint Post = Grid()->WorldToCell(Watcher->GetActorLocation());
 			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
 			{
-				const FIntPoint Near(FMath::Clamp(Post.X + (i == 1 ? -6 : 6), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Post.Y + 5, 1, Grid()->GetSizeY() - 2));
+				const FIntPoint Near = NearestWalkable(FIntPoint(FMath::Clamp(Post.X + (i == 1 ? -6 : 6), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Post.Y + 5, 1, Grid()->GetSizeY() - 2)));
 				GM->GetOnis()[i]->SetActorLocation(Grid()->CellFloorCenter(Near) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
 			}
 			Watcher->SightRadius = 1500.f;
@@ -3221,6 +3243,107 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GS()->SummonsThisRound >= 1 && GM->GetLastSummonedCount() == 2 && Coming == 2);
 			Check(TEXT("the detector itself does not chase"), Detector()->GetIntent() != EOniState::Chase);
 			Shot(TEXT("detector_01_summon"));
+		} });
+	}
+	// ================================================================ DetectorLure（探知鬼：おとりの音が聞こえたら、その場所へ仲間を呼ぶ。2026-10-18 ユーザーの指定）
+	else if (Scenario.Equals(TEXT("DetectorLure"), ESearchCase::IgnoreCase))
+	{
+		constexpr int32 Decoy = 1;
+		struct FLure { FIntPoint DecoyCell = FIntPoint(-1, -1); TArray<float> StartDist; int32 Summons = 0; };
+		TSharedRef<FLure> Lure = MakeShared<FLure>();
+		auto Detector = [GM]() { return GM->GetOnis()[0].Get(); };
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Detector, EOniType::Balanced, EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the detector hears decoys (decoy hearing %.0f cm)"), Detector()->DecoyHearingRadius),
+				Detector()->OniType == EOniType::Detector && Detector()->DecoyHearingRadius > 0.f);
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				// 誰もプレイヤーを見ない・聞かない。ふつうの鬼はおとりも聞かない（呼ばれたときだけ動く）。探知鬼はおとりだけ聞く
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+				Oni->NoiseInaccuracyCells = 0.f;
+				if (Oni->OniType != EOniType::Detector)
+				{
+					Oni->DecoyHearingRadius = 0.f;
+				}
+			}
+			const float GuardSpeed = GM->OniWanderSpeedBase * GM->GetOniTypeRow(EOniType::Detector).SpeedScale;
+			Detector()->WanderSpeed = Detector()->InvestigateSpeed = GuardSpeed;
+			Detector()->GetCharacterMovement()->MaxWalkSpeed = GuardSpeed;
+			const FIntPoint GuardCell = Detector()->GetGuardCell(); // (1,1) のそばならプレイヤーは反対の角へ（見張りの場所に着けるように）
+			TeleportPlayer(Grid()->CellFloorCenter((GuardCell.X <= 4 && GuardCell.Y <= 4) ? FIntPoint(Grid()->GetSizeX() - 2, Grid()->GetSizeY() - 2) : FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 9.f, [=, this]
+		{
+			AOniCharacter* Watcher = Detector();
+			Check(FString::Printf(TEXT("the detector reached its post (%d,%d)"), Watcher->GetGuardCell().X, Watcher->GetGuardCell().Y), Watcher->IsAtGuardPost());
+			// ふつうの鬼は探知鬼の片側へ、おとりは反対側の 4〜6 マス先（探知鬼に聞こえる所）へ
+			const FIntPoint Post = Grid()->WorldToCell(Watcher->GetActorLocation());
+			for (int32 Dist = 5; Dist >= 3 && Lure->DecoyCell.X < 0; --Dist)
+			{
+				for (const FIntPoint& D : { FIntPoint(0, 1), FIntPoint(1, 0), FIntPoint(0, -1), FIntPoint(-1, 0) })
+				{
+					const FIntPoint C = Post + D * Dist;
+					if (Grid()->IsWalkable(C) && !Grid()->GetTrap(C))
+					{
+						Lure->DecoyCell = C;
+						break;
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("found a floor cell for the decoy near the post (%d,%d)"), Lure->DecoyCell.X, Lure->DecoyCell.Y), Lure->DecoyCell.X >= 0);
+			if (Lure->DecoyCell.X < 0)
+			{
+				return;
+			}
+			const FIntPoint Away = Post - (Lure->DecoyCell - Post);
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				const FIntPoint Near = NearestWalkable(FIntPoint(FMath::Clamp(Away.X + (i == 1 ? -2 : 2), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Away.Y, 1, Grid()->GetSizeY() - 2)));
+				GM->GetOnis()[i]->SetActorLocation(Grid()->CellFloorCenter(Near) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			Lure->Summons = GS()->SummonsThisRound;
+			Grid()->PlaceTrap(Lure->DecoyCell, Decoy, GM->TrapTypes[Decoy]);
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				Lure->StartDist.Add(FVector::Dist2D(GM->GetOnis()[i]->GetActorLocation(), Grid()->CellFloorCenter(Lure->DecoyCell)));
+			}
+			Log(FString::Printf(TEXT("decoy placed at (%d,%d), detector post (%d,%d)"), Lure->DecoyCell.X, Lure->DecoyCell.Y, Post.X, Post.Y));
+		} });
+		// おとりは 2.5 秒ごとに鳴る（置いた直後は鳴らないことがある）。2 回鳴るまで待つ
+		Steps.Add({ 6.f, [=, this]
+		{
+			if (Lure->DecoyCell.X < 0)
+			{
+				return;
+			}
+			Check(FString::Printf(TEXT("hearing the decoy, the detector called the others to it (summons %d -> %d, for sound %d, summoned %d)"),
+				Lure->Summons, GS()->SummonsThisRound, Detector()->WasLastSummonForSound() ? 1 : 0, GM->GetLastSummonedCount()),
+				GS()->SummonsThisRound > Lure->Summons && Detector()->WasLastSummonForSound() && GM->GetLastSummonedCount() == 2);
+			Check(TEXT("the player was not spotted (no chase)"), Detector()->GetIntent() != EOniState::Chase
+				&& GM->GetOnis()[1]->GetIntent() != EOniState::Chase && GM->GetOnis()[2]->GetIntent() != EOniState::Chase);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			if (Lure->DecoyCell.X < 0 || Lure->StartDist.Num() < 2)
+			{
+				return;
+			}
+			const FVector DecoyLoc = Grid()->CellFloorCenter(Lure->DecoyCell);
+			int32 Closer = 0;
+			FString Dists;
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				const float Now = FVector::Dist2D(GM->GetOnis()[i]->GetActorLocation(), DecoyLoc);
+				Closer += (Now < Lure->StartDist[i - 1] - 100.f || !Grid()->GetTrap(Lure->DecoyCell)) ? 1 : 0;
+				Dists += FString::Printf(TEXT(" %.0f->%.0f"), Lure->StartDist[i - 1], Now);
+			}
+			Check(FString::Printf(TEXT("both onis head for the decoy (cm:%s, decoy live %d)"), *Dists, Grid()->GetTrap(Lure->DecoyCell) ? 1 : 0), Closer == 2);
+			Shot(TEXT("detectorlure_01"));
 		} });
 	}
 	// ================================================================ CarefulSweep（慎重鬼：広い場所から手分けして調べ、囲まれた場所と細い道は後回し）

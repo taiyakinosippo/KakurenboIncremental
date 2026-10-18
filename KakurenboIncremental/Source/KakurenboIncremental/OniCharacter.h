@@ -505,6 +505,9 @@ public:
 	/** 探知鬼が最後に見つけて仲間を呼んだのは身代わり人形だったか（そのときは画面に「見つかった」を出さない） */
 	bool WasLastSummonForDoll() const { return bLastSummonForDoll; }
 
+	/** 探知鬼が最後に仲間を呼んだのは、おとり・迷い猫の音の場所へだったか（プレイヤーは見つかっていない） */
+	bool WasLastSummonForSound() const { return bLastSummonForSound; }
+
 	/** 慎重鬼：担当の区画（舞台を Y 方向に Count 等分した Index 番目）。GameMode が出現時に決める */
 	void SetCarefulSector(int32 Index, int32 Count) { CarefulSector = Index; CarefulSectorCount = FMath::Max(1, Count); }
 	bool IsInCarefulSector(const FIntPoint& Cell) const;
@@ -678,6 +681,8 @@ private:
 	void TickGuard(float DeltaSeconds);
 	/** 探知鬼：プレイヤーが見えた（仲間を呼ぶ） */
 	void HandleGuardSighting();
+	/** 探知鬼：おとり・迷い猫の音を聞いたら、その場所へ仲間を呼ぶ（呼ぶ間隔は見つけたときと同じ SummonCooldown） */
+	void CallOthersToSound(const FVector& SoundLocation);
 	/** 探知鬼：見張りの場所のまわり（攻撃が届く所）の壁を探して壊し始める。壊し始めたら true */
 	bool TryClearAroundGuardPost();
 	/** 慎重鬼：見渡せるマスを「調べた」と記録する */
@@ -749,6 +754,7 @@ private:
 	float ChaseRepathTimer = 0.f;
 	float ChaseStartTime = -1.f;
 	bool bLastSummonForDoll = false;
+	bool bLastSummonForSound = false;
 
 	/** 最後にプレイヤーが見えた場所（見えない間はここへ向かう） */
 	FVector LastKnownTargetLocation = FVector::ZeroVector;

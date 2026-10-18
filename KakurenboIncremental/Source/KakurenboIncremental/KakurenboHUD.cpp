@@ -70,8 +70,15 @@ namespace
 		}
 		if (Oni->OniType == EOniType::Detector && Oni->GetIntent() == EOniState::Wander)
 		{
-			// 身代わり人形を見つけて呼んだときは「仲間を呼んだ！」を出さない
-			const bool bJustCalled = Oni->GetLastSummonTime() >= 0.f && Oni->GetWorld()->GetTimeSeconds() - Oni->GetLastSummonTime() < 3.f && !Oni->WasLastSummonForDoll();
+			// 身代わり人形を見つけて呼んだときは「仲間を呼んだ！」を出さない。おとり・猫の音で呼んだときは「音へ仲間を呼んだ」
+			const bool bRecent = Oni->GetLastSummonTime() >= 0.f && Oni->GetWorld()->GetTimeSeconds() - Oni->GetLastSummonTime() < 3.f;
+			if (bRecent && Oni->WasLastSummonForSound())
+			{
+				OutText = TEXT("音へ仲間を呼んだ");
+				OutColor = Purple;
+				return;
+			}
+			const bool bJustCalled = bRecent && !Oni->WasLastSummonForDoll();
 			OutText = bJustCalled ? TEXT("仲間を呼んだ！") : Oni->IsAtGuardPost() ? TEXT("見張っている") : TEXT("見張りへ向かう");
 			OutColor = bJustCalled ? Bad : Purple;
 			return;
@@ -1256,7 +1263,7 @@ FString AKakurenboHUD::GetOniCatchphrase(EOniType Type)
 	case EOniType::Breaker:  return TEXT("自分からは探さない力持ち。見えた壁を壊しに来る");
 	case EOniType::Careful:  return TEXT("仲間と手分けして、広い場所から順にしらみつぶし");
 	case EOniType::Treasure: return TEXT("お宝が大好き。お宝のまわりをぐるぐる見回る");
-	case EOniType::Detector: return TEXT("動かない見張り。見つかると仲間を呼ばれる");
+	case EOniType::Detector: return TEXT("動かない見張り。見つかると仲間を呼ばれる。おとりの音でも呼ぶ");
 	default:                 return FString();
 	}
 }
@@ -1315,7 +1322,16 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		Lines.Add(FString::Printf(TEXT("見張りの場所のまわり（%sm）の壁は、すぐに壊してしまう"), *M(Row.AttackRadius)));
 		Lines.Add(FString::Printf(TEXT("あなたを見つけると、%sm 以内の鬼をみんな呼び寄せる"), *M(Row.SummonRadius)));
 		Lines.Add(FString::Printf(TEXT("自分は追いかけない。耳がとてもよく、連打の音がした方へ振り向く（%s 倍遠くから）"), *UKakurenboLibrary::FormatStatNumber(Row.HearingScale)));
-		Lines.Add(TEXT("対策：見張りから離れた壁・家具で視線を切る。見張りの近くでは連打しない"));
+		// 2026-10-18（ユーザーの指定）：おとり・迷い猫の音が聞こえると、その場所へ仲間を呼ぶ
+		if (Row.DecoyHearingScale > 0.f)
+		{
+			Lines.Add(TEXT("おとり・迷い猫の音が聞こえると、その場所へまわりの鬼を呼び寄せる"));
+			Lines.Add(TEXT("対策：見張りの近くでは連打しない。おとりを鳴らして、鬼をまとめて遠くへ集めさせる"));
+		}
+		else
+		{
+			Lines.Add(TEXT("対策：見張りから離れた壁・家具で視線を切る。見張りの近くでは連打しない"));
+		}
 		break;
 	default:
 		break;

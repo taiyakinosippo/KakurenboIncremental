@@ -148,7 +148,7 @@ powershell -ExecutionPolicy Bypass -File Tools\ResetAgentPlaytest.ps1 -DryRun   
   StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図が消える）、
   LowCover（全部の館で、椅子など低い家具の陰にしゃがむと 2 マス以上離れた鬼からは見えない・すぐ向こうの鬼にはのぞき込まれる）、
   ScoutCorner（スピード鬼は曲がり角が苦手：まっすぐの通路は減速しない・L 字の角で減速して戻る）、
-  DetectorClear（探知鬼は見張りの場所のまわりの壁を壊す・届かない壁は狙わない）、
+  DetectorClear（探知鬼は見張りの場所のまわりの壁を壊す・届かない壁は狙わない）、DetectorLure（探知鬼はおとりの音が聞こえたら、見えていなくてもその場所へ仲間を呼ぶ）、
   Exclaim（見つけたとき鬼の頭の上の玉が 3D の「!」になり、しばらくして玉に戻る。窓口には「！」の名前を渡す）、
   Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。

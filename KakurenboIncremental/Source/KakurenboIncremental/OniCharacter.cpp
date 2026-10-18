@@ -1206,12 +1206,29 @@ void AOniCharacter::HandleGuardSighting()
 	LastSummonTime = GetWorld()->GetTimeSeconds();
 	// 見つけたのが身代わり人形なら、仲間は呼ぶ（音も鳴る）が、画面の「！」・「見張りに見つかった」は出さない（ユーザーの希望）
 	bLastSummonForDoll = GetChaseTarget()->bIsDecoyDoll;
+	bLastSummonForSound = false;
 	if (!bLastSummonForDoll)
 	{
 		ChaseStartTime = LastSummonTime; // HUD の「！」
 	}
 	UE_LOG(LogTemp, Log, TEXT("Detector %s spotted the hider and calls others within %.0f cm"), *GetName(), SummonRadius);
 	OnSummon.Broadcast(this, GetChaseTarget()->GetActorLocation());
+}
+
+void AOniCharacter::CallOthersToSound(const FVector& SoundLocation)
+{
+	if (SummonTimer > 0.f)
+	{
+		return;
+	}
+	// 2026-10-18（ユーザーの指定）：探知鬼は、おとり・迷い猫の音が鳴っている所へ仲間を呼ぶ。おとりで鬼をまとめて引きつけられる
+	// プレイヤーは見つかっていないので、「！」・「見張りに見つかった」は出さない
+	SummonTimer = SummonCooldown;
+	LastSummonTime = GetWorld()->GetTimeSeconds();
+	bLastSummonForDoll = false;
+	bLastSummonForSound = true;
+	UE_LOG(LogTemp, Log, TEXT("Detector %s heard a lure and calls others to it"), *GetName());
+	OnSummon.Broadcast(this, SoundLocation);
 }
 
 void AOniCharacter::Summon(const FVector& Location)
@@ -2214,10 +2231,15 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	if (OniType == EOniType::Detector)
 	{
 		// 探知鬼は見張りの場所から動かない。聞こえたら、その方を向いてしばらく見張る（見えれば仲間を呼ぶ）
+		// おとり・迷い猫の音なら、見えなくてもその場所へ仲間を呼ぶ（プレイヤーの音＝連打・足音・ダッシュでは呼ばない）
 		if (bAtGuardPost && FVector::Dist(NoiseLocation, GetActorLocation()) <= Radius * Loudness)
 		{
 			GuardNoiseLocation = NoiseLocation;
 			GuardNoiseLookTimer = GuardNoiseLookSeconds;
+			if (Kind == EKakurenboNoise::Decoy || Kind == EKakurenboNoise::Cat)
+			{
+				CallOthersToSound(NoiseLocation);
+			}
 		}
 		return;
 	}
