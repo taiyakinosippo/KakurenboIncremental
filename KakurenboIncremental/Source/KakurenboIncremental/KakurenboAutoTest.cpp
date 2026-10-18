@@ -1771,6 +1771,54 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("gatewalled_01_after"));
 		} });
 	}
+	// ================================================================ DecoyFast（ゲームを速くしてコマ数が少なくても、鬼はおとりに触れて壊す）
+	else if (Scenario.Equals(TEXT("DecoyFast"), ESearchCase::IgnoreCase))
+	{
+		// テストプレイ AI と同じく時間を速め（×2）、コマ数を絞る（20）。前は「着いた」とみなす距離が 1 マス以上に広がり、
+		// 鬼がおとりの 1 マス手前で止まって触れず、2.5 秒ごとの音で調べ直して動かなくなっていた（oni-stuck）。
+		// いちばん速くおとりを聞く慎重鬼で確かめる。調べる時間（InvestigateMaxDuration）は変えない
+		constexpr int32 Decoy = 1;
+		const FIntPoint DecoyCell(6, 6);
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Careful }); } });
+		Steps.Add({ 3.f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(TEXT("a careful oni came out"), Oni && Oni->OniType == EOniType::Careful);
+			if (!Oni)
+			{
+				return;
+			}
+			Oni->SightRadius = 0.f; // プレイヤーには反応させない（おとりの音は聞く）
+			Oni->CloseSenseRadius = 0.f;
+			Oni->HearingRadius = 0.f;
+			Oni->PocketInspectChance = 0.f;
+			Oni->NoiseInaccuracyCells = 0.f;
+			Oni->bDrawDebug = true;
+			UGameplayStatics::SetGlobalTimeDilation(this, 2.f);
+			ConsoleCommand(TEXT("t.MaxFPS 20"));
+			Grid()->PlaceTrap(DecoyCell, Decoy, GM->TrapTypes[Decoy]);
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 22)));
+			Oni->SetActorLocation(Grid()->CellFloorCenter(DecoyCell + FIntPoint(6, 3)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Log(TEXT("decoy placed, game x2 at 20 fps"));
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("careful oni goes to the decoy (intent %s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				TheOni()->GetIntent() == EOniState::Investigate || !Grid()->GetTrap(DecoyCell));
+		} });
+		// 調べる時間（8 秒）より長く待つ（前は時間切れにもならず、おとりの手前で Investigate のまま止まっていた）
+		Steps.Add({ 12.f, [=, this]
+		{
+			const float Dist = FVector::Dist2D(TheOni()->GetActorLocation(), Grid()->CellFloorCenter(DecoyCell));
+			Check(FString::Printf(TEXT("careful oni touched and broke the decoy at low fps (live=%d, triggered=%d, oni %.0f cm from it, intent %s)"),
+				Grid()->GetTrap(DecoyCell) ? 1 : 0, GS()->TrapsTriggeredThisRound, Dist, *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				!Grid()->GetTrap(DecoyCell) && GS()->TrapsTriggeredThisRound == 1);
+			Shot(TEXT("decoyfast_01"));
+			UGameplayStatics::SetGlobalTimeDilation(this, 1.f);
+			ConsoleCommand(TEXT("t.MaxFPS 0"));
+		} });
+	}
 	// ================================================================ Matchup（鬼の種類と罠の相性）
 	else if (Scenario.Equals(TEXT("Matchup"), ESearchCase::IgnoreCase))
 	{

@@ -2245,13 +2245,17 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	}
 
 	// すでにその辺りへ向かっているなら、経路は作り直さない（連打のたびに迷わないように）
-	const bool bAlreadyGoingThere = GetIntent() == EOniState::Investigate && bHasGoal
+	const bool bSameSpot = GetIntent() == EOniState::Investigate
 		&& FMath::Abs(Cell.X - NoiseCell.X) + FMath::Abs(Cell.Y - NoiseCell.Y) <= 2;
-	if (bAlreadyGoingThere)
+	if (bSameSpot && bHasGoal)
 	{
 		return;
 	}
 	NoiseCell = Cell;
+	// 同じ辺りの音を聞き直しても、調べる時間（InvestigateMaxDuration）は延ばさない。
+	// 延ばすと、着いても何も無い場所（触れられなかったおとり・行けない場所）で鳴り続ける音のたびに調べ直し、
+	// 時間切れにならずにその場から動かなくなる（テストプレイ AI の oni-stuck）
+	const float KeepElapsed = bSameSpot ? IntentElapsed : 0.f;
 
 	// プレイヤーの音に気づいた：「ン？」とその鬼の場所から鳴らす（どっちの鬼に気づかれたか、音でわかる）
 	if (Kind != EKakurenboNoise::Decoy && Kind != EKakurenboNoise::Cat && GetIntent() != EOniState::Investigate)
@@ -2269,13 +2273,14 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	{
 		// 攻撃が終わったら音の方へ向かう
 		StateBeforeAttack = EOniState::Investigate;
-		IntentElapsed = 0.f;
+		IntentElapsed = KeepElapsed;
 		GoalCell = Cell;
 		CurrentPathMode = EPathMode::BreakIfNeeded;
 		bHasGoal = true;
 		return;
 	}
 	StartInvestigate(Cell);
+	IntentElapsed = KeepElapsed;
 }
 
 // ---------------------------------------------------------------- 移動
@@ -2389,6 +2394,7 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds)
 	const FVector NextCenter = G->CellFloorCenter(Next);
 	const FVector Loc = GetActorLocation();
 	const float Dist2D = FVector::Dist2D(Loc, NextCenter);
+	const float WideReach = FMath::Max(ReachDistance, GetCharacterMovement()->MaxWalkSpeed * DeltaSeconds * 2.f);
 
 	// 次のマスに壁がある（他に道が無かった）→ 目の前まで来たら壊す
 	FIntPoint Gate;
@@ -2410,8 +2416,13 @@ AOniCharacter::EFollowResult AOniCharacter::FollowPath(float DeltaSeconds)
 			return EFollowResult::Attacking;
 		}
 	}
-	// 速いほど 1 フレームで進む距離が大きいので、「着いた」とみなす距離も広げる（行き過ぎて往復しないように）
-	else if (Dist2D <= FMath::Max(ReachDistance, GetCharacterMovement()->MaxWalkSpeed * DeltaSeconds * 2.f))
+	// 速いほど 1 フレームで進む距離が大きいので、途中のマスは「着いた」とみなす距離も広げる（行き過ぎて往復しないように）。
+	// 最後のマス（音のした場所・おとり など）は、中心のそばまで行くか、中心を通り過ぎた（離れ始めた）ら着いたとする。
+	// 最後も広げたままだと、コマ数が少ない・ゲームの速さを上げたときに 1 マス手前で止まり、おとりに触れずに
+	// 音のたびに調べ直して、その場から動かなくなっていた（テストプレイ AI の oni-stuck）
+	else if (PathIndex == Path.Num() - 1
+		? Dist2D <= ReachDistance || (Dist2D <= WideReach && FVector::DotProduct(GetVelocity().GetSafeNormal2D(), (NextCenter - Loc).GetSafeNormal2D()) < 0.f)
+		: Dist2D <= WideReach)
 	{
 		++PathIndex;
 		return PathIndex >= Path.Num() ? EFollowResult::Arrived : EFollowResult::Moving;
