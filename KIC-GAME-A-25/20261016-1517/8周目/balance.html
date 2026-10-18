@@ -1,78 +1,78 @@
 <!doctype html><html lang=ja><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <title>バランスの推論</title><style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:0 auto;padding:16px;line-height:1.6;background:#fff;color:#222}table{border-collapse:collapse;display:block;overflow-x:auto;font-size:13px}td,th{border:1px solid #ccc;padding:3px 6px;white-space:nowrap}th{background:#f3f3f3}@media(prefers-color-scheme:dark){body{background:#181818;color:#ddd}th{background:#2a2a2a}td,th{border-color:#444}}</style><body>
 <h1>バランスの推論（かせぐんぼ）</h1>
-<p>作った時刻：2026-10-19 02:58　記録：<code>C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest</code> の全部のフォルダ</p>
+<p>作った時刻：2026-10-19 03:58　記録：<code>C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest</code> の全部のフォルダ</p>
 <p>テストプレイ AI（3 つの性格）の記録を全部まとめ、ステージ・転生を重ねるとどうなるかを推論する。遊ぶ AI と違って記録用の本当の値（ステージ・転生の回数・鬼の種類・稼ぎ）も使う。ゲームの仕様（CSV）は読まず、遊んだ結果だけから推論する。AI は人より上手な所も下手な所もあるので、数字は目安（何回遊んだかも一緒に書く）。</p>
 <h2>データの量</h2>
 <table>
 <tr><th>性格</th><th>ラウンド</th><th>遊んだ時間</th><th>転生の回数（最大）</th><th>一番先のステージ</th></tr>
-<tr><td>慎重型（動かない）</td><td>5636</td><td>59.0 時間</td><td>213</td><td>22</td></tr>
-<tr><td>慎重型（近くのお宝）</td><td>6854</td><td>59.0 時間</td><td>255</td><td>18</td></tr>
-<tr><td>強欲型</td><td>8817</td><td>59.0 時間</td><td>469</td><td>10</td></tr>
-<tr><td>建築大好き</td><td>3893</td><td>59.0 時間</td><td>133</td><td>29</td></tr>
-<tr><td>壁なし</td><td>9786</td><td>59.0 時間</td><td>549</td><td>8</td></tr>
+<tr><td>慎重型（動かない）</td><td>5726</td><td>60.0 時間</td><td>217</td><td>22</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>6959</td><td>60.0 時間</td><td>259</td><td>18</td></tr>
+<tr><td>強欲型</td><td>8971</td><td>60.0 時間</td><td>481</td><td>10</td></tr>
+<tr><td>建築大好き</td><td>3951</td><td>60.0 時間</td><td>135</td><td>29</td></tr>
+<tr><td>壁なし</td><td>9943</td><td>60.0 時間</td><td>560</td><td>8</td></tr>
 </table>
 <h2>推論のまとめ</h2>
 <ul>
-<li>ステージが 1 進むごとにクリアしにくくなる（対数オッズ -0.208／ステージ）。転生 0 回だと、クリア率が 50% を切るのは ステージ 1 ごろ。</li>
-<li>転生 1 回は約 1.16 ステージぶん楽になる。クリア率 50% にするのに要る転生の回数の推論：ステージ 15 は 15.3 回・ステージ 20 は 19.6 回・ステージ 25 は 23.9 回・ステージ 30 は 28.2 回。転生を重ねても最後のステージまで届きにくい（強化幅が小さい）。</li>
-<li>性格の差（慎重型（動かない）とくらべた対数オッズ）：近くのお宝 -1.11・強欲 -2.41・建築大好き +1.45・壁なし -1.90。お宝を取りに動くほど見つかりやすい。</li>
+<li>ステージが 1 進むごとにクリアしにくくなる（対数オッズ -0.209／ステージ）。転生 0 回だと、クリア率が 50% を切るのは ステージ 1 ごろ。</li>
+<li>転生 1 回は約 1.16 ステージぶん楽になる。クリア率 50% にするのに要る転生の回数の推論：ステージ 15 は 15.2 回・ステージ 20 は 19.5 回・ステージ 25 は 23.8 回・ステージ 30 は 28.1 回。転生を重ねても最後のステージまで届きにくい（強化幅が小さい）。</li>
+<li>性格の差（慎重型（動かない）とくらべた対数オッズ）：近くのお宝 -1.11・強欲 -2.41・建築大好き +1.46・壁なし -1.90。お宝を取りに動くほど見つかりやすい。</li>
 <li>1 ラウンドの稼ぎはステージ 1 つで ×1.63、転生 1 回で ×1.48（中央値の傾き）。</li>
-<li>設置パートの 79% で壁を 1 つも置いていない。壁を置かない囲い方のクリア率 35%・壁で囲む囲い方 43%。壁で囲むと有利。</li>
+<li>設置パートの 80% で壁を 1 つも置いていない。壁を置かない囲い方のクリア率 35%・壁で囲む囲い方 43%。壁で囲むと有利。</li>
 <li>お宝を取った割合は全体で 5%。お宝（宝石）は取りに行きにくく、宝石のお店の道具を買う数がたまりにくい。</li>
 </ul>
 <h2>Level カーブ（全体の傾き）</h2>
-<p>クリア率 = σ(-0.56 -0.208×ステージ +0.241×転生の回数 ＋ 性格（近くのお宝 -1.11・強欲 -2.41・建築大好き +1.45・壁なし -1.90））　※ σ はロジスティック関数。係数のばらつき（±1 標準誤差）：ステージ ±0.003・転生 ±0.010</p>
+<p>クリア率 = σ(-0.57 -0.209×ステージ +0.243×転生の回数 ＋ 性格（近くのお宝 -1.11・強欲 -2.41・建築大好き +1.46・壁なし -1.90））　※ σ はロジスティック関数。係数のばらつき（±1 標準誤差）：ステージ ±0.003・転生 ±0.010</p>
 <p>ステージ・転生の回数ごとのクリア率の推論（慎重型（動かない）。太字は遊んだことのある組み合わせ。カッコは 1 回クリアするのに要る挑戦の回数の目安）：</p>
 <table>
 <tr><th>転生 \ ステージ</th><th>1</th><th>3</th><th>5</th><th>8</th><th>10</th><th>13</th><th>15</th><th>18</th><th>20</th><th>23</th><th>25</th><th>28</th><th>30</th></tr>
-<tr><td>0 回</td><td><b>32%（3）</b></td><td><b>23%（4）</b></td><td><b>17%（6）</b></td><td><b>10%（10）</b></td><td>7%（15）</td><td>4%（27）</td><td>2%（41）</td><td>1%（76）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
-<tr><td>1 回</td><td><b>37%（3）</b></td><td><b>28%（4）</b></td><td><b>20%（5）</b></td><td><b>12%（8）</b></td><td>8%（12）</td><td>5%（22）</td><td>3%（32）</td><td>2%（60）</td><td>1%（90）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
-<tr><td>2 回</td><td><b>43%（2）</b></td><td><b>33%（3）</b></td><td><b>25%（4）</b></td><td>15%（7）</td><td>10%（10）</td><td>6%（17）</td><td>4%（26）</td><td>2%（47）</td><td>1%（71）</td><td>1%（99）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
-<tr><td>3 回</td><td><b>49%（2）</b></td><td><b>39%（3）</b></td><td><b>29%（3）</b></td><td><b>18%（6）</b></td><td>13%（8）</td><td>7%（14）</td><td>5%（20）</td><td>3%（37）</td><td>2%（56）</td><td>1%（99）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
-<tr><td>5 回</td><td><b>61%（2）</b></td><td><b>50%（2）</b></td><td><b>40%（2）</b></td><td><b>26%（4）</b></td><td>19%（5）</td><td>11%（9）</td><td>8%（13）</td><td>4%（23）</td><td>3%（35）</td><td>2%（64）</td><td>1%（97）</td><td>1%（99）</td><td>0%（99）</td></tr>
-<tr><td>8 回</td><td><b>76%（1）</b></td><td><b>68%（1）</b></td><td><b>58%（2）</b></td><td><b>43%（2）</b></td><td>33%（3）</td><td>21%（5）</td><td>15%（7）</td><td>8%（12）</td><td>6%（17）</td><td>3%（32）</td><td>2%（48）</td><td>1%（88）</td><td>1%（99）</td></tr>
+<tr><td>0 回</td><td><b>32%（3）</b></td><td><b>23%（4）</b></td><td><b>17%（6）</b></td><td><b>10%（10）</b></td><td>7%（15）</td><td>4%（28）</td><td>2%（41）</td><td>1%（77）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>1 回</td><td><b>37%（3）</b></td><td><b>28%（4）</b></td><td><b>20%（5）</b></td><td><b>12%（8）</b></td><td>8%（12）</td><td>5%（22）</td><td>3%（33）</td><td>2%（60）</td><td>1%（91）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>2 回</td><td><b>43%（2）</b></td><td><b>33%（3）</b></td><td><b>24%（4）</b></td><td>15%（7）</td><td>10%（10）</td><td>6%（17）</td><td>4%（26）</td><td>2%（48）</td><td>1%（72）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>3 回</td><td><b>49%（2）</b></td><td><b>39%（3）</b></td><td><b>29%（3）</b></td><td><b>18%（6）</b></td><td>13%（8）</td><td>7%（14）</td><td>5%（21）</td><td>3%（38）</td><td>2%（56）</td><td>1%（99）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>5 回</td><td><b>61%（2）</b></td><td><b>50%（2）</b></td><td><b>40%（2）</b></td><td><b>26%（4）</b></td><td>19%（5）</td><td>11%（9）</td><td>8%（13）</td><td>4%（23）</td><td>3%（35）</td><td>2%（65）</td><td>1%（98）</td><td>1%（99）</td><td>0%（99）</td></tr>
+<tr><td>8 回</td><td><b>76%（1）</b></td><td><b>68%（1）</b></td><td><b>58%（2）</b></td><td><b>43%（2）</b></td><td>33%（3）</td><td>21%（5）</td><td>15%（7）</td><td>8%（12）</td><td>6%（17）</td><td>3%（32）</td><td>2%（48）</td><td>1%（89）</td><td>1%（99）</td></tr>
 <tr><td>10 回</td><td><b>84%（1）</b></td><td><b>77%（1）</b></td><td><b>69%（1）</b></td><td><b>55%（2）</b></td><td>44%（2）</td><td>30%（3）</td><td>22%（5）</td><td>13%（8）</td><td>9%（11）</td><td>5%（20）</td><td>3%（30）</td><td>2%（55）</td><td>1%（83）</td></tr>
 </table>
 <h2>ステージごとの特徴と傾向・難しさ</h2>
 <p>難しさ＝1 回クリアするのに要る挑戦の回数（クリア率の逆数。少ないときは 30% を見込みに混ぜてならす）。傾きとの差＝全体の傾き（上の式。そのステージで遊んだときの転生の回数・性格で）から推論したクリア率との差。−10 ポイントより低ければ「急に難しい」、＋15 より高ければ「簡単」。</p>
 <table>
 <tr><th>ステージ</th><th>挑戦</th><th>クリア率</th><th>難しさ</th><th>傾きとの差</th><th>隠れていた割合</th><th>追われた</th><th>壊された壁</th><th>1 ラウンドの稼ぎ</th><th>お宝を取った割合</th><th>出てきた鬼</th><th>よく見つけた鬼</th><th>性格ごとのクリア率</th></tr>
-<tr><td>1</td><td>2679</td><td>61%</td><td>1.7 回</td><td>+5</td><td>81%</td><td>52%</td><td>0.3</td><td>522</td><td>12%</td><td>標準鬼</td><td>標準鬼</td><td>s91%・n77%・g38%・b89%・w73%</td></tr>
-<tr><td>2</td><td>2390</td><td>68%</td><td>1.5 回</td><td>+14</td><td>88%</td><td>43%</td><td>1.0</td><td>1957</td><td>5%</td><td>標準鬼</td><td>標準鬼</td><td>s83%・n61%・g55%・b97%・w75%</td></tr>
-<tr><td>3</td><td>3931</td><td>41%</td><td>2.4 回</td><td>-4</td><td>71%</td><td>68%</td><td>1.4</td><td>1728</td><td>7%</td><td>宝物鬼・標準鬼</td><td>標準鬼</td><td>s71%・n39%・g26%・b82%・w53%</td></tr>
-<tr><td>4</td><td>4458</td><td>36%</td><td>2.7 回</td><td>-8</td><td>72%</td><td>75%</td><td>0.7</td><td>2129</td><td>8%</td><td>標準鬼・スピード鬼</td><td>スピード鬼</td><td>s56%・n38%・g44%・b79%・w25%</td></tr>
-<tr><td>5</td><td>4447</td><td>27%</td><td>3.7 回</td><td>-10</td><td>69%</td><td>82%</td><td>2.4</td><td>5944</td><td>8%</td><td>パワー鬼・標準鬼</td><td>標準鬼</td><td>s60%・n49%・g10%・b70%・w30%</td></tr>
-<tr><td>6</td><td>1837</td><td>64%</td><td>1.6 回</td><td>+23（簡単）</td><td>81%</td><td>41%</td><td>1.1</td><td>10.3万</td><td>6%</td><td>慎重鬼・標準鬼</td><td>慎重鬼</td><td>s80%・n66%・g56%・b91%・w56%</td></tr>
-<tr><td>7</td><td>2129</td><td>55%</td><td>1.8 回</td><td>+18（簡単）</td><td>72%</td><td>52%</td><td>1.3</td><td>41.0万</td><td>8%</td><td>探知鬼・宝物鬼・標準鬼</td><td>宝物鬼</td><td>s82%・n48%・g39%・b86%・w52%</td></tr>
-<tr><td>8</td><td>4149</td><td>12%</td><td>8.3 回</td><td>-16（急に難しい）</td><td>38%</td><td>89%</td><td>2.5</td><td>63</td><td>3%</td><td>パワー鬼・スピード鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s69%・n28%・g0%・b80%・w0%</td></tr>
-<tr><td>9</td><td>700</td><td>70%</td><td>1.4 回</td><td>+17（簡単）</td><td>80%</td><td>34%</td><td>2.6</td><td>662.2万</td><td>6%</td><td>慎重鬼・標準鬼・スピード鬼</td><td>スピード鬼</td><td>s79%・n64%・g2%・b84%</td></tr>
-<tr><td>10</td><td>879</td><td>52%</td><td>1.9 回</td><td>+5</td><td>75%</td><td>53%</td><td>2.1</td><td>2621.5万</td><td>4%</td><td>パワー鬼・宝物鬼・標準鬼・探知鬼</td><td>パワー鬼</td><td>s70%・n33%・g0%・b75%</td></tr>
-<tr><td>11</td><td>747</td><td>59%</td><td>1.7 回</td><td>+14</td><td>75%</td><td>52%</td><td>2.8</td><td>1.0億</td><td>5%</td><td>探知鬼・宝物鬼・慎重鬼・スピード鬼</td><td>スピード鬼</td><td>s67%・n41%・b86%</td></tr>
-<tr><td>12</td><td>791</td><td>53%</td><td>1.9 回</td><td>+12</td><td>73%</td><td>49%</td><td>2.4</td><td>4.2億</td><td>5%</td><td>探知鬼・慎重鬼・パワー鬼・標準鬼</td><td>スピード鬼</td><td>s58%・n35%・b81%</td></tr>
-<tr><td>13</td><td>891</td><td>42%</td><td>2.4 回</td><td>+1</td><td>68%</td><td>62%</td><td>5.8</td><td>16.8億</td><td>4%</td><td>パワー鬼・スピード鬼・慎重鬼・探知鬼</td><td>スピード鬼</td><td>s33%・n40%・b65%</td></tr>
-<tr><td>14</td><td>1062</td><td>26%</td><td>3.8 回</td><td>-5</td><td>58%</td><td>72%</td><td>4.6</td><td>67.1億</td><td>4%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>標準鬼</td><td>s23%・n12%・b80%</td></tr>
-<tr><td>15</td><td>816</td><td>29%</td><td>3.5 回</td><td>-0</td><td>55%</td><td>73%</td><td>4.3</td><td>268.4億</td><td>6%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>s25%・n11%・b82%</td></tr>
-<tr><td>16</td><td>605</td><td>35%</td><td>2.9 回</td><td>+6</td><td>59%</td><td>66%</td><td>3.8</td><td>1073.7億</td><td>6%</td><td>慎重鬼・スピード鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s33%・n9%・b78%</td></tr>
-<tr><td>17</td><td>703</td><td>20%</td><td>4.9 回</td><td>-7</td><td>49%</td><td>78%</td><td>4.8</td><td>4295.1億</td><td>4%</td><td>探知鬼・慎重鬼・パワー鬼・標準鬼</td><td>スピード鬼</td><td>s10%・n0%・b60%</td></tr>
-<tr><td>18</td><td>312</td><td>42%</td><td>2.4 回</td><td>+9</td><td>62%</td><td>59%</td><td>4.3</td><td>1.7兆</td><td>5%</td><td>探知鬼・慎重鬼・パワー鬼・標準鬼</td><td>スピード鬼</td><td>s23%・n0%・b68%</td></tr>
-<tr><td>19</td><td>292</td><td>41%</td><td>2.4 回</td><td>+7</td><td>64%</td><td>64%</td><td>6.5</td><td>1.5兆</td><td>3%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>s23%・b52%</td></tr>
-<tr><td>20</td><td>303</td><td>31%</td><td>3.2 回</td><td>+1</td><td>63%</td><td>69%</td><td>9.9</td><td>7.2兆</td><td>1%</td><td>探知鬼・慎重鬼・パワー鬼・標準鬼</td><td>スピード鬼</td><td>s8%・b46%</td></tr>
-<tr><td>21</td><td>179</td><td>46%</td><td>2.2 回</td><td>+17（簡単）</td><td>70%</td><td>56%</td><td>5.8</td><td>110.0兆</td><td>1%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>s4%・b60%</td></tr>
-<tr><td>22</td><td>254</td><td>21%</td><td>4.7 回</td><td>-9</td><td>59%</td><td>90%</td><td>8.0</td><td>290.7億</td><td>0%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>s0%・b22%</td></tr>
-<tr><td>23</td><td>158</td><td>22%</td><td>4.5 回</td><td>-5</td><td>59%</td><td>89%</td><td>11.5</td><td>931.8億</td><td>0%</td><td>探知鬼・慎重鬼・パワー鬼・標準鬼</td><td>スピード鬼</td><td>b22%</td></tr>
-<tr><td>24</td><td>131</td><td>14%</td><td>7.2 回</td><td>-9</td><td>56%</td><td>87%</td><td>11.4</td><td>2481.4億</td><td>0%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b13%</td></tr>
-<tr><td>25</td><td>77</td><td>9%</td><td>10.4 回</td><td>-10（急に難しい）</td><td>46%</td><td>92%</td><td>10.5</td><td>7606.0億</td><td>1%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b9%</td></tr>
-<tr><td>26</td><td>15</td><td>40%</td><td>2.6 回</td><td>+24（簡単）</td><td>77%</td><td>93%</td><td>14.7</td><td>8.2兆</td><td>0%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b40%</td></tr>
-<tr><td>27</td><td>32</td><td>9%</td><td>9.4 回</td><td>-4</td><td>43%</td><td>91%</td><td>12.4</td><td>1.1兆</td><td>1%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b9%</td></tr>
-<tr><td>28</td><td>14</td><td>7%</td><td>10.0 回</td><td>-4</td><td>29%</td><td>93%</td><td>11.4</td><td>36.6兆</td><td>0%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b7%</td></tr>
-<tr><td>29</td><td>5</td><td>0%</td><td>11.7 回</td><td>-9</td><td>29%</td><td>100%</td><td>19.2</td><td>132.9兆</td><td>0%</td><td>探知鬼・宝物鬼・慎重鬼・パワー鬼</td><td>スピード鬼</td><td>b0%</td></tr>
+<tr><td>1</td><td>2721</td><td>61%</td><td>1.6 回</td><td>+5</td><td>81%</td><td>52%</td><td>0.3</td><td>522</td><td>12%</td><td>標準鬼</td><td>標準鬼</td><td>s91%・n77%・g39%・b90%・w73%</td></tr>
+<tr><td>2</td><td>2428</td><td>68%</td><td>1.5 回</td><td>+14</td><td>88%</td><td>42%</td><td>1.0</td><td>1953</td><td>5%</td><td>標準鬼</td><td>標準鬼</td><td>s84%・n61%・g55%・b97%・w75%</td></tr>
+<tr><td>3</td><td>3998</td><td>41%</td><td>2.4 回</td><td>-4</td><td>71%</td><td>67%</td><td>1.4</td><td>1730</td><td>7%</td><td>標準鬼・宝物鬼</td><td>標準鬼</td><td>s71%・n40%・g26%・b82%・w53%</td></tr>
+<tr><td>4</td><td>4513</td><td>37%</td><td>2.7 回</td><td>-8</td><td>72%</td><td>75%</td><td>0.7</td><td>2253</td><td>8%</td><td>スピード鬼・標準鬼</td><td>スピード鬼</td><td>s56%・n38%・g44%・b79%・w25%</td></tr>
+<tr><td>5</td><td>4542</td><td>27%</td><td>3.7 回</td><td>-10</td><td>69%</td><td>82%</td><td>2.4</td><td>6124</td><td>8%</td><td>標準鬼・パワー鬼</td><td>標準鬼</td><td>s60%・n48%・g9%・b70%・w30%</td></tr>
+<tr><td>6</td><td>1860</td><td>65%</td><td>1.5 回</td><td>+23（簡単）</td><td>81%</td><td>41%</td><td>1.1</td><td>10.3万</td><td>6%</td><td>標準鬼・慎重鬼</td><td>慎重鬼</td><td>s80%・n66%・g57%・b91%・w56%</td></tr>
+<tr><td>7</td><td>2160</td><td>55%</td><td>1.8 回</td><td>+18（簡単）</td><td>72%</td><td>52%</td><td>1.3</td><td>41.0万</td><td>8%</td><td>探知鬼・標準鬼・宝物鬼</td><td>宝物鬼</td><td>s82%・n48%・g39%・b86%・w53%</td></tr>
+<tr><td>8</td><td>4214</td><td>12%</td><td>8.3 回</td><td>-16（急に難しい）</td><td>38%</td><td>89%</td><td>2.5</td><td>61</td><td>3%</td><td>探知鬼・標準鬼・パワー鬼・スピード鬼</td><td>スピード鬼</td><td>s70%・n29%・g0%・b80%・w0%</td></tr>
+<tr><td>9</td><td>710</td><td>70%</td><td>1.4 回</td><td>+17（簡単）</td><td>81%</td><td>34%</td><td>2.7</td><td>662.3万</td><td>6%</td><td>スピード鬼・標準鬼・慎重鬼</td><td>スピード鬼</td><td>s79%・n64%・g2%・b84%</td></tr>
+<tr><td>10</td><td>889</td><td>53%</td><td>1.9 回</td><td>+5</td><td>75%</td><td>53%</td><td>2.2</td><td>2621.5万</td><td>4%</td><td>探知鬼・標準鬼・宝物鬼・パワー鬼</td><td>パワー鬼</td><td>s70%・n34%・g0%・b75%</td></tr>
+<tr><td>11</td><td>758</td><td>60%</td><td>1.7 回</td><td>+14</td><td>75%</td><td>51%</td><td>2.8</td><td>1.0億</td><td>5%</td><td>探知鬼・慎重鬼・宝物鬼・スピード鬼</td><td>スピード鬼</td><td>s67%・n41%・b86%</td></tr>
+<tr><td>12</td><td>801</td><td>54%</td><td>1.9 回</td><td>+12</td><td>73%</td><td>49%</td><td>2.4</td><td>4.2億</td><td>5%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s59%・n36%・b81%</td></tr>
+<tr><td>13</td><td>906</td><td>42%</td><td>2.4 回</td><td>+1</td><td>68%</td><td>61%</td><td>5.8</td><td>16.8億</td><td>4%</td><td>探知鬼・慎重鬼・パワー鬼・スピード鬼</td><td>スピード鬼</td><td>s33%・n41%・b66%</td></tr>
+<tr><td>14</td><td>1096</td><td>26%</td><td>3.8 回</td><td>-6</td><td>59%</td><td>72%</td><td>4.7</td><td>67.1億</td><td>4%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>標準鬼</td><td>s22%・n12%・b80%</td></tr>
+<tr><td>15</td><td>829</td><td>29%</td><td>3.4 回</td><td>-0</td><td>55%</td><td>73%</td><td>4.3</td><td>136.5億</td><td>5%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s26%・n11%・b82%</td></tr>
+<tr><td>16</td><td>610</td><td>35%</td><td>2.9 回</td><td>+6</td><td>59%</td><td>65%</td><td>3.8</td><td>1073.7億</td><td>6%</td><td>探知鬼・スピード鬼・標準鬼・慎重鬼</td><td>スピード鬼</td><td>s33%・n10%・b78%</td></tr>
+<tr><td>17</td><td>720</td><td>20%</td><td>5.0 回</td><td>-7</td><td>49%</td><td>79%</td><td>4.8</td><td>4295.1億</td><td>4%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s10%・n0%・b61%</td></tr>
+<tr><td>18</td><td>314</td><td>42%</td><td>2.4 回</td><td>+9</td><td>62%</td><td>58%</td><td>4.3</td><td>1.7兆</td><td>5%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s23%・n0%・b69%</td></tr>
+<tr><td>19</td><td>294</td><td>42%</td><td>2.4 回</td><td>+7</td><td>65%</td><td>64%</td><td>6.5</td><td>1.7兆</td><td>3%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s23%・b52%</td></tr>
+<tr><td>20</td><td>306</td><td>32%</td><td>3.2 回</td><td>+1</td><td>63%</td><td>69%</td><td>9.9</td><td>7.4兆</td><td>1%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s8%・b46%</td></tr>
+<tr><td>21</td><td>181</td><td>46%</td><td>2.2 回</td><td>+17（簡単）</td><td>70%</td><td>55%</td><td>5.7</td><td>110.0兆</td><td>1%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s4%・b61%</td></tr>
+<tr><td>22</td><td>256</td><td>22%</td><td>4.6 回</td><td>-9</td><td>59%</td><td>90%</td><td>8.0</td><td>292.8億</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>s0%・b22%</td></tr>
+<tr><td>23</td><td>160</td><td>23%</td><td>4.3 回</td><td>-4</td><td>59%</td><td>89%</td><td>11.5</td><td>934.6億</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b23%</td></tr>
+<tr><td>24</td><td>136</td><td>14%</td><td>7.0 回</td><td>-9</td><td>56%</td><td>87%</td><td>11.5</td><td>2467.4億</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b13%</td></tr>
+<tr><td>25</td><td>82</td><td>9%</td><td>11.1 回</td><td>-11（急に難しい）</td><td>47%</td><td>93%</td><td>10.5</td><td>7485.7億</td><td>1%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b8%</td></tr>
+<tr><td>26</td><td>15</td><td>40%</td><td>2.6 回</td><td>+24（簡単）</td><td>77%</td><td>93%</td><td>14.7</td><td>8.2兆</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b40%</td></tr>
+<tr><td>27</td><td>32</td><td>9%</td><td>9.4 回</td><td>-4</td><td>43%</td><td>91%</td><td>12.4</td><td>1.1兆</td><td>1%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b9%</td></tr>
+<tr><td>28</td><td>14</td><td>7%</td><td>10.0 回</td><td>-4</td><td>29%</td><td>93%</td><td>11.4</td><td>36.6兆</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b7%</td></tr>
+<tr><td>29</td><td>5</td><td>0%</td><td>11.7 回</td><td>-10</td><td>29%</td><td>100%</td><td>19.2</td><td>132.9兆</td><td>0%</td><td>スピード鬼・慎重鬼・標準鬼・探知鬼</td><td>スピード鬼</td><td>b0%</td></tr>
 </table>
 <p>性格の記号：s＝慎重型（動かない）・n＝慎重型（近くのお宝）・g＝強欲型・b＝建築大好き・w＝壁なし</p>
 <h2>転生による強化幅</h2>
 <ul>
-<li>全体の傾きでは、転生 1 回でクリアのしやすさ（対数オッズ）が +0.241。ステージが 1 進むと -0.208 なので、<b>転生 1 回 ≒ 1.16 ステージぶん楽になる</b>。</li>
-<li>同じ性格・同じステージで転生の回数が 1 違うラウンドをくらべると（3141 組）：クリア率 +0.4 ポイント・隠れていた割合 +0.5 ポイント</li>
+<li>全体の傾きでは、転生 1 回でクリアのしやすさ（対数オッズ）が +0.243。ステージが 1 進むと -0.209 なので、<b>転生 1 回 ≒ 1.16 ステージぶん楽になる</b>。</li>
+<li>同じ性格・同じステージで転生の回数が 1 違うラウンドをくらべると（3184 組）：クリア率 +0.4 ポイント・隠れていた割合 +0.5 ポイント</li>
 </ul>
 <p>周ごとの進み方（その周で着いた一番先のステージ・ステージ 5 / 10 / 15 / 20 / 25 に着くまでのラウンド数）：</p>
 <table>
@@ -211,6 +211,8 @@
 <tr><td>建築大好き</td><td>131 回</td><td>24</td><td>4</td><td>9</td><td>14</td><td>19</td><td>-</td></tr>
 <tr><td>建築大好き</td><td>132 回</td><td>24</td><td>4</td><td>9</td><td>15</td><td>20</td><td>-</td></tr>
 <tr><td>建築大好き</td><td>133 回</td><td>24</td><td>4</td><td>9</td><td>14</td><td>19</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>134 回</td><td>25</td><td>4</td><td>9</td><td>14</td><td>19</td><td>24</td></tr>
+<tr><td>建築大好き</td><td>135 回</td><td>24</td><td>4</td><td>9</td><td>14</td><td>20</td><td>-</td></tr>
 <tr><td>強欲型</td><td>0 回</td><td>8</td><td>111</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>強欲型</td><td>1 回</td><td>8</td><td>27</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>強欲型</td><td>2 回</td><td>5</td><td>15</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
@@ -680,7 +682,19 @@
 <tr><td>強欲型</td><td>466 回</td><td>8</td><td>11</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>強欲型</td><td>467 回</td><td>5</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>強欲型</td><td>468 回</td><td>8</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
-<tr><td>強欲型</td><td>469 回</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>469 回</td><td>5</td><td>10</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>470 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>471 回</td><td>5</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>472 回</td><td>5</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>473 回</td><td>5</td><td>9</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>474 回</td><td>5</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>475 回</td><td>5</td><td>9</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>476 回</td><td>5</td><td>14</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>477 回</td><td>5</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>478 回</td><td>8</td><td>6</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>479 回</td><td>5</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>480 回</td><td>5</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>481 回</td><td>5</td><td>6</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>0 回</td><td>6</td><td>50</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>1 回</td><td>8</td><td>19</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>2 回</td><td>5</td><td>18</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
@@ -936,7 +950,11 @@
 <tr><td>慎重型（近くのお宝）</td><td>252 回</td><td>17</td><td>6</td><td>13</td><td>20</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>253 回</td><td>12</td><td>8</td><td>13</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>254 回</td><td>12</td><td>6</td><td>13</td><td>-</td><td>-</td><td>-</td></tr>
-<tr><td>慎重型（近くのお宝）</td><td>255 回</td><td>13</td><td>6</td><td>11</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>255 回</td><td>17</td><td>6</td><td>11</td><td>17</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>256 回</td><td>14</td><td>9</td><td>17</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>257 回</td><td>14</td><td>5</td><td>13</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>258 回</td><td>17</td><td>9</td><td>18</td><td>24</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>259 回</td><td>6</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>壁なし</td><td>0 回</td><td>5</td><td>25</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>壁なし</td><td>1 回</td><td>5</td><td>18</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>壁なし</td><td>2 回</td><td>5</td><td>14</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
@@ -1487,6 +1505,17 @@
 <tr><td>壁なし</td><td>547 回</td><td>8</td><td>6</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>壁なし</td><td>548 回</td><td>6</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>壁なし</td><td>549 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>550 回</td><td>8</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>551 回</td><td>5</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>552 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>553 回</td><td>8</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>554 回</td><td>8</td><td>6</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>555 回</td><td>8</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>556 回</td><td>8</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>557 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>558 回</td><td>8</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>559 回</td><td>8</td><td>8</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>560 回</td><td>5</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（動かない）</td><td>0 回</td><td>6</td><td>49</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（動かない）</td><td>1 回</td><td>6</td><td>25</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（動かない）</td><td>2 回</td><td>5</td><td>7</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
@@ -1700,47 +1729,51 @@
 <tr><td>慎重型（動かない）</td><td>210 回</td><td>17</td><td>6</td><td>14</td><td>20</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（動かない）</td><td>211 回</td><td>18</td><td>6</td><td>12</td><td>18</td><td>-</td><td>-</td></tr>
 <tr><td>慎重型（動かない）</td><td>212 回</td><td>13</td><td>5</td><td>11</td><td>-</td><td>-</td><td>-</td></tr>
-<tr><td>慎重型（動かない）</td><td>213 回</td><td>10</td><td>5</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>213 回</td><td>17</td><td>5</td><td>11</td><td>18</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>214 回</td><td>14</td><td>5</td><td>10</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>215 回</td><td>14</td><td>4</td><td>9</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>216 回</td><td>14</td><td>6</td><td>11</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>217 回</td><td>14</td><td>5</td><td>10</td><td>-</td><td>-</td><td>-</td></tr>
 </table>
 <p>転生のお店で買った物：壁の硬さ 45、お宝の宝石 35、時間のお金アップ 29、連打のお金アップ 28、よじ登る 15、煙幕ダッシュ 12、煙幕の数 9</p>
 <h2>置いた物とクリア率</h2>
 <ul>
-<li>慎重型（動かない）：設置パート 5639 回のうち壁を 1 つも置かなかったのは 3456 回（61%）・平均 6.1 個</li>
-<li>慎重型（近くのお宝）：設置パート 6858 回のうち壁を 1 つも置かなかったのは 4892 回（71%）・平均 4.1 個</li>
-<li>強欲型：設置パート 8823 回のうち壁を 1 つも置かなかったのは 7148 回（81%）・平均 2.9 個</li>
-<li>建築大好き：設置パート 3898 回のうち壁を 1 つも置かなかったのは 2511 回（64%）・平均 8.3 個</li>
-<li>壁なし：設置パート 9789 回のうち壁を 1 つも置かなかったのは 9789 回（100%）・平均 0.0 個</li>
+<li>慎重型（動かない）：設置パート 5730 回のうち壁を 1 つも置かなかったのは 3537 回（61%）・平均 6.0 個</li>
+<li>慎重型（近くのお宝）：設置パート 6963 回のうち壁を 1 つも置かなかったのは 4975 回（71%）・平均 4.1 個</li>
+<li>強欲型：設置パート 8977 回のうち壁を 1 つも置かなかったのは 7302 回（81%）・平均 2.8 個</li>
+<li>建築大好き：設置パート 3957 回のうち壁を 1 つも置かなかったのは 2561 回（64%）・平均 8.2 個</li>
+<li>壁なし：設置パート 9946 回のうち壁を 1 つも置かなかったのは 9946 回（100%）・平均 0.0 個</li>
 </ul>
 <table>
 <tr><th>性格</th><th>囲い方</th><th>ラウンド</th><th>クリア率</th></tr>
 <tr><td>建築大好き</td><td>囲わず罠</td><td>32</td><td>6%</td></tr>
 <tr><td>建築大好き</td><td>囲んで出入り口 1 つ</td><td>34</td><td>3%</td></tr>
-<tr><td>建築大好き</td><td>二重の囲い</td><td>3746</td><td>67%</td></tr>
+<tr><td>建築大好き</td><td>二重の囲い</td><td>3804</td><td>68%</td></tr>
 <tr><td>建築大好き</td><td>perch</td><td>80</td><td>22%</td></tr>
 <tr><td>強欲型</td><td>囲わず罠</td><td>29</td><td>0%</td></tr>
 <tr><td>強欲型</td><td>囲んで出入り口 1 つ</td><td>27</td><td>4%</td></tr>
-<tr><td>強欲型</td><td>二重の囲い</td><td>8737</td><td>28%</td></tr>
+<tr><td>強欲型</td><td>二重の囲い</td><td>8891</td><td>28%</td></tr>
 <tr><td>強欲型</td><td>壁を置かない</td><td>23</td><td>0%</td></tr>
-<tr><td>慎重型（近くのお宝）</td><td>囲わず罠</td><td>718</td><td>49%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>囲わず罠</td><td>723</td><td>49%</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>囲んで出入り口 1 つ</td><td>68</td><td>6%</td></tr>
-<tr><td>慎重型（近くのお宝）</td><td>二重の囲い</td><td>5865</td><td>39%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>二重の囲い</td><td>5965</td><td>39%</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>壁を置かない</td><td>69</td><td>23%</td></tr>
 <tr><td>慎重型（近くのお宝）</td><td>perch</td><td>133</td><td>8%</td></tr>
-<tr><td>壁なし</td><td>壁を置かない</td><td>9785</td><td>36%</td></tr>
+<tr><td>壁なし</td><td>壁を置かない</td><td>9942</td><td>36%</td></tr>
 <tr><td>慎重型（動かない）</td><td>囲わず罠</td><td>30</td><td>7%</td></tr>
 <tr><td>慎重型（動かない）</td><td>囲んで出入り口 1 つ</td><td>447</td><td>52%</td></tr>
-<tr><td>慎重型（動かない）</td><td>二重の囲い</td><td>5033</td><td>54%</td></tr>
+<tr><td>慎重型（動かない）</td><td>二重の囲い</td><td>5123</td><td>54%</td></tr>
 <tr><td>慎重型（動かない）</td><td>壁を置かない</td><td>17</td><td>0%</td></tr>
 <tr><td>慎重型（動かない）</td><td>perch</td><td>108</td><td>17%</td></tr>
 </table>
-<p>宝石のお店の道具：買った回数 一方通行ののれん 3358、ゴールドラッシュ 4624、身代わり人形 2570、真っ暗ブロック 2936、だるまさんがころんだ 3222、迷い猫 2936／使ったラウンドのクリア率 一方通行ののれん 36%（26574）、ゴールドラッシュ 36%（17838）、身代わり人形 35%（19625）、真っ暗ブロック 36%（17702）、だるまさんがころんだ 21%（2225）、迷い猫 36%（18268）</p>
+<p>宝石のお店の道具：買った回数 一方通行ののれん 3403、ゴールドラッシュ 4676、身代わり人形 2598、真っ暗ブロック 2975、だるまさんがころんだ 3266、迷い猫 2969／使ったラウンドのクリア率 一方通行ののれん 36%（27026）、ゴールドラッシュ 36%（18108）、身代わり人形 36%（19996）、真っ暗ブロック 36%（18050）、だるまさんがころんだ 21%（2243）、迷い猫 36%（18614）</p>
 <h2>鬼の種類ごと</h2>
 <table>
 <tr><th>鬼</th><th>初めて出たステージ</th><th>出たラウンド</th><th>そのラウンドのクリア率</th><th>見つけた回数</th></tr>
-<tr><td>標準鬼</td><td>1</td><td>33348</td><td>40%</td><td>8680</td></tr>
-<tr><td>宝物鬼</td><td>3</td><td>10563</td><td>43%</td><td>1425</td></tr>
-<tr><td>スピード鬼</td><td>4</td><td>16694</td><td>32%</td><td>6349</td></tr>
-<tr><td>パワー鬼</td><td>5</td><td>15510</td><td>27%</td><td>3174</td></tr>
-<tr><td>慎重鬼</td><td>6</td><td>9924</td><td>44%</td><td>1124</td></tr>
-<tr><td>探知鬼</td><td>7</td><td>14544</td><td>33%</td><td>77</td></tr>
+<tr><td>標準鬼</td><td>1</td><td>33886</td><td>40%</td><td>8812</td></tr>
+<tr><td>宝物鬼</td><td>3</td><td>10745</td><td>43%</td><td>1440</td></tr>
+<tr><td>スピード鬼</td><td>4</td><td>16952</td><td>32%</td><td>6423</td></tr>
+<tr><td>パワー鬼</td><td>5</td><td>15792</td><td>27%</td><td>3225</td></tr>
+<tr><td>慎重鬼</td><td>6</td><td>10085</td><td>44%</td><td>1133</td></tr>
+<tr><td>探知鬼</td><td>7</td><td>14778</td><td>33%</td><td>77</td></tr>
 </table></body></html>
