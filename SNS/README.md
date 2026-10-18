@@ -6,8 +6,8 @@ Claude が文案・予定・素材を作り、**投稿・アカウント操作�
 ## 今の状況（2026-10-16）
 
 - X：**[@kasegunbo](https://x.com/kasegunbo)**（表示名「かせぐんぼ🏮開発中」）。自己紹介・アイコン・ヘッダーは [profile.md](profile.md) の案
-- 投稿済み：[01 はじめまして](posted/01_hajimemashite.md)（10/15 18:14・固定ポスト）→ 記録は [posted/log.md](posted/log.md)
-- **次に出すもの**：[calendar.md](calendar.md) の上から。次は [1a 連打と音：仕組み](drafts/system/s1a_renda.md)（10/16 21 時ごろ・画像 `media/oni_gate.png`）
+- 投稿済み：01 はじめまして（10/15・固定）・1a 連打と音：仕組み（10/16）・1b 試して直した（10/17）→ 記録は [posted/log.md](posted/log.md)
+- **次に出すもの**：[calendar.md](calendar.md) の表で「投稿済み」の次の行（2026-10-18 に実際の日付で組み直した）
 - スマホ用の投稿ボード（本文のコピー・画像の保存）：https://claude.ai/artifact/VMNTjf3C5MPrWYxKxCKZzz
 - itch.io・Steam のページはまだ（文だけ [store-pages.md](store-pages.md)）
 

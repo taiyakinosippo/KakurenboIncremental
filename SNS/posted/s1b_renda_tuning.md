@@ -1,10 +1,10 @@
 # システム 1b 連打と音：試して直した
 
 - 予定：1a の 2 日後
-- シリーズ：システム紹介（[system-series.md](../../system-series.md)）
+- シリーズ：システム紹介（[system-series.md](../system-series.md)）
 - 画像：`media/shop.png`（時間コイン強化が見える）
 - 元：GameDesign.md「時間収入」（M12 で連打の方が得になるよう減らした）・「聴覚」（M14：連打の音が大きすぎて序盤の館で連打できない → 館の大きさに合わせる）
-- 状態：下書き
+- 状態：投稿済み（2026-10-17）https://x.com/kasegunbo/status/2111246468732645629 。タグは #インディー #ゲーム開発 #ClaudeCode（#かせぐんぼ なし）
 
 ## 本文
 

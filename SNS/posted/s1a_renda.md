@@ -1,9 +1,9 @@
 # システム 1a 連打と音：仕組み
 
 - 予定：システム紹介の 1 本目（1 日おき・平日 21 時ごろ）
-- シリーズ：システム紹介（[system-series.md](../../system-series.md)）
+- シリーズ：システム紹介（[system-series.md](../system-series.md)）
 - 画像：`media/oni_gate.png`（連打していると赤い門から鬼が出てくる）。動画 `media/renda.mp4` が撮れたらそちらに替える
-- 状態：下書き
+- 状態：投稿済み（2026-10-16）https://x.com/kasegunbo/status/2111047599948267871 。タグは #かせぐんぼ #ゲーム開発 #ClaudeCode #インディーゲーム
 
 ## 本文
 

@@ -78,7 +78,7 @@ def jpeg(name):
 
 def card(r, idx):
     e = html.escape
-    head = f'<div class="when"><span class="day">{e(r["day"])}日目</span>' + (f'<span class="dow">{e(r["dow"])}</span>' if r["dow"] not in ("", "-") else "") + f'<span class="series">{e(r["series"])}</span></div>'
+    head = f'<div class="when"><span class="day">{e(r["day"])}</span>' + (f'<span class="dow">{e(r["dow"])}</span>' if r["dow"] not in ("", "-") else "") + f'<span class="series">{e(r["series"])}</span></div>'
     if not r["path"]:
         return f'<article class="post todo">{head}<h2>{e(r["label"])}</h2><p class="note">まだ下書きがありません（{e(r["note"])}）</p></article>'
     p = read_post(SNS / r["path"])
