@@ -156,4 +156,4 @@ class InsightTracker:
                     self.note(f"gem:{name}:good", f"宝石の道具「{name}」を使うと隠れやすい（得点の平均 {avg:.2f}、ふだん {overall:.2f}）")
                 elif overall - avg >= 0.1:
                     self.note(f"gem:{name}:bad", f"宝石の道具「{name}」はあまり効かない（得点の平均 {avg:.2f}、ふだん {overall:.2f}）")
-        # 転生のタイミングは学ばない（ユーザーの指定：隠れ場所を見つけてから 5 回見つかったら。agent.py の PRESTIGE_AFTER_FOUND）
+        # 転生のタイミングは学ばない（ユーザーの指定：前の周の最高近くで、隠れ場所を見つけてから 12 回見つかったら。agent.py の PRESTIGE_AFTER_FOUND）

@@ -256,9 +256,10 @@ def analyze(root):
     walls = {}
     for e in events:
         if e.get("type") == "build":
-            pl = (e["data"].get("log") or {}).get("placed", 0)
+            log = e["data"].get("log") or {}
             st = e["data"].get("stage")
-            walls.setdefault(e["_persona"], []).append((st, pl))
+            # placed は今回新しく置いた数（前のラウンドの壁が残っていれば 0 になる）。standing は立っている壁（古い記録には無い）
+            walls.setdefault(e["_persona"], []).append((st, log.get("placed", 0), log.get("standing")))
     A["walls"] = walls
     tmpl = {}
     for r in rounds:
@@ -417,8 +418,16 @@ def markdown(A, root):
     L.append("## 置いた物とクリア率")
     L.append("")
     for p, lst in A["walls"].items():
-        zero = sum(1 for (s, n) in lst if not n)
-        L.append(f"- {PERSONA_JA[p]}：設置パート {len(lst)} 回のうち壁を 1 つも置かなかったのは {zero} 回（{zero * 100 // max(1, len(lst))}%）・平均 {sum(n for s, n in lst) / max(1, len(lst)):.1f} 個")
+        zero = sum(1 for (s, n, sd) in lst if not n)
+        line = (f"- {PERSONA_JA[p]}：設置パート {len(lst)} 回のうち新しく壁を置かなかったのは {zero} 回（{zero * 100 // max(1, len(lst))}%）・"
+                f"新しく置いた数の平均 {sum(n for s, n, sd in lst) / max(1, len(lst)):.1f} 個")
+        sl = [sd for (s, n, sd) in lst if sd is not None]
+        if sl:
+            sz = sum(1 for sd in sl if not sd)
+            line += f"／立っている壁が 0 個だったのは {sz} 回（{sz * 100 // len(sl)}%・記録のある {len(sl)} 回のうち）・平均 {sum(sl) / len(sl):.1f} 個"
+        L.append(line)
+    L.append("")
+    L.append("（新しく置いた数は、前のラウンドの壁が残っていると 0 になる。壁を使っているかは「立っている壁」で見る）")
     L.append("")
     L.append("| 性格 | 囲い方 | ラウンド | クリア率 |")
     L.append("|---|---|---|---|")
@@ -492,7 +501,8 @@ def conclusions(A):
         out.append(f"1 ラウンドの稼ぎはステージ 1 つで ×{10 ** el[1]:.2f}、転生 1 回で ×{10 ** el[2]:.2f}（中央値の傾き）。")
     # 壁
     walls = A["walls"]
-    allw = [n for lst in walls.values() for (s, n) in lst]
+    alls = [sd for lst in walls.values() for (s, n, sd) in lst if sd is not None]
+    allw = alls or [n for lst in walls.values() for (s, n, sd) in lst]
     if allw:
         zero = sum(1 for n in allw if not n) / len(allw)
         t = A["templates"]
@@ -503,7 +513,8 @@ def conclusions(A):
         ro, no = rate("open")
         rw = [rate(x) for x in ("door_far", "double")]
         rw_rate = sum(r * n for r, n in rw if r is not None) / max(1, sum(n for r, n in rw if r is not None))
-        out.append(f"設置パートの {zero * 100:.0f}% で壁を 1 つも置いていない。壁を置かない囲い方のクリア率 {pct(ro)}・壁で囲む囲い方 {rw_rate * 100:.0f}%。"
+        what = "壁が 1 つも立っていない" if alls else "新しく壁を置いていない（前のラウンドの壁が残っている分を含まない）"
+        out.append(f"設置パートの {zero * 100:.0f}% で{what}。壁を置かない囲い方のクリア率 {pct(ro)}・壁で囲む囲い方 {rw_rate * 100:.0f}%。"
                    + ("壁で囲んでも有利になっておらず、壁を強くする転生の強化（壁の硬さ）の意味が薄い。" if ro is not None and ro >= rw_rate else "壁で囲むと有利。"))
     # お宝・宝石
     tg = sum(r.get("treasures_got") or 0 for r in rounds)

@@ -63,8 +63,11 @@ class Wait:
 
 
 class Agent:
-    PRESTIGE_AFTER_FOUND = 5  # 隠れ場所を見つけてから、この回数見つかったら転生（ユーザーの指定）
-    PRESTIGE_STUCK = 30  # 隠れ場所を見つけられないまま、この回数続けて見つかったら転生（行き詰まり）
+    # 転生（ユーザーの指定 2026-10-18：転生が多すぎるので人に近づける）：前の周の最高ステージ（-1 まで）に届いてから、
+    # 隠れ場所を見つけて 12 回見つかったら転生。届く前は転生しない（同じステージで 40 回続けて見つかったら行き詰まりとして転生）
+    PRESTIGE_AFTER_FOUND = 12
+    PRESTIGE_STUCK = 40
+    PRESTIGE_BEST_MARGIN = 1  # 前の周の最高からこれだけ手前でも「届いた」とみる（前の周がたまたま良かったとき用）
 
     def __init__(self, persona, link, brain, recorder, speed=1.0, log=print):
         self.persona = persona
@@ -92,7 +95,7 @@ class Agent:
         self.stage_seen = None
         self.prestige_arm = None
         self.lap_best = 0
-        self.prev_lap_best = 0
+        self.prev_lap_best = brain.prev_lap_best  # 起動し直しても前の周の最高を覚えておく（転生の目安）
         self.lap_started = time.time()
         self.lap_prestige_items = []
         self.base_texts = []
@@ -450,13 +453,14 @@ class Agent:
         self.lap_best = max(self.lap_best, stage)
         self.shop_basket = []
 
-        # ---- 転生（ユーザーの指定）：このステージで隠れ場所を見つけて（たどり着けて）から 5 回見つかったら。
-        #      隠れ場所をまだ見つけていないうちは、学習の途中なので転生しない（30 回続けて見つかったら、行き詰まりとして転生する）
+        # ---- 転生（ユーザーの指定）：前の周の最高ステージ近くまで来て、このステージで隠れ場所を見つけて（たどり着けて）から 12 回見つかったら。
+        #      前の周の最高に届かないうち・隠れ場所をまだ見つけていないうちは転生しない（40 回続けて見つかったら、行き詰まりとして転生する）
         pb = self.obs.button("Prestige.0")
         if pb and "pt" in pb[1] and "+" in pb[1]:
             streak = self.fail_streak.get(stage, 0)
             after_found = self.fails_after_found.get(stage, 0)
-            if after_found >= self.PRESTIGE_AFTER_FOUND or streak >= self.PRESTIGE_STUCK:
+            near_best = stage >= self.prev_lap_best - self.PRESTIGE_BEST_MARGIN
+            if (near_best and after_found >= self.PRESTIGE_AFTER_FOUND) or streak >= self.PRESTIGE_STUCK:
                 pts = re.search(r"\+\s*(\d+)\s*pt", pb[1])
                 yield Cmd("click Prestige.0")
                 yield Wait(0.3)
@@ -518,7 +522,7 @@ class Agent:
             if ladders:
                 yield Cmd("click " + ladders[0]["id"])
                 yield Wait(0.25)
-                self.bought(ladders[0], "coin")
+                self.bought(dict(ladders[0], required=True), "coin")
                 self.plan["ladder_bought"] = True
                 have_total += 1
                 buys += 1
@@ -531,7 +535,9 @@ class Agent:
             wall = max(walls, key=lambda i: self.brain.item_value(i["name"], i["roles"], 0.3 - 0.0001 * (i["cost"] or 0)))
             yield Cmd("click " + wall["id"])
             yield Wait(0.25)
-            self.bought(wall, "coin")
+            # 計画の囲いに要る分（壊れた分の買い直し）は選んで買った物ではないので、良さの学習に入れない
+            # （壊された＝手ごわいラウンドの後に多く買うので、入れると壁が損に見える）
+            self.bought(dict(wall, required=True), "coin")
             have_total += 1
             buys += 1
         # 残りのコインで、良さそうな物から（買えるだけ。少しはとっておく）
@@ -661,14 +667,18 @@ class Agent:
             rec = self.brain.items.get(name)
             if rec:
                 self.brain.note_item(name, set(rec.get("roles", [])), reward / 3.0)
-        # なぜ転生したか（報告書の「何回で転生」の欄）：隠れ場所を見つけてから 5 回 / 見つけられず行き詰まり
+        # なぜ転生したか（報告書の「何回で転生」の欄）：隠れ場所を見つけてから 12 回 / 行き詰まり（続けて 40 回）
         found = stage in self.found_spot
-        self.prestige_arm = f"見つけて{self.fails_after_found.get(stage, 0)}回" if found else f"見つけられず{streak}回"
+        if streak >= self.PRESTIGE_STUCK:
+            self.prestige_arm = f"行き詰まり{streak}回" if found else f"見つけられず{streak}回"
+        else:
+            self.prestige_arm = f"見つけて{self.fails_after_found.get(stage, 0)}回"
         self.rec.event("prestige", {"stage": stage, "points": points, "fail_streak": streak, "arm": self.prestige_arm,
                                     "found_spot": found, "fails_after_found": self.fails_after_found.get(stage, 0),
                                     "lap_best": self.lap_best, "prev_lap_best": self.prev_lap_best,
                                     "lap_minutes": round((time.time() - self.lap_started) / 60.0, 1)})
         self.prev_lap_best = self.lap_best
+        self.brain.prev_lap_best = self.lap_best
         self.lap_best = 1
         self.lap_started = time.time()
         self.lap_prestige_items = []
@@ -787,6 +797,10 @@ class Agent:
                 if spot and math.dist(c, plan["base"]) > 3.0:
                     plan["start_from"] = "center"  # 隠れ場所のそばに置けなかった
                 break
+        # 立っている壁（前のラウンドから残っている分も。placed は今回新しく置いた数）
+        walls_now = self.placed.get("walls", [])
+        build_log["standing"] = sum(1 for (x, y, h, p, n) in walls_now if h > 0)
+        build_log["blocks"] = sum(h for (x, y, h, p, n) in walls_now)
         plan["build"] = build_log
         self.rec.event("build", {"stage": plan["stage"], "plan": self.plan_summary(), "log": build_log})
         if self.rng.random() < 0.05 or self.round_no < 2:
@@ -1673,12 +1687,13 @@ class Agent:
         adv = score - base_score
         self.stage_baseline[stage] = 0.8 * base_score + 0.2 * score
         for item in self.shop_basket:
-            self.brain.note_item(item["name"], item["roles"], adv)
+            if not item.get("required"):
+                self.brain.note_item(item["name"], item["roles"], adv)
         # 勝ちやすさ：買った物・使った宝石の道具は今回の、前のラウンドで買ったお金の強化（ゴールドラッシュも）は次回の分として
         win_lift = self.brain.clear_baseline(stage, cleared)
         for name in self.next_credit:
             self.brain.note_item_win(name, "next", win_lift)
-        names = {item["name"] for item in self.shop_basket if item.get("currency") != "pt"} | set(R["gem_items"])
+        names = {item["name"] for item in self.shop_basket if item.get("currency") != "pt" and not item.get("required")} | set(R["gem_items"])
         for name in names:
             self.brain.note_item_win(name, "now", win_lift)
         self.next_credit = [n for n in names if self.brain.is_income(self.brain.items.get(n, {}).get("roles", []))]

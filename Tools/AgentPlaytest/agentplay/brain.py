@@ -4,7 +4,7 @@
   - 囲い方（設計の型）  ：型ごとに同じく線形モデル（文脈＝そのステージの鬼の印）
   - かくれんぼ中の動き  ：表形式の Q 学習（状態＝鬼の近さ・追われているか・拠点からの距離…、行動＝連打・静かに・逃げる…）
   - お店の商品          ：買った後のラウンドの得点で商品ごとの良さを更新（多腕バンディット）
-  - 転生のタイミング    ：学ばない（ユーザーの指定：隠れ場所を見つけてから 5 回見つかったら。agent.py。下の prestige は前の記録を読むためだけに残す）
+  - 転生のタイミング    ：学ばない（ユーザーの指定：前の周の最高近くで、隠れ場所を見つけてから 12 回見つかったら。agent.py。下の prestige は前の記録を読むためだけに残す）
   - 音の危なさ          ：聞こえた音のすぐ後に鬼が近くに見えたか（音ごとの確率）
   - 鬼の特徴            ：文から読んだ印（事前知識）と、遊んで見た速さ・壁をこわした回数・見つかった回数
   - 床の輪              ：見た目（色・太さ）ごとに、自分の足元に出るか・自分が何をしているときに出るか・大きさ、
@@ -225,6 +225,7 @@ class Brain:
         # 館ごとに、隠れ場所までたどり着けたか："館の形の印" -> {"cell": [x, y]（最後に着いた隠れ場所）, "n": 着いた回数, "score": 得点の合計}。
         # 着いたことのある館は、次からスタートを隠れ場所のそばにする（初めての館はマップの中央から）
         self.start_spots = {}
+        self.prev_lap_best = 0  # 前の周（転生の前）の最高ステージ（転生のタイミングの目安。起動し直しても残す）
         self.episodes = 0
         self.history = []  # ラウンドごとの得点（学習の進み具合のグラフ用。最後の 5000）
         self.load()
@@ -262,6 +263,13 @@ class Brain:
         self.read_texts = j.get("read_texts", {})
         self.abilities = j.get("abilities", {})
         self.start_spots = j.get("start_spots", {})
+        self.prev_lap_best = j.get("prev_lap_best", 0)
+        if j.get("ver", 1) < 2:
+            # ver 2（2026-10-18）：囲いに要る壁の買い直しを良さの学習に入れていたので、壁は損に見えていた。壁の学習はやり直す
+            for name, rec in list(self.items.items()):
+                if "blocker" in rec.get("roles", []):
+                    rec["n"], rec["mean"] = 0, 0.0
+                    self.item_wins.pop(name, None)
         self.episodes = j.get("episodes", 0)
         self.history = j.get("history", [])
 
@@ -270,7 +278,7 @@ class Brain:
              "qtable": self.qtable.to_json(), "items": self.items, "prestige": self.prestige, "sounds": self.sounds,
              "sound_id": self.sound_id, "loudcal": self.loudcal, "sound_rhythm": self.sound_rhythm,
              "words": self.words, "rings": self.rings, "onis": self.onis, "spot_memory": self.spot_memory, "gem_trials": self.gem_trials, "template_stats": self.template_stats, "item_wins": self.item_wins, "stage_clear": self.stage_clear, "insights": self.insights, "read_texts": self.read_texts, "abilities": self.abilities, "start_spots": self.start_spots,
-             "episodes": self.episodes, "history": self.history[-5000:]}
+             "ver": 2, "prev_lap_best": self.prev_lap_best, "episodes": self.episodes, "history": self.history[-5000:]}
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(j, f, ensure_ascii=False)
