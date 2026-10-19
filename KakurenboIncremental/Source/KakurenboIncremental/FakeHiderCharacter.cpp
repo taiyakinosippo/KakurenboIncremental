@@ -124,6 +124,16 @@ void AFakeHiderCharacter::Tick(float DeltaSeconds)
 	}
 	AddMovementInput(FleeDir);
 
+	// 足音：歩幅ごとに「ドタッ」（2026-10-19：前は音を立てるたび（0.7 秒ごと）に 1 歩だけで、走っているように聞こえなかった）
+	const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());
+	StepDistance += GetVelocity().Size2D() * DeltaSeconds;
+	if (StepDistance >= DollStepStride)
+	{
+		StepDistance = 0.f;
+		++StepCount;
+		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::DollStep, Feet, 1.f, (StepCount % 2 == 0 ? 1.f : 0.9f) * FMath::FRandRange(0.96f, 1.04f));
+	}
+
 	// 逃げながら大きな音を立てる（ドタバタ。周りの鬼も寄ってくる）
 	NoiseTimer -= DeltaSeconds;
 	if (NoiseTimer <= 0.f)
@@ -134,7 +144,5 @@ void AFakeHiderCharacter::Tick(float DeltaSeconds)
 		{
 			GM->HandleGadgetNoise(Trap, GM->FakeHiderNoiseLoudness, EKakurenboNoise::Dash);
 		}
-		const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());
-		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::DollStep, Feet);
 	}
 }

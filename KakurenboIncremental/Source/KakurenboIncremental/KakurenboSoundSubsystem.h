@@ -111,6 +111,9 @@ public:
 	 */
 	void RefillMusic();
 
+	/** 最後に鳴らした心臓の音を、手がかりの音（足音・キラキラ）のために小さくしたか（テスト用） */
+	bool WasLastHeartbeatDucked() const { return bLastHeartbeatDucked; }
+
 	/** その音を最後に鳴らしたときの、左右の聞こえ方（テスト用） */
 	FKakurenboSpatialDebug GetLastSpatial(EKakurenboSfx Sfx) const;
 
@@ -156,6 +159,14 @@ private:
 
 	TArray<int32> PlayCounts;
 	TArray<FKakurenboSpatialDebug> LastSpatial;
+
+	/** 手がかりの音（鬼の足音・お宝のキラキラ・「ン？」）が最後に聞こえた時刻（心臓の音を下げる。実時間） */
+	double LastCueHeardTime = -1000.0;
+	/** その手がかりの音の強さ（0〜1。聞こえた大きさ。心臓の音を下げる量） */
+	float LastCueStrength = 0.f;
+	/** 鳴っている心臓の音（手がかりの音が来たら下げる） */
+	TWeakObjectPtr<UAudioComponent> HeartbeatComponent;
+	bool bLastHeartbeatDucked = false;
 	/** 同じ音が同時にたくさん鳴って大きくなりすぎないよう、最後に鳴らした時刻を覚えておく */
 	TArray<double> LastPlayTimes;
 	int32 StartedCount = 0;

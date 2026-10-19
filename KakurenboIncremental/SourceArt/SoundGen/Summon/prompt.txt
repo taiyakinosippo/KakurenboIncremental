@@ -4,3 +4,5 @@ s11-s13: Eerie playful horn call with a wobbly theremin echoing in a big hall, m
 seconds=3.0 steps=100
 s21-s24: Cartoon ghost horn call, a wobbly eerie toy trumpet blast echoing in a hall, monster calling friends, spooky cute game sound effect
 seconds=2.5 steps=100
+s31-s34: A cartoon monster with an antenna on its head sends out radar pings, deep eerie sonar ping sweeping and repeating, with a low wobbly creature hum underneath, spooky cute game sound effect
+seconds=2.5 steps=100

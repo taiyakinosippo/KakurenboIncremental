@@ -4,3 +4,5 @@ s11-s13: Cartoon sticky slime squelch, gooey glue stretching with a funny boing,
 seconds=2.0 steps=100
 s21-s24: Comedic cartoon goo splat then a rubbery sticky stretch and a springy boing, slapstick game sound effect, short
 seconds=1.5 steps=100
+s31-s34: Cartoon boing, a low wobbly descending spring boing with a soft sticky squish, played on bassoon and tuba, playful spooky halloween game sound effect, short
+seconds=1.5 steps=100

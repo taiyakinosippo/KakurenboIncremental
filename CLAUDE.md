@@ -56,7 +56,7 @@ UE 5.8 の C++ プロジェクト。隠れる側のかくれんぼインクリ�
   `-Setup` の最後の確認でログインしていない・規約に同意していないと出たら、そこだけユーザーに頼む（`Tools\SoundGen\.venv\Scripts\hf.exe auth login` と
   https://huggingface.co/stabilityai/stable-audio-open-1.0 の同意。トークンは Claude が入れない）。
   できた候補（`<名前>/<名前>_s<シード>.wav`）と今の音（`_Current`）は `KakurenboIncremental/SourceArt/SoundGen/` で **Git（LFS）に入れる**（別のパソコンでも pull すれば聞けて採用できる。作ったらコミットする）。
-  **採用した効果音は `Data/Sounds/<音>.wav`**（`Tools/SoundGen/ExportForGame.py` でモノラル・44100Hz にして大きさをそろえ、頭とお尻の無音を切る。ゲームは同じ左右・こもりの処理を通す。無い音はプログラムの音。
+  **採用した効果音は `Data/Sounds/<音>.wav`**（`Tools/SoundGen/ExportForGame.py` でモノラル・44100Hz にして**耳に聞こえる大きさ**（K 特性）をプログラムの音にそろえ、頭とお尻の無音を切る。`--adopted` で表の採用を全部・`--check` でずれを見る。ゲームは同じ左右・こもりの処理を通す。無い音はプログラムの音。
   2026-10-19 に足した音（メニュー・鬼の種類ごとの足音 `AOniCharacter::StepSfx`・飛び乗り・のれん・人形の足音・鬼の紹介）は WAV が無ければ今までの音の高さ違い `KakurenboSynth::GetFallback`）。
   候補の目安は `Tools/SoundGen/RankCandidates.py`（CLAP で、docs/Sounds.md の採用から学んだユーザーの好みに近い順＋頭の無音・音割れの検査。当たるのは 4 回に 1 回くらい。決めるのはユーザー。決めたら `JUDGED_BELOW` を上げる）。**候補の一覧・聞くページ・採用した音の記録は [docs/Sounds.md](docs/Sounds.md)**（聞く・採用するだけなら AI の環境は要らない）。
   ユーザーが「使う音: OniStep_s2, …」（ページの「コピー」の文）を送ってきたら、docs/Sounds.md の表の「採用」を書き換え、そこに書いた予定（`Data/Sounds/<名前>.wav` を起動時に読み、今の左右・こもりの処理を通す）で組み込む。

@@ -4,3 +4,5 @@ s11-s13: Cartoon heavy thump on a wooden plank wall, dull wooden bonk, playful, 
 seconds=1.5 steps=100
 s21-s24: Single punchy cartoon thump on a wooden toy crate, muffled bonk with a tiny wobble, playful game impact sound effect, short, dry
 seconds=1.5 steps=100
+s31-s34: Single short heavy thud on a thick wooden wall, deep punchy low impact, very short, dry, game sound effect
+seconds=1.0 steps=100

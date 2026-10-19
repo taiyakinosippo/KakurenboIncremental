@@ -33,6 +33,10 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 
 ## 一覧
 
+**3 回目（2026-10-19。s31〜s34）**：2 回目を聞いたユーザーの感想から 6 個を作り直した：宝物鬼の足音「もっとジャラジャラしつつ重厚感」・探知鬼「もっとレーダーみたいな音、ただし鬼から出ているような音」（Summon。ゲームでも探知鬼の場所から鳴らすようにした）・
+壁（BlockHit・BlockBreak）「もっと短く重厚感」・トリモチ「今みたいな音を世界観に合わせて」・身代わり人形「もっとドタドタと音を立てて進む」（ゲームでも歩幅ごとに鳴らすようにした）。
+2 回目の「★AI の予想」は 19 個中 9 個が当たった（でたらめなら 4.8 個）。
+
 **2 回目（2026-10-19。表の太字の候補）**：前に選ばなかった 14 個を、ユーザーの「選んでいないのは、音がリアルすぎたり、行動に合ってない音すぎたりするもの」から説明文を書き直して **s21〜s24**、
 新しい音 12 個（メニュー 4・鬼の種類ごとの足音 4・飛び乗り・のれん・人形の足音・鬼の紹介。今は今までの音の高さ違いで鳴っている）を s21〜s24、
 タイトル曲を明るく（「ちょっと暗くて気になる」から。ACE s4〜s6）、大きな館のかくれんぼ曲（ACE s1〜s3）。聞くページでは「★AI の予想」（`Tools/SoundGen/RankCandidates.py`。今までの選び方から学んだ予想で、当たるのは 4 回に 1 回くらい）が付いている。
@@ -41,53 +45,53 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 
 | 音の名前 | どこで鳴る | 候補 | 採用 |
 |---|---|---|---|
-| Mash | 連打 | s1, s2, s3, s900, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Mash | 連打 | s1, s2, s3, s900, s11, s12, s13, **s21, s22, s23, s24** | **Mash_s22** |
 | Treasure | お宝を取った | s1, s2, s3, **s11, s12, s13** | **Treasure_s1** |
 | Alert | 鬼に見つかって追いかけられ始めた | s1, s2, s3, **s11, s12, s13** | **Alert_s11** |
-| BlockHit | 壁が攻撃された（壊れていない） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
-| BlockBreak | 壁が壊れた | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| BlockHit | 壁が攻撃された（壊れていない） | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| BlockBreak | 壁が壊れた | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
 | Caught | 見つかった（アウト） | s1, s2, s3, **s11, s12, s13** | **Caught_s12** |
-| Clear | 逃げ切った | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
-| TrapSticky | トリモチにかかった | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
-| DecoyPing | おとりが音を出した | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
-| DecoyBreak | おとりが壊された | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Clear | 逃げ切った | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **Clear_s22** |
+| TrapSticky | トリモチにかかった | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| DecoyPing | おとりが音を出した | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **DecoyPing_s24** |
+| DecoyBreak | おとりが壊された | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **DecoyBreak_s21** |
 | CountdownBeep | 開始前のカウントダウン | s1, s2, s3, **s11, s12, s13** | （今のまま） |
 | RoundStart | 鬼が出てきた | s1, s2, s3, **s11, s12, s13** | **RoundStart_s13** |
-| TimeTick | 残り 5 秒からの秒読み | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| TimeTick | 残り 5 秒からの秒読み | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **TimeTick_s22** |
 | Buy | 購入できた | s1, s2, s3, **s11, s12, s13** | **Buy_s13** |
 | BuyFail | コインが足りない | s1, s2, s3, **s11, s12, s13** | **BuyFail_s12** |
-| Place | 壁・罠を置いた | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Place | 壁・罠を置いた | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **Place_s23** |
 | PickUp | 壁・罠を回収した | s1, s2, s3, **s11, s12, s13** | **PickUp_s12** |
 | Dash | ダッシュした（大きな音） | s1, s2, s3, **s11, s12, s13** | **Dash_s1** |
-| Prestige | 転生した | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Prestige | 転生した | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **Prestige_s22** |
 | PlayerStep | プレイヤーの足音 | s1, s2, s3, **s11, s12, s13** | **PlayerStep_s3** |
 | PlayerClimb | プレイヤーがよじ登った（ガサッ） | s1, s2, s3, **s11, s12, s13** | **PlayerClimb_s12** |
 | OniStep | 鬼の足音（どたどた） | s1, s2, s3, **s11, s12, s13** | **OniStep_s13** |
 | TreasureSparkle | お宝のキラキラ | s1, s2, s3, **s11, s12, s13** | （今のまま） |
-| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
 | Smoke | 煙幕を投げた（ボフッ） | s1, s2, s3, **s11, s12, s13** | **Smoke_s11** |
 | Heartbeat | 鬼が近い（ドクン） | s1, s2, s3, **s11, s12, s13** | **Heartbeat_s1** |
-| OniNotice | 鬼が音に気づいた（「ン？」） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| OniNotice | 鬼が音に気づいた（「ン？」） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **OniNotice_s24** |
 | Meow | 迷い猫の鳴き声 | s1, s2, s3, **s11, s12, s13** | **Meow_s12** |
-| Daruma | だるまさんがころんだ（かけ声のメロディ） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
+| Daruma | だるまさんがころんだ（かけ声のメロディ） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **Daruma_s21** |
 | Poof | 身代わり人形が消えた・のれんが壊れた（ポン） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | — |
 | Gem | 宝石を全部集めた（ボーナス） | s1, s2, s3, **s11, s12, s13** | **Gem_s13** |
-| UIClick | ボタンを押した（設定・図鑑のページ） | **s21, s22, s23, s24** | — |
-| UIMove | カーソル・選択の移動 | **s21, s22, s23, s24** | — |
-| MenuOpen | メニューを開いた | **s21, s22, s23, s24** | — |
-| MenuClose | メニューを閉じた | **s21, s22, s23, s24** | — |
-| OniIntro | 初めての鬼が出てきた（図鑑） | **s21, s22, s23, s24** | — |
-| OniLeap | 鬼が家具・壁に飛び乗った | **s21, s22, s23, s24** | — |
-| CurtainPass | 鬼がのれんをくぐった | **s21, s22, s23, s24** | — |
-| DollStep | 身代わり人形の足音（とことこ） | **s21, s22, s23, s24** | — |
-| OniStepScout | スピード鬼の足音（たったっ） | **s21, s22, s23, s24** | — |
-| OniStepBreaker | パワー鬼の足音（ずしん） | **s21, s22, s23, s24** | — |
-| OniStepCareful | 慎重鬼の足音（ぎしっ） | **s21, s22, s23, s24** | — |
-| OniStepTreasure | 宝物鬼の足音（じゃらっ） | **s21, s22, s23, s24** | — |
+| UIClick | ボタンを押した（設定・図鑑のページ） | **s21, s22, s23, s24** | **UIClick_s24** |
+| UIMove | カーソル・選択の移動 | **s21, s22, s23, s24** | **UIMove_s24** |
+| MenuOpen | メニューを開いた | **s21, s22, s23, s24** | **MenuOpen_s24** |
+| MenuClose | メニューを閉じた | **s21, s22, s23, s24** | **MenuClose_s22** |
+| OniIntro | 初めての鬼が出てきた（図鑑） | **s21, s22, s23, s24** | **OniIntro_s23** |
+| OniLeap | 鬼が家具・壁に飛び乗った | **s21, s22, s23, s24** | **OniLeap_s22** |
+| CurtainPass | 鬼がのれんをくぐった | **s21, s22, s23, s24** | **CurtainPass_s24** |
+| DollStep | 身代わり人形の足音（とことこ） | s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| OniStepScout | スピード鬼の足音（たったっ） | **s21, s22, s23, s24** | **OniStepScout_s23** |
+| OniStepBreaker | パワー鬼の足音（ずしん） | **s21, s22, s23, s24** | **OniStepBreaker_s22** |
+| OniStepCareful | 慎重鬼の足音（ぎしっ） | **s21, s22, s23, s24** | **OniStepCareful_s22** |
+| OniStepTreasure | 宝物鬼の足音（じゃらっ） | s21, s22, s23, s24, **s31, s32, s33, s34** | — |
 | Music_Title | BGM：タイトル | ACE s1, s2, s3, **s4, s5, s6** | **MusicGen:Music_Title_s2** |
 | Music_Calm | BGM：購入・設置・リザルト（のんびり） | s1, s2, s3, s900 / ACE s1, s2, s3 | **MusicGen:Music_Calm_s2** |
 | Music_Hide | BGM：かくれんぼ中（速くて少し怖い） | s1, s2, s3 / ACE s1, s2, s3 | **MusicGen:Music_Hide_s2** |
-| Music_HideDeep | BGM：かくれんぼ中・大きな館（ステージ 11 から） | **ACE s1, s2, s3** | — |
+| Music_HideDeep | BGM：かくれんぼ中・大きな館（ステージ 11 から） | **ACE s1, s2, s3** | **MusicGen:Music_HideDeep_s1** |
 | Music_Chase | BGM：鬼に追われている間（どたばた） | ACE s1, s2, s3 | **MusicGen:Music_Chase_s3** |
 
 ## 候補を増やす・作り直す

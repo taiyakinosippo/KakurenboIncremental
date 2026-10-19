@@ -6016,6 +6016,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Fake ? Fake->GetFleeDirection().X : 0.f, Fake ? Fake->GetFleeDirection().Y : 0.f, Moved.GetSafeNormal().X, Moved.GetSafeNormal().Y),
 				Fake && Fake->IsFleeing() && Moved.Size() > 150.f && Fake->GetFleeDirection().Y > 0.9f && Moved.GetSafeNormal().Y > 0.8f);
 			Check(FString::Printf(TEXT("the fake hider makes loud noise while fleeing (%d)"), Fake ? Fake->GetNoiseCount() : -1), Fake && Fake->GetNoiseCount() >= 1);
+			// 2026-10-19：逃げながら歩幅ごとにドタドタ鳴る（音を立てる回数より多い）
+			Check(FString::Printf(TEXT("the fake hider clatters every stride (steps %d, noises %d)"), Fake ? Fake->GetStepCount() : -1, Fake ? Fake->GetNoiseCount() : -1),
+				Fake && Fake->GetStepCount() > Fake->GetNoiseCount() && Sound()->GetPlayCount(EKakurenboSfx::DollStep) >= Fake->GetStepCount());
 			Check(TEXT("the fake hider's steps are not the player's steps"), GS()->StepsThisRound == T->Steps);
 			LookAtOni();
 			ShotLater(TEXT("fake_02_fleeing"));
@@ -6906,6 +6909,31 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 1.5f, [=, this]
 		{
 			Check(FString::Printf(TEXT("a near oni (2.6 m) gives a much louder heartbeat (%.2f -> %.2f)"), *FarVolume, GM->GetLastHeartbeatVolume()), GM->GetLastHeartbeatVolume() > *FarVolume * 2.5f);
+			*FarVolume = static_cast<float>(GM->GetHeartbeatCount());
+		} });
+		// 2026-10-19：足音が聞こえている間は心臓の音を小さくする（足音・キラキラを消さない）。お宝のキラキラも下げる音なので、お宝は遠くへ
+		Steps.Add({ 0.05f, [=, this]
+		{
+			for (ATreasureActor* T : GM->GetTreasures())
+			{
+				if (T)
+				{
+					T->SetActorLocation(T->GetActorLocation() + FVector(0.f, 0.f, -20000.f));
+				}
+			}
+		} });
+		for (int32 i = 0; i < 12; ++i)
+		{
+			Steps.Add({ 0.1f, [=, this] { Sound()->PlayAt(EKakurenboSfx::OniStep, GetPawn()->GetActorLocation() + FVector(300.f, 0.f, -80.f)); } });
+		}
+		Steps.Add({ 0.05f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the heartbeat ducks under nearby oni steps (beats %d, ducked %d)"), GM->GetHeartbeatCount() - static_cast<int32>(*FarVolume), Sound()->WasLastHeartbeatDucked() ? 1 : 0),
+				GM->GetHeartbeatCount() > static_cast<int32>(*FarVolume) && Sound()->WasLastHeartbeatDucked());
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(TEXT("without steps the heartbeat is full again"), !Sound()->WasLastHeartbeatDucked());
 		} });
 	}
 	// ================================================================ OniIntro（M15：初めて出てくる鬼のチュートリアル・鬼の図鑑）

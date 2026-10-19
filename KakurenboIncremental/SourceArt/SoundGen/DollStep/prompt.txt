@@ -1,2 +1,4 @@
 s21-s24: Single quick light wooden doll footstep on a wooden floor, tiny clack, toy, close mic
 seconds=1.0 steps=100
+s31-s34: Single loud clumsy footstep of a small wooden puppet, hollow wooden clack and thump on a wooden floor, clattering toy, close mic
+seconds=1.0 steps=100

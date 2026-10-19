@@ -48,6 +48,15 @@
  ],
  "BlockHit": [
   {
+   "id": "BlockHit_s31",
+   "text": 0.3297,
+   "style": 0.1577,
+   "lead": 0.013,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.399
+  },
+  {
    "id": "BlockHit_s24",
    "text": 0.3499,
    "style": 0.2302,
@@ -59,6 +68,15 @@
    "score": 0.936
   },
   {
+   "id": "BlockHit_s32",
+   "text": 0.3809,
+   "style": 0.1773,
+   "lead": 0.015,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.469
+  },
+  {
    "id": "BlockHit_s21",
    "text": 0.5123,
    "style": 0.2583,
@@ -66,6 +84,15 @@
    "onsets": 1,
    "notes": [],
    "score": 0.241
+  },
+  {
+   "id": "BlockHit_s33",
+   "text": 0.2842,
+   "style": 0.309,
+   "lead": 0.05,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.733
   },
   {
    "id": "BlockHit_s23",
@@ -84,6 +111,15 @@
    "onsets": 1,
    "notes": [],
    "score": -1.019
+  },
+  {
+   "id": "BlockHit_s34",
+   "text": 0.3546,
+   "style": 0.1188,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.135
   }
  ],
  "BlockBreak": [
@@ -97,6 +133,15 @@
    "score": 1.494
   },
   {
+   "id": "BlockBreak_s32",
+   "text": 0.5114,
+   "style": 0.178,
+   "lead": 0.006,
+   "onsets": 2,
+   "notes": [],
+   "score": 1.42
+  },
+  {
    "id": "BlockBreak_s23",
    "text": 0.4917,
    "style": -0.0704,
@@ -104,6 +149,24 @@
    "onsets": 10,
    "notes": [],
    "score": 0.312
+  },
+  {
+   "id": "BlockBreak_s33",
+   "text": 0.3765,
+   "style": 0.1485,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.116
+  },
+  {
+   "id": "BlockBreak_s34",
+   "text": 0.4519,
+   "style": 0.1407,
+   "lead": 0.042,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.14
   },
   {
    "id": "BlockBreak_s21",
@@ -122,6 +185,15 @@
    "onsets": 3,
    "notes": [],
    "score": -1.042
+  },
+  {
+   "id": "BlockBreak_s31",
+   "text": 0.3912,
+   "style": 0.0089,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.396
   }
  ],
  "Clear": [
@@ -177,6 +249,24 @@
    "score": 1.484
   },
   {
+   "id": "TrapSticky_s32",
+   "text": 0.2735,
+   "style": 0.219,
+   "lead": 0.016,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.082
+  },
+  {
+   "id": "TrapSticky_s34",
+   "text": 0.1839,
+   "style": 0.1481,
+   "lead": 0.01,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.723
+  },
+  {
    "id": "TrapSticky_s24",
    "text": 0.2464,
    "style": 0.2641,
@@ -184,6 +274,15 @@
    "onsets": 1,
    "notes": [],
    "score": 0.24
+  },
+  {
+   "id": "TrapSticky_s31",
+   "text": 0.3383,
+   "style": 0.3686,
+   "lead": 0.029,
+   "onsets": 2,
+   "notes": [],
+   "score": -0.322
   },
   {
    "id": "TrapSticky_s21",
@@ -202,6 +301,15 @@
    "onsets": 2,
    "notes": [],
    "score": -1.22
+  },
+  {
+   "id": "TrapSticky_s33",
+   "text": 0.3299,
+   "style": 0.2329,
+   "lead": 0.023,
+   "onsets": 2,
+   "notes": [],
+   "score": -1.484
   }
  ],
  "DecoyPing": [
@@ -396,6 +504,15 @@
  ],
  "Summon": [
   {
+   "id": "Summon_s32",
+   "text": 0.4417,
+   "style": 0.1978,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.487
+  },
+  {
    "id": "Summon_s21",
    "text": 0.5208,
    "style": 0.4405,
@@ -414,6 +531,15 @@
    "score": 0.466
   },
   {
+   "id": "Summon_s33",
+   "text": 0.4551,
+   "style": 0.2239,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.34
+  },
+  {
    "id": "Summon_s22",
    "text": 0.314,
    "style": 0.2883,
@@ -421,6 +547,24 @@
    "onsets": 1,
    "notes": [],
    "score": -0.839
+  },
+  {
+   "id": "Summon_s34",
+   "text": 0.4654,
+   "style": 0.2955,
+   "lead": 0.004,
+   "onsets": 3,
+   "notes": [],
+   "score": -0.861
+  },
+  {
+   "id": "Summon_s31",
+   "text": 0.3222,
+   "style": 0.18,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.966
   },
   {
    "id": "Summon_s23",
@@ -851,6 +995,24 @@
    "score": 1.603
   },
   {
+   "id": "DollStep_s31",
+   "text": 0.1922,
+   "style": 0.0783,
+   "lead": 0.004,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.022
+  },
+  {
+   "id": "DollStep_s32",
+   "text": 0.3959,
+   "style": 0.2216,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.962
+  },
+  {
    "id": "DollStep_s23",
    "text": 0.3762,
    "style": 0.149,
@@ -869,6 +1031,15 @@
    "score": -0.236
   },
   {
+   "id": "DollStep_s34",
+   "text": 0.1321,
+   "style": 0.1483,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.817
+  },
+  {
    "id": "DollStep_s21",
    "text": 0.4603,
    "style": 0.0944,
@@ -876,6 +1047,15 @@
    "onsets": 1,
    "notes": [],
    "score": -1.152
+  },
+  {
+   "id": "DollStep_s33",
+   "text": 0.2218,
+   "style": 0.0357,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.167
   }
  ],
  "OniStepScout": [
@@ -999,6 +1179,15 @@
  ],
  "OniStepTreasure": [
   {
+   "id": "OniStepTreasure_s31",
+   "text": 0.6373,
+   "style": 0.1045,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.713
+  },
+  {
    "id": "OniStepTreasure_s21",
    "text": 0.3979,
    "style": -0.0025,
@@ -1008,6 +1197,15 @@
     "頭の無音 0.24 秒"
    ],
    "score": 0.615
+  },
+  {
+   "id": "OniStepTreasure_s33",
+   "text": 0.6192,
+   "style": 0.2538,
+   "lead": 0.04,
+   "onsets": 2,
+   "notes": [],
+   "score": 0.425
   },
   {
    "id": "OniStepTreasure_s23",
@@ -1028,6 +1226,18 @@
    "score": -0.133
   },
   {
+   "id": "OniStepTreasure_s32",
+   "text": 0.6493,
+   "style": 0.246,
+   "lead": 0.055,
+   "onsets": 3,
+   "notes": [
+    "頭の無音 0.06 秒",
+    "音が 3 回"
+   ],
+   "score": -0.22
+  },
+  {
    "id": "OniStepTreasure_s24",
    "text": 0.0921,
    "style": -0.2062,
@@ -1035,6 +1245,17 @@
    "onsets": 1,
    "notes": [],
    "score": -1.445
+  },
+  {
+   "id": "OniStepTreasure_s34",
+   "text": 0.6309,
+   "style": 0.0602,
+   "lead": 0.072,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.07 秒"
+   ],
+   "score": -2.295
   }
  ]
 }

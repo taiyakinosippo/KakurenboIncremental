@@ -441,6 +441,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float HeartbeatLoudVolume = 1.2f; // M15：2.2 だと大きすぎた（ユーザーの指摘）
 
+	/**
+	 * 2026-10-19：心臓の音で鬼の足音・お宝のキラキラが聞こえにくい（ユーザーの指摘）→ 手がかりの音（足音・キラキラ・「ン？」）が
+	 * 聞こえてから HeartbeatDuckSeconds の間は、心臓の音を HeartbeatDuckScale 倍にする（鳴っている途中の心臓の音もすぐ下げる）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatDuckScale = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	float HeartbeatDuckSeconds = 0.6f;
+
 	/** 今の危なさ（0〜1）・一番近い鬼の近さ（0〜1）・鳴らした心臓の音の数と最後の大きさ（テスト用） */
 	float GetCurrentDanger() const { return CurrentDanger; }
 	float GetCurrentCloseness() const { return CurrentCloseness; }

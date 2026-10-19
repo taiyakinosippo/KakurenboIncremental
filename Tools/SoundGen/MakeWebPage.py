@@ -29,9 +29,9 @@ GROUPS = [
     ("BGM", ["Music_Title", "Music_Calm", "Music_Hide", "Music_HideDeep", "Music_Chase"]),
 ]
 # このシード値から 99 までの候補が「新しい候補」（まだ決めていない。RankCandidates.py の JUDGED_BELOW と同じ。s900 は前の試し）。それより前の候補はたたんで出す
-NEW_SEED = 21
+NEW_SEED = 31
 # BGM の新しい候補（ACE-Step）：曲ごとのこのシード値から
-NEW_MUSIC_SEED = {"Music_Title": 4, "Music_HideDeep": 1}
+NEW_MUSIC_SEED = {}
 # BGM 専用の AI（ACE-Step 1.5。Tools/MusicGen.ps1）の候補。同じ名前の BGM に「ACE s1」などとして並べる
 MUSIC_SRC = ROOT / "KakurenboIncremental" / "SourceArt" / "MusicGen"
 MUSIC_CSV = ROOT / "Tools" / "MusicGen" / "Music.csv"

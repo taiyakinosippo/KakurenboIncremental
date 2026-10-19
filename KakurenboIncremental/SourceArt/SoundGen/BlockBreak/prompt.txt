@@ -4,3 +4,5 @@ s11-s13: Cartoon wooden boards cracking and splintering, toy blocks tumbling dow
 seconds=2.5 steps=100
 s21-s24: Cartoon wooden toy crate smashing apart, quick crunchy crack and small wooden pieces clattering, playful game sound effect, short
 seconds=2.0 steps=100
+s31-s34: Short heavy crunch of a thick wooden wall smashing, deep punchy impact with a quick debris crack, very short, dry, game sound effect
+seconds=1.0 steps=100

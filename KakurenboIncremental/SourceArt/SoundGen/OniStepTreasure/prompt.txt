@@ -1,2 +1,4 @@
 s21-s24: Single footstep of a cartoon monster on a wooden floor with a jingle of coins in a bag, close mic
 seconds=1.0 steps=100
+s31-s34: Single heavy stomping footstep of a big burly cartoon monster on an old wooden floor, with a loud jingle and clatter of many gold coins and jewels in a heavy sack, deep and weighty, close mic
+seconds=1.0 steps=100

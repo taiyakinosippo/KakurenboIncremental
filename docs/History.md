@@ -613,3 +613,12 @@
   - 書き出し（ExportForGame.py）で頭とお尻の無音を切る。採用済みの 15 音も切って書き出し直した（音は同じで鳴り始めが速い）
   - 聞くページ（Artifact）を更新：ゲーム中の印・★AI の予想・前の候補はたたむ・決めていない音だけ出す
   - **次**：ユーザーがページで選んだ「使う音: …」を送ったら、docs/Sounds.md の表を書き換えて `ExportForGame.py`（BGM は MusicGen の ExportForGame.py）で組み込み、`RankCandidates.py` の `JUDGED_BELOW` を 25 に上げる
+- 2 回目の選択「**使う音: Mash_s22, Place_s23, Prestige_s22, UIClick_s24, UIMove_s24, MenuOpen_s24, MenuClose_s22, TimeTick_s22, Clear_s22, Daruma_s21, OniStepScout_s23, OniStepBreaker_s22, OniStepCareful_s22, OniLeap_s22, OniNotice_s24, OniIntro_s23, DecoyPing_s24, DecoyBreak_s21, CurtainPass_s24, MusicGen:Music_Title_s2, MusicGen:Music_HideDeep_s1**」→ 組み込んだ（タイトル曲は s2 のまま）。
+  ★AI の予想は 19 個中 9 個が 1 位で当たった（でたらめなら 4.8）。`JUDGED_BELOW` を 31 に
+- 感想「**宝物鬼はもっとジャラジャラしつつ重厚感／探知鬼はもっとレーダーみたいな音、ただし鬼から出ているような音／壁関係はもっと短く重厚感／トリモチは今みたいな音を世界観に合わせて／身代わり人形はもっとドタドタと音を立てて進む**」→
+  6 個の説明文を書き直して s31〜s34。探知鬼の呼び声（Summon）は画面全体 → **探知鬼の場所から**鳴らす。身代わり人形は音を立てるとき（0.7 秒ごと）に 1 歩だけ → **歩幅（110cm）ごとに足音**（FakeHider テスト）
+- 「**音はモノによって聞こえにくかったりするので自動で補正して**」→ 書き出し（ExportForGame.py）の大きさのそろえ方を、波の平均（RMS）から**耳に聞こえる大きさ**（K 特性・0.1 秒ごとのいちばん大きい所）に。
+  前のやり方だと、プログラムの音と比べて最大 ±7dB ずれていた（慎重鬼の足音 −6.6dB・スピード鬼 −4.3dB・メニューを開く +7.2dB・猫 +6.6dB…）→ 全部 ±0.3dB 以内。割れる音はとがった所だけ柔らかくつぶす。
+  `--adopted`（docs/Sounds.md の採用を全部書き出し直す）・`--check`（ずれを見る）
+- 「**敵の足音や宝石の音が心音で聞こえづらくなっていた**」→ 手がかりの音（鬼の足音・お宝のキラキラ・「ン？」）が聞こえてから 0.6 秒は、心臓の音を最大 0.35 倍に（聞こえた大きさに比例。かすかな遠くの音ではほとんど下げない）。
+  鳴っている途中の心臓の音もすぐ下げる（GameMode の `HeartbeatDuckScale`・`HeartbeatDuckSeconds`。Heartbeat テスト）

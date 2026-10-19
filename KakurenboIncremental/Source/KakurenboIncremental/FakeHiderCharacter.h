@@ -43,6 +43,9 @@ public:
 	/** 逃げながら出した音の回数（テスト用） */
 	int32 GetNoiseCount() const { return NoiseCount; }
 
+	/** 逃げながら鳴らした足音の数（テスト用） */
+	int32 GetStepCount() const { return StepCount; }
+
 	/** 置いた場所へ戻って止まる（かくれんぼ以外のパート） */
 	void ReturnHome();
 
@@ -60,4 +63,9 @@ private:
 	float NoiseTimer = 0.f;
 	float StuckTimer = 0.f;
 	int32 NoiseCount = 0;
+	/** 歩いた距離（歩幅ごとに足音「ドタドタ」を鳴らす） */
+	float StepDistance = 0.f;
+	int32 StepCount = 0;
+	/** 足音を鳴らす歩幅（cm）。鬼の足音（150cm）より細かく、あわてて走る感じ */
+	static constexpr float DollStepStride = 110.f;
 };

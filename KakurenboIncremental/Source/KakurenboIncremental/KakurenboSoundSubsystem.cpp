@@ -440,6 +440,30 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 			return; // 遠すぎて聞こえない
 		}
 	}
+
+	// 心臓の音は手がかりの音（鬼の足音・お宝のキラキラ・「ン？」）を消さないよう、それが聞こえている間は小さくする（ダッキング）
+	const AKakurenboGameMode* DuckGM = World->GetAuthGameMode<AKakurenboGameMode>();
+	const float DuckScale = DuckGM ? DuckGM->HeartbeatDuckScale : 0.35f;
+	const float DuckSeconds = DuckGM ? DuckGM->HeartbeatDuckSeconds : 0.6f;
+	const double RealNow = World->GetRealTimeSeconds();
+	// 下げる量は聞こえた大きさに比例（かすかに聞こえる遠くの音ではほとんど下げない。0.25 以上で DuckScale まで）
+	const bool bCue = bSpatial && Volume > 0.02f && (KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::OniNotice);
+	if (bCue)
+	{
+		const float Strength = FMath::Clamp(Volume / 0.25f, 0.f, 1.f);
+		LastCueStrength = RealNow - LastCueHeardTime < DuckSeconds ? FMath::Max(LastCueStrength, Strength) : Strength;
+		LastCueHeardTime = RealNow;
+		if (UAudioComponent* Beat = HeartbeatComponent.Get(); Beat && Beat->IsPlaying())
+		{
+			Beat->AdjustVolume(0.03f, FMath::Lerp(1.f, DuckScale, LastCueStrength)); // 鳴っている途中の「ドクン」もすぐ下げる（今の音量に掛ける倍率）
+		}
+	}
+	if (Sfx == EKakurenboSfx::Heartbeat)
+	{
+		const float Duck = RealNow - LastCueHeardTime < DuckSeconds ? FMath::Lerp(1.f, DuckScale, LastCueStrength) : 1.f;
+		bLastHeartbeatDucked = Duck < 0.9f;
+		Volume *= Duck;
+	}
 	if (bRecordHeard && Heard.Num() < 512)
 	{
 		FKakurenboHeardSound& Entry = Heard.AddDefaulted_GetRef();
@@ -496,6 +520,10 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		return; // -NoSound などで音が出ない
 	}
 	++StartedCount;
+	if (Sfx == EKakurenboSfx::Heartbeat)
+	{
+		HeartbeatComponent = Component;
+	}
 
 	// 波形を流し終わっても自分では止まらない（無音を出し続ける）ので、長さぶん経ったら止める（止まると自動で消える）
 	const float Seconds = static_cast<float>(Data.Num() / Channels) / KakurenboSynth::DefaultSampleRate + 0.1f;

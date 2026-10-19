@@ -2286,7 +2286,8 @@ void AKakurenboGameMode::HandleOniSummon(AOniCharacter* Caller, const FVector& T
 	State->SummonsThisRound++;
 	UE_LOG(LogKakurenbo, Log, TEXT("Detector summoned %d onis"), Count);
 
-	Sfx2D(this, EKakurenboSfx::Summon, 0.8f);
+	// 呼び声は探知鬼から聞こえる（どこの見張りが呼んだか、音でわかる。2026-10-19 まで画面全体で鳴っていた）
+	Sfx3D(this, EKakurenboSfx::Summon, Caller->GetActorLocation() + FVector(0.f, 0.f, 60.f), 1.f);
 	if (UKakurenboFxSubsystem* F = Fx(this))
 	{
 		F->Ring(Caller->GetActorLocation(), 60.f, Caller->SummonRadius, 0.9f, FLinearColor(0.75f, 0.3f, 1.f), 18.f);
