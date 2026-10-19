@@ -2142,15 +2142,30 @@ TArray<FIntPoint> AKakurenboGameMode::GetOniGateCells() const
 	return Arena ? Arena->GetOniGateCells() : TArray<FIntPoint>();
 }
 
-void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind)
+void AKakurenboGameMode::EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind, AActor* Source)
 {
 	for (AOniCharacter* Oni : Onis)
 	{
 		if (Oni)
 		{
-			Oni->HearNoise(Location, Loudness, Kind);
+			Oni->HearNoise(Location, Loudness, Kind, Source);
 		}
 	}
+}
+
+bool AKakurenboGameMode::ClaimLureForSummon(AActor* Lure)
+{
+	if (!Lure)
+	{
+		return false;
+	}
+	SummonedLures.RemoveAll([](const TWeakObjectPtr<AActor>& A) { return !A.IsValid(); });
+	if (SummonedLures.Contains(Lure))
+	{
+		return false;
+	}
+	SummonedLures.Add(Lure);
+	return true;
 }
 
 float AKakurenboGameMode::GetStepNoiseMultiplier() const
@@ -2377,7 +2392,7 @@ void AKakurenboGameMode::HandleDecoyPing(ATrapActor* Trap)
 		return;
 	}
 	const FVector Location = Trap->GetActorLocation();
-	EmitNoise(Location, Trap->Def.NoiseLoudness, EKakurenboNoise::Decoy);
+	EmitNoise(Location, Trap->Def.NoiseLoudness, EKakurenboNoise::Decoy, Trap);
 	Sfx3D(this, EKakurenboSfx::DecoyPing, Location + FVector(0.f, 0.f, 40.f));
 	if (UKakurenboFxSubsystem* F = Fx(this))
 	{
@@ -2396,7 +2411,7 @@ void AKakurenboGameMode::HandleGadgetNoise(ATrapActor* Trap, float Loudness, EKa
 	}
 	// 身代わり人形はいま走っている場所から、迷い猫は猫のいる場所から
 	const FVector Location = Trap->GetGadgetLocation();
-	EmitNoise(Location, Loudness * GetMapNoiseScale(), Kind);
+	EmitNoise(Location, Loudness * GetMapNoiseScale(), Kind, Trap);
 	ShowNoiseRing(Location, Loudness * GetMapNoiseScale(), Trap->Def.Color, 8.f);
 }
 
@@ -3156,6 +3171,7 @@ void AKakurenboGameMode::StartHidePhase()
 	State->StepsThisRound = 0;
 	State->ClimbsThisRound = 0;
 	State->SummonsThisRound = 0;
+	SummonedLures.Reset();
 	State->TreasuresCollectedThisRound = 0;
 	State->TreasureCoinsThisRound = 0.0;
 	State->GemsThisRound = 0;

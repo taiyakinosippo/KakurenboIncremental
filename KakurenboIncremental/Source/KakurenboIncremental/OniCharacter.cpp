@@ -531,6 +531,8 @@ void AOniCharacter::Activate(AHiderCharacter* InTarget)
 	CornerHeading = FVector2D::ZeroVector;
 	CornerSlowTimer = 0.f;
 	SummonTimer = 0.f;
+	PendingLure.Reset();
+	PendingLureHeardTime = -1.f;
 	ChaseStartTime = -1.f; // 前のラウンドの「!」を持ち越さない
 
 	// 探知鬼は決まった見張りの場所へ向かう（無ければ今いる場所で見張る）
@@ -1215,14 +1217,30 @@ void AOniCharacter::HandleGuardSighting()
 	OnSummon.Broadcast(this, GetChaseTarget()->GetActorLocation());
 }
 
-void AOniCharacter::CallOthersToSound(const FVector& SoundLocation)
+bool AOniCharacter::IsWaitingForLure() const
 {
-	if (SummonTimer > 0.f)
+	// 呼んだ物が壊れた・消えた、または LureForgetSeconds 鳴っていなければ片付いた
+	const AActor* Lure = PendingLure.Get();
+	return Lure && !Lure->IsActorBeingDestroyed() && PendingLureHeardTime >= 0.f
+		&& GetWorld()->GetTimeSeconds() - PendingLureHeardTime <= LureForgetSeconds;
+}
+
+void AOniCharacter::CallOthersToSound(const FVector& SoundLocation, AActor* Source)
+{
+	if (SummonTimer > 0.f || !Source)
 	{
 		return;
 	}
-	// 2026-10-18（ユーザーの指定）：探知鬼は、おとり・迷い猫の音が鳴っている所へ仲間を呼ぶ。おとりで鬼をまとめて引きつけられる
-	// プレイヤーは見つかっていないので、「！」・「見張りに見つかった」は出さない
+	// 同じおとり・猫で呼ぶのは、どの探知鬼も合わせて 1 回だけ（鳴るたびに呼ぶとお知らせがやかましい。ユーザーの指定）
+	AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>();
+	if (GM && !GM->ClaimLureForSummon(Source))
+	{
+		return;
+	}
+	// 2026-10-18（ユーザーの指定）：探知鬼は、おとり・迷い猫の音が鳴っている所へ仲間を呼ぶ。おとりで鬼をまとめて引きつけられる。
+	// 呼んだ物が片付くまでは、ほかの音に反応しない。プレイヤーは見つかっていないので、「！」・「見張りに見つかった」は出さない
+	PendingLure = Source;
+	PendingLureHeardTime = GetWorld()->GetTimeSeconds();
 	SummonTimer = SummonCooldown;
 	LastSummonTime = GetWorld()->GetTimeSeconds();
 	bLastSummonForDoll = false;
@@ -2215,7 +2233,7 @@ bool AOniCharacter::FindVisibleWallCell(FIntPoint& OutCell) const
 	return BestDistSq < TNumericLimits<float>::Max();
 }
 
-void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKakurenboNoise Kind)
+void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKakurenboNoise Kind, AActor* Source)
 {
 	UKakurenboGridSubsystem* G = Grid();
 	// 音の種類ごとに別の距離で聞く（スピード鬼はおとりにも遠くから寄っていく・パワー鬼はおとりが少し聞こえにくい・宝物鬼は足音に敏感）
@@ -2232,13 +2250,22 @@ void AOniCharacter::HearNoise(const FVector& NoiseLocation, float Loudness, EKak
 	{
 		// 探知鬼は見張りの場所から動かない。聞こえたら、その方を向いてしばらく見張る（見えれば仲間を呼ぶ）
 		// おとり・迷い猫の音なら、見えなくてもその場所へ仲間を呼ぶ（プレイヤーの音＝連打・足音・ダッシュでは呼ばない）
+		if (IsWaitingForLure())
+		{
+			// 呼んだ所が片付くまでは、ほかの音に反応しない（ユーザーの指定）。呼んだ物がまだ鳴っていることだけ覚える
+			if (Source && Source == PendingLure.Get())
+			{
+				PendingLureHeardTime = GetWorld()->GetTimeSeconds();
+			}
+			return;
+		}
 		if (bAtGuardPost && FVector::Dist(NoiseLocation, GetActorLocation()) <= Radius * Loudness)
 		{
 			GuardNoiseLocation = NoiseLocation;
 			GuardNoiseLookTimer = GuardNoiseLookSeconds;
 			if (Kind == EKakurenboNoise::Decoy || Kind == EKakurenboNoise::Cat)
 			{
-				CallOthersToSound(NoiseLocation);
+				CallOthersToSound(NoiseLocation, Source);
 			}
 		}
 		return;

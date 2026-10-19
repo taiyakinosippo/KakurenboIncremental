@@ -285,6 +285,13 @@ public:
 	/** 探知鬼が今、聞こえた音の方を向いているか（テスト用） */
 	bool IsLookingAtNoise() const { return GuardNoiseLookTimer > 0.f; }
 
+	/** 探知鬼：仲間を呼んだおとり・迷い猫がこの秒数鳴らなければ、片付いた（猫がなでられて鳴かなくなった等）とみて、また音を聞く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float LureForgetSeconds = 8.f;
+
+	/** 探知鬼：仲間を呼んだおとり・迷い猫が片付くのを待っている（その間はほかの音に反応しない） */
+	bool IsWaitingForLure() const;
+
 	/**
 	 * 探知鬼：見張りの場所のまわりに壁（ブロック）があれば壊す（視線をふさがれないように。ユーザーの希望 2026-10-18）。
 	 * この秒数ごとに、攻撃が届くまわりのマス（AttackRadius 以内）に壁があるか調べる。0 なら壊さない
@@ -487,9 +494,10 @@ public:
 
 	/**
 	 * 音を聞かせる。聞こえる距離なら音の方へ向かう（追いかけている間・音を気にしない種類は無視）。
-	 * 聞こえる距離は音の種類で違う（連打・ダッシュ = HearingRadius / 足音 = StepHearingRadius / おとり = DecoyHearingRadius）
+	 * 聞こえる距離は音の種類で違う（連打・ダッシュ = HearingRadius / 足音 = StepHearingRadius / おとり = DecoyHearingRadius）。
+	 * Source は音を出した物（おとり・迷い猫。探知鬼が同じ物で何度も仲間を呼ばないように使う）
 	 */
-	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, EKakurenboNoise Kind = EKakurenboNoise::Mash);
+	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, EKakurenboNoise Kind = EKakurenboNoise::Mash, AActor* Source = nullptr);
 
 	/** 探知鬼に呼ばれた：その場所へ急いで向かう（追いかけ中・動けない間・探知鬼自身は無視） */
 	void Summon(const FVector& Location);
@@ -681,8 +689,8 @@ private:
 	void TickGuard(float DeltaSeconds);
 	/** 探知鬼：プレイヤーが見えた（仲間を呼ぶ） */
 	void HandleGuardSighting();
-	/** 探知鬼：おとり・迷い猫の音を聞いたら、その場所へ仲間を呼ぶ（呼ぶ間隔は見つけたときと同じ SummonCooldown） */
-	void CallOthersToSound(const FVector& SoundLocation);
+	/** 探知鬼：おとり・迷い猫の音を聞いたら、その場所へ仲間を呼ぶ（1 つの物につき 1 回。呼ぶ間隔は見つけたときと同じ SummonCooldown） */
+	void CallOthersToSound(const FVector& SoundLocation, AActor* Source);
 	/** 探知鬼：見張りの場所のまわり（攻撃が届く所）の壁を探して壊し始める。壊し始めたら true */
 	bool TryClearAroundGuardPost();
 	/** 慎重鬼：見渡せるマスを「調べた」と記録する */
@@ -755,6 +763,9 @@ private:
 	float ChaseStartTime = -1.f;
 	bool bLastSummonForDoll = false;
 	bool bLastSummonForSound = false;
+	/** 探知鬼：仲間を呼んだおとり・迷い猫と、それが最後に聞こえたワールド時刻 */
+	TWeakObjectPtr<AActor> PendingLure;
+	float PendingLureHeardTime = -1.f;
 
 	/** 最後にプレイヤーが見えた場所（見えない間はここへ向かう） */
 	FVector LastKnownTargetLocation = FVector::ZeroVector;

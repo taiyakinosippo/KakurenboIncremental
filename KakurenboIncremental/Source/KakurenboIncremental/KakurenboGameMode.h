@@ -702,6 +702,9 @@ public:
 	/** 探知鬼が最後に呼び寄せた鬼の数（テスト用） */
 	int32 GetLastSummonedCount() const { return LastSummonedCount; }
 
+	/** 探知鬼がこのおとり・迷い猫で仲間を呼んでよいか（このラウンドでまだどの探知鬼も呼んでいなければ true にして、呼んだ印をつける） */
+	bool ClaimLureForSummon(AActor* Lure);
+
 	// ===== 館のマップ =====
 
 	/** そのステージで使うマップ（Stages.csv の Map。空なら前のステージと同じ。表より後は順番に回る） */
@@ -933,8 +936,8 @@ public:
 	/** 煙幕ダッシュした（大きな音を出し、足元に煙幕を投げる）。プレイヤーのダッシュが始まったときに呼ぶ */
 	void HandleDash(const FVector& NoiseLocation, float Loudness);
 
-	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。種類によって聞こえる距離が違う） */
-	void EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind = EKakurenboNoise::Mash);
+	/** 音を鳴らして鬼に聞かせる（Loudness 1 = 連打と同じ距離まで届く。種類によって聞こえる距離が違う。Source は鳴らした物＝おとり・迷い猫） */
+	void EmitNoise(const FVector& Location, float Loudness, EKakurenboNoise Kind = EKakurenboNoise::Mash, AActor* Source = nullptr);
 
 	/** お宝を取得する（お宝がプレイヤーに触れたときに呼ぶ） */
 	void CollectTreasure(ATreasureActor* Treasure);
@@ -1182,6 +1185,8 @@ protected:
 	TMap<FName, FKakurenboSavedLayout> StoredMapLayouts;
 
 	int32 LastSummonedCount = 0;
+	/** このラウンドで探知鬼が仲間を呼んだおとり・迷い猫（1 つにつき 1 回だけ呼ぶ） */
+	TArray<TWeakObjectPtr<AActor>> SummonedLures;
 
 	/** 読み込んだ鬼の見た目（メッシュが無ければ空＝円柱のまま） */
 	UPROPERTY()

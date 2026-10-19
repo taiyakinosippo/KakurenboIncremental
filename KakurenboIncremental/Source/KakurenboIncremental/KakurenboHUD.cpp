@@ -78,6 +78,13 @@ namespace
 				OutColor = Purple;
 				return;
 			}
+			if (Oni->IsWaitingForLure())
+			{
+				// 呼んだおとり・猫が片付くまで、ほかの音は聞かない
+				OutText = TEXT("呼んだ音の片付けを待っている");
+				OutColor = Purple;
+				return;
+			}
 			const bool bJustCalled = bRecent && !Oni->WasLastSummonForDoll();
 			OutText = bJustCalled ? TEXT("仲間を呼んだ！") : Oni->IsAtGuardPost() ? TEXT("見張っている") : TEXT("見張りへ向かう");
 			OutColor = bJustCalled ? Bad : Purple;
@@ -1325,7 +1332,7 @@ TArray<FString> AKakurenboHUD::GetOniFeatureLines(EOniType Type, const FKakurenb
 		// 2026-10-18（ユーザーの指定）：おとり・迷い猫の音が聞こえると、その場所へ仲間を呼ぶ
 		if (Row.DecoyHearingScale > 0.f)
 		{
-			Lines.Add(TEXT("おとり・迷い猫の音が聞こえると、その場所へまわりの鬼を呼び寄せる"));
+			Lines.Add(TEXT("おとり・迷い猫の音が聞こえると、その場所へまわりの鬼を呼ぶ（1 つにつき 1 回。片付くまでほかの音は聞かない）"));
 			Lines.Add(TEXT("対策：見張りの近くでは連打しない。おとりを鳴らして、鬼をまとめて遠くへ集めさせる"));
 		}
 		else
