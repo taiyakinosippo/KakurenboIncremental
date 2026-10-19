@@ -1606,6 +1606,8 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	InfoY += 28;
 	const FString StartCoins = Big(GM->GetPrestigeStartCoins(State->PrestigeCount + 1));
 	const FString CoinsPerPrestige = Big(GM->PrestigeSettings.StartCoinsPerPrestige);
+	const FString WallPerPrestige = UKakurenboLibrary::FormatStatNumber(GM->PrestigeSettings.WallHPPerPrestige);
+	const FString NextAutoWall = UKakurenboLibrary::FormatStatNumber(GM->GetPrestigeAutoWallHPMultiplier(State->PrestigeCount + 1));
 	if (bGemTab)
 	{
 		TextFit(FString::Printf(TEXT("宝石はお宝 1 個で %d つ（ラウンドのお宝を全部取るとボーナス +%d）。宝石と宝石の道具は転生するとなくなる"), GM->GetGemsPerTreasure(), GM->GetAllTreasureBonusGems()),
@@ -1613,12 +1615,12 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 	}
 	else if (bPrestigeTab)
 	{
-		TextFit(FString::Printf(TEXT("転生ポイントは転生するともらえる。ここで買った強化は、転生してもずっと残る（転生するたびに、はじめのコインも +%s）"), *CoinsPerPrestige),
+		TextFit(FString::Printf(TEXT("転生ポイントは転生するともらえる（先のステージほど多い）。ここで買った強化は、転生してもずっと残る（転生するたびに、はじめのコイン +%s・壁の耐久 ×%s）"), *CoinsPerPrestige, *WallPerPrestige),
 			0, InfoY, 16, InfoW, Purple, true);
 	}
 	else if (bCanPrestige)
 	{
-		TextFit(FString::Printf(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなり、%s コインから始まる（設計図・転生のお店の強化は残る。宝石と宝石の道具もなくなる）"), *StartCoins),
+		TextFit(FString::Printf(TEXT("転生すると、コイン・ステージ・強化・在庫・置いた壁と罠はなくなり、%s コインから始まる。壁の耐久はずっと ×%s（設計図・転生のお店の強化は残る。宝石と宝石の道具はなくなる）"), *StartCoins, *NextAutoWall),
 			0, InfoY, 16, InfoW, Gray, true);
 	}
 	else

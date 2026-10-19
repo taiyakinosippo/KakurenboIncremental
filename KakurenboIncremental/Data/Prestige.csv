@@ -1,2 +1,2 @@
-﻿---,MinStage,PointsPerStage,StartCoinsPerPrestige
-Prestige,5,1,500
+﻿---,MinStage,PointsBase,PointsGrowth,StartCoinsPerPrestige,WallHPPerPrestige
+Prestige,5,4,1.28,500,1.4

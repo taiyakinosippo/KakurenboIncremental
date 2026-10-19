@@ -307,8 +307,13 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		TestNotNull(TEXT("Prestige row"), Row);
 		if (Row)
 		{
-			TestTrue(TEXT("prestige gives points from some stage"), Row->MinStage >= 2 && Row->PointsPerStage >= 1);
+			TestTrue(TEXT("prestige gives points from some stage"), Row->MinStage >= 2 && Row->PointsBase >= 1.0);
 			TestTrue(TEXT("each prestige adds some starting coins"), Row->StartCoinsPerPrestige > 0.0);
+			// 2026-10-19：ポイントは指数で増える（4 ステージ先で転生すると 2 倍以上）・転生するたびに壁が自動で硬くなる
+			const int32 At8 = KakurenboBalance::GetPrestigePoints(8, *Row);
+			const int32 At12 = KakurenboBalance::GetPrestigePoints(12, *Row);
+			TestTrue(FString::Printf(TEXT("points grow exponentially (stage 8: %d, stage 12: %d)"), At8, At12), At8 >= 4 && At12 >= At8 * 2);
+			TestTrue(TEXT("each prestige makes walls harder"), Row->WallHPPerPrestige > 1.0);
 		}
 	}
 	if (UDataTable* Upgrades = Load(FKakurenboPrestigeUpgradeRow::StaticStruct(), TEXT("PrestigeUpgrades.csv")))
@@ -329,12 +334,9 @@ bool FKakurenboCsvFilesTest::RunTest(const FString& Parameters)
 		// 煙幕ダッシュは回数制（足し算）。最初から 1 回は使えて、レベルで増える
 		const FKakurenboPrestigeUpgradeRow* Smoke = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("SmokeCount"), TEXT("Test"));
 		TestTrue(TEXT("smoke uses start at 1 or more and grow"), Smoke && Smoke->BaseValue >= 1.0 && Smoke->ValueGrowth >= 1.0 && Smoke->MaxLevel > 0);
-		// 連打・時間のお金アップは ×1 から始まって、レベルで増える（上限なし）
-		for (const TCHAR* Name : { TEXT("MashIncome"), TEXT("TimeIncome") })
-		{
-			const FKakurenboPrestigeUpgradeRow* Row = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(Name, TEXT("Test"));
-			TestTrue(FString::Printf(TEXT("%s starts at x1 and grows"), Name), Row && Row->BaseValue == 1.0 && Row->ValueGrowth > 1.0 && Row->MaxLevel == 0);
-		}
+		// お金アップ（連打・時間・逃げ切りの報酬をまとめた）は ×1 から始まって、レベルで増える（上限なし）
+		const FKakurenboPrestigeUpgradeRow* Income = Upgrades->FindRow<FKakurenboPrestigeUpgradeRow>(TEXT("Income"), TEXT("Test"));
+		TestTrue(TEXT("Income starts at x1 and grows"), Income && Income->BaseValue == 1.0 && Income->ValueGrowth > 1.0 && Income->MaxLevel == 0);
 	}
 	if (UDataTable* Traps = Load(FKakurenboTrapRow::StaticStruct(), TEXT("Traps.csv")))
 	{
@@ -860,12 +862,19 @@ bool FKakurenboPrestigePointsTest::RunTest(const FString& Parameters)
 {
 	FKakurenboPrestigeRow Settings;
 	Settings.MinStage = 5;
-	Settings.PointsPerStage = 1;
+	Settings.PointsBase = 4.0;
+	Settings.PointsGrowth = 1.5;
 	TestEqual(TEXT("before the min stage: 0"), KakurenboBalance::GetPrestigePoints(4, Settings), 0);
-	TestEqual(TEXT("at the min stage: 1"), KakurenboBalance::GetPrestigePoints(5, Settings), 1);
-	TestEqual(TEXT("stage 8: 4"), KakurenboBalance::GetPrestigePoints(8, Settings), 4);
-	Settings.PointsPerStage = 2;
-	TestEqual(TEXT("2 points per stage at stage 6: 4"), KakurenboBalance::GetPrestigePoints(6, Settings), 4);
+	TestEqual(TEXT("at the min stage: PointsBase"), KakurenboBalance::GetPrestigePoints(5, Settings), 4);
+	TestEqual(TEXT("stage 7: floor(4 x 1.5^2) = 9"), KakurenboBalance::GetPrestigePoints(7, Settings), 9);
+	TestEqual(TEXT("stage 8: floor(4 x 1.5^3 = 13.5) = 13"), KakurenboBalance::GetPrestigePoints(8, Settings), 13);
+	Settings.PointsBase = 0.1;
+	TestEqual(TEXT("at least 1 point once prestige is possible"), KakurenboBalance::GetPrestigePoints(5, Settings), 1);
+
+	// 転生するたびに壁が自動で硬くなる（WallHPPerPrestige ^ 回数）
+	Settings.WallHPPerPrestige = 1.5;
+	TestTrue(TEXT("never prestiged: walls x1"), FMath::IsNearlyEqual(KakurenboBalance::GetPrestigeWallHPMultiplier(0, Settings), 1.0));
+	TestTrue(TEXT("2 prestiges: walls x2.25"), FMath::IsNearlyEqual(KakurenboBalance::GetPrestigeWallHPMultiplier(2, Settings), 2.25));
 
 	// 転生のお店：価格は切り上げ、最大レベルなら買えない、効果は BaseValue × ValueGrowth^Lv
 	FKakurenboPrestigeUpgradeRow Row;

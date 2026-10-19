@@ -2547,12 +2547,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("cannot prestige before stage %d"), GM->PrestigeSettings.MinStage), !GM->CanPrestige() && !IsPrestigeConfirmPending());
-				GS()->Stage = GM->PrestigeSettings.MinStage + 1; // 転生ポイント 2
+				GS()->Stage = GM->PrestigeSettings.MinStage + 1;
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			Check(FString::Printf(TEXT("can prestige for %d points"), GM->GetPrestigePointsOnReset()), GM->CanPrestige() && GM->GetPrestigePointsOnReset() == 2);
+			Check(FString::Printf(TEXT("can prestige for %d points"), GM->GetPrestigePointsOnReset()),
+				GM->CanPrestige() && GM->GetPrestigePointsOnReset() == KakurenboBalance::GetPrestigePoints(GM->PrestigeSettings.MinStage + 1, GM->PrestigeSettings));
 			SimulateKey(EKeys::P, IE_Pressed);
 			SimulateKey(EKeys::P, IE_Released);
 			NextTick([=, this]
@@ -2573,9 +2574,12 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			{
 				const AKakurenboGameState* S = GS();
 				Check(FString::Printf(TEXT("neither gems nor gem items are carried over (gems %d, gold rush %d)"), S->Gems, S->TrapStock[GoldType]), S->Gems == 0 && S->TrapStock[GoldType] == 0);
+				const int32 Expected = KakurenboBalance::GetPrestigePoints(GM->PrestigeSettings.MinStage + 1, GM->PrestigeSettings);
 				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
-					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
-				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));
+					S->PrestigeCount == 1 && S->PrestigePoints == Expected && S->TotalPrestigePoints == Expected);
+				// 2026-10-19：転生するだけで壁が少し硬くなる（転生した回数で自動）
+				Check(FString::Printf(TEXT("prestige alone makes walls a bit harder (x%.2f)"), GM->GetWallHPMultiplier()),
+					GM->GetWallHPMultiplier() > 1.0 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->PrestigeSettings.WallHPPerPrestige));
 				Check(FString::Printf(TEXT("everything else starts over (stage %d, mash Lv%d, wood stock %d)"), S->Stage, S->MashIncomeLevel, S->WallStock[0]),
 					S->Stage == 1 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0);
 				// はじめのコインは転生した回数ぶん増える（強化ではなく自動）
@@ -2607,11 +2611,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const TArray<FShopItemView> Items = GM->GetPrestigeShopItems();
 			Check(FString::Printf(TEXT("the prestige shop lists every permanent upgrade (%d)"), Items.Num()), Items.Num() == static_cast<int32>(EPrestigeUpgrade::Count) && Items[0].bPrestigeItem);
 			Check(TEXT("dash and climbing are locked at first"), !GM->IsDashUnlocked() && !GM->IsClimbUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked && !GetHider()->bClimbUnlocked);
+			GS()->PrestigePoints = 2; // 下の「足りないと買えない」を確かめるため、2 pt にそろえる（もらえる数は転生ポイントの式で変わる）
 			Check(TEXT("click the wall hardness upgrade"), Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::WallHP)));
 			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("clicking buys it with points (Lv%d, %d pt left, walls x%.2f)"), GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP), GS()->PrestigePoints, GM->GetWallHPMultiplier()),
-					GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 1 && GS()->PrestigePoints == 1 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1)));
+					GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 1 && GS()->PrestigePoints == 1
+					&& FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1) * GM->GetPrestigeAutoWallHPMultiplier()));
 				Shot(TEXT("prestige_03_prestige_shop"));
 			});
 		} });
@@ -2857,8 +2863,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("trap stock restored (%s)"), *FString::JoinBy(S->TrapStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->TrapStock == Expected->TrapStock);
 			Check(FString::Printf(TEXT("wall and trap layout restored (%d columns, %d blocks, %d traps)"), Layout.Num(), Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
 				bSameLayout && Grid()->GetBlockCount() == 3 && Grid()->GetAllTraps().Num() == 1);
-			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2)),
-				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2), 0.001));
+			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2) * GM->GetPrestigeAutoWallHPMultiplier()),
+				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2) * GM->GetPrestigeAutoWallHPMultiplier(), 0.001));
 			Check(FString::Printf(TEXT("player position restored (%.0f cm off)"), FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation)),
 				FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation) < 5.f);
 			Log(TEXT("loaded"));
@@ -3593,8 +3599,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			GM->MapOverride = TEXT("Parlor");
 			GM->SwitchToMap(TEXT("Parlor"));
 			const float ParlorScale = GM->GetMapNoiseScale();
-			Check(FString::Printf(TEXT("noise reaches less far in small mansions (Parlor x%.2f, Crown x%.2f, hearing %.0f)"), ParlorScale, CrownScale, GM->GetOniHearingRadius()),
-				FMath::IsNearlyEqual(ParlorScale, GM->MapNoiseScaleSmall, 0.01f) && FMath::IsNearlyEqual(CrownScale, 1.f, 0.01f)
+			// 2026-10-19：館の一辺に比例（居間 16 マス ×0.4・王の間 40 マス ×1）
+			Check(FString::Printf(TEXT("noise reaches less far in small mansions, in proportion to the size (Parlor x%.2f, Crown x%.2f, hearing %.0f)"), ParlorScale, CrownScale, GM->GetOniHearingRadius()),
+				FMath::IsNearlyEqual(ParlorScale, 16.f / GM->MapNoiseReferenceSide, 0.01f) && FMath::IsNearlyEqual(CrownScale, 40.f / GM->MapNoiseReferenceSide, 0.01f)
 				&& FMath::IsNearlyEqual(GM->GetOniHearingRadius(), GM->GetStageSettings().OniHearingRadius * ParlorScale, 1.f));
 			// 2×2 のテーブルがある館（書斎）を上から撮る
 			GM->MapOverride = TEXT("Study");
@@ -5733,7 +5740,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("the second darkness block refills from stock"), Grid()->GetTrap(T->Cell) != nullptr && GS()->TrapStock[T->Type] == 0);
 		} });
 	}
-	// ================================================================ GoldRush（宝石のお店のゴールドラッシュ・転生のお店の連打 / 時間のお金アップ）
+	// ================================================================ GoldRush（宝石のお店のゴールドラッシュ・転生のお店のお金アップ）
 	else if (Scenario.Equals(TEXT("GoldRush"), ESearchCase::IgnoreCase))
 	{
 		struct FGoldTest { int32 Type = INDEX_NONE; double Mash0 = 0.0; double Time0 = 0.0; double MashCoinsBefore = 0.0; FIntPoint Cell; };
@@ -5744,17 +5751,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuNext(); // → 購入
 			T->Mash0 = GM->GetMashIncome();
 			T->Time0 = GM->GetTimeIncomePerSecond();
-			// 転生のお店：連打・時間のお金アップを 1 つずつ
+			// 転生のお店：お金アップを 1 つ（連打・時間・逃げ切りの報酬が全部増える）
+			const double Reward0 = GM->GetClearReward();
 			GS()->PrestigePoints = 10;
 			ShopTab = EKakurenboShopTab::Prestige;
-			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::MashIncome) + 1);
-			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::TimeIncome) + 1);
-			const double Mash = GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome);
-			const double Time = GM->GetPrestigeValue(EPrestigeUpgrade::TimeIncome);
-			Check(FString::Printf(TEXT("prestige: mash income x%.2f (%.2f -> %.2f), time income x%.2f (%.2f -> %.2f)"), Mash, T->Mash0, GM->GetMashIncome(), Time, T->Time0, GM->GetTimeIncomePerSecond()),
-				GM->GetPrestigeLevel(EPrestigeUpgrade::MashIncome) == 1 && GM->GetPrestigeLevel(EPrestigeUpgrade::TimeIncome) == 1 && Mash > 1.0 && Time > 1.0
-				&& FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * Mash) && FMath::IsNearlyEqual(GM->GetTimeIncomePerSecond(), T->Time0 * Time));
-			Check(TEXT("the prestige shop lists both income upgrades"), GM->GetPrestigeShopItems().Num() == static_cast<int32>(EPrestigeUpgrade::Count));
+			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Income) + 1);
+			const double Income = GM->GetPrestigeValue(EPrestigeUpgrade::Income);
+			Check(FString::Printf(TEXT("prestige: income x%.2f (mash %.2f -> %.2f, time %.2f -> %.2f, reward %.0f -> %.0f)"), Income, T->Mash0, GM->GetMashIncome(), T->Time0, GM->GetTimeIncomePerSecond(), Reward0, GM->GetClearReward()),
+				GM->GetPrestigeLevel(EPrestigeUpgrade::Income) == 1 && Income > 1.0
+				&& FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * Income) && FMath::IsNearlyEqual(GM->GetTimeIncomePerSecond(), T->Time0 * Income)
+				&& FMath::IsNearlyEqual(GM->GetClearReward(), Reward0 * Income));
+			Check(TEXT("the prestige shop lists every upgrade once (one income upgrade)"), GM->GetPrestigeShopItems().Num() == static_cast<int32>(EPrestigeUpgrade::Count));
 		} });
 		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige)); } });
 		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_01_prestige_shop")); } });
@@ -5794,7 +5801,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				const double Got = GS()->MashCoinsThisRound - T->MashCoinsBefore;
-				const double Expected = T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome) * GM->GoldRushMashMultiplier;
+				const double Expected = T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::Income) * GM->GoldRushMashMultiplier;
 				Check(FString::Printf(TEXT("one mash during gold rush gives x%.0f coins (%.2f, expected %.2f)"), GM->GoldRushMashMultiplier, Got, Expected), FMath::IsNearlyEqual(Got, Expected, 0.01));
 			});
 		} });
@@ -5816,7 +5823,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			KakuNext(); // → かくれんぼ
 			Check(FString::Printf(TEXT("without stock there is no gold rush next round (mash %.2f)"), GM->GetMashIncome()),
-				!GM->IsGoldRushActive() && FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::MashIncome)));
+				!GM->IsGoldRushActive() && FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::Income)));
 		} });
 	}
 	// ================================================================ Cat（M15：迷い猫）

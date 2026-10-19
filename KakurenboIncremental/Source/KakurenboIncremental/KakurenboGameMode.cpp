@@ -146,8 +146,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddPrestigeUpgrade(TEXT("煙幕の数"), 3, 2.0, 2.0, 1.0, 1.0);       // SmokeCount: 1 ラウンドに 1 + Lv 回
 	AddPrestigeUpgrade(TEXT("よじ登る"), 5, 2.0, 1.6, 1.0, 1.3);       // Climb: Lv1 で解放。Lv2 から登る速さ ×1.3^(Lv-1)・ClimbTwoTierLevel で 2 段
 	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
-	AddPrestigeUpgrade(TEXT("連打のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // MashIncome: 連打のコイン ×1.5^Lv
-	AddPrestigeUpgrade(TEXT("時間のお金アップ"), 0, 1.0, 1.5, 1.0, 1.5); // TimeIncome: 時間のコイン ×1.5^Lv
+	AddPrestigeUpgrade(TEXT("お金アップ"), 0, 1.0, 1.5, 1.0, 1.5);    // Income: 稼ぐコイン（連打・時間・逃げ切りの報酬）×1.5^Lv
 	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
@@ -830,7 +829,7 @@ double AKakurenboGameMode::GetMashIncome() const
 
 double AKakurenboGameMode::GetMashIncomeAtLevel(int32 Level) const
 {
-	return UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::MashIncome);
+	return UKakurenboLibrary::ExpCurve(MashIncomeBase, MashIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::Income);
 }
 
 double AKakurenboGameMode::GetTimeIncomePerSecond() const
@@ -841,7 +840,7 @@ double AKakurenboGameMode::GetTimeIncomePerSecond() const
 
 double AKakurenboGameMode::GetTimeIncomeAtLevel(int32 Level) const
 {
-	return UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::TimeIncome);
+	return UKakurenboLibrary::ExpCurve(TimeIncomeBase, TimeIncomeGrowth, Level) * GetPrestigeValue(EPrestigeUpgrade::Income);
 }
 
 double AKakurenboGameMode::GetMashUpgradeCost() const
@@ -858,7 +857,19 @@ double AKakurenboGameMode::GetTimeUpgradeCost() const
 
 double AKakurenboGameMode::GetWallHPMultiplier() const
 {
-	return GetPrestigeValue(EPrestigeUpgrade::WallHP);
+	// 転生のお店の「壁の硬さ」× 転生した回数で自動で硬くなる分
+	return GetPrestigeValue(EPrestigeUpgrade::WallHP) * GetPrestigeAutoWallHPMultiplier();
+}
+
+double AKakurenboGameMode::GetPrestigeAutoWallHPMultiplier(int32 PrestigeCount) const
+{
+	return KakurenboBalance::GetPrestigeWallHPMultiplier(PrestigeCount, PrestigeSettings);
+}
+
+double AKakurenboGameMode::GetPrestigeAutoWallHPMultiplier() const
+{
+	const AKakurenboGameState* State = GS();
+	return GetPrestigeAutoWallHPMultiplier(State ? State->PrestigeCount : 0);
 }
 
 double AKakurenboGameMode::GetWallReinforceFactor(int32 Level) const
@@ -933,6 +944,19 @@ double AKakurenboGameMode::GetPrestigeValue(EPrestigeUpgrade Upgrade, int32 Leve
 	return PrestigeUpgrades.IsValidIndex(Index) ? KakurenboBalance::GetPrestigeUpgradeValue(PrestigeUpgrades[Index], Level) : 1.0;
 }
 
+int32 AKakurenboGameMode::GetPrestigeRefund(EPrestigeUpgrade CostOf, int32 Level) const
+{
+	const int32 Index = static_cast<int32>(CostOf);
+	int32 Total = 0;
+	for (int32 L = 0; L < Level && PrestigeUpgrades.IsValidIndex(Index); ++L)
+	{
+		FKakurenboPrestigeUpgradeRow Row = PrestigeUpgrades[Index];
+		Row.MaxLevel = 0; // 上限は気にせず、そのレベルまでの値段を足す
+		Total += KakurenboBalance::GetPrestigeUpgradeCost(Row, L);
+	}
+	return Total;
+}
+
 int32 AKakurenboGameMode::GetPrestigeUpgradeCost(EPrestigeUpgrade Upgrade) const
 {
 	const int32 Index = static_cast<int32>(Upgrade);
@@ -963,7 +987,8 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 		switch (Upgrade)
 		{
 		case EPrestigeUpgrade::WallHP:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallDesc", "すべての壁の耐久 ×{0} → ×{1}（かけ算。コインの「壁の補強」の上に掛かる・置いてある壁も）"), Fmt(Now), Fmt(Next));
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallDesc", "すべての壁の耐久 ×{0} → ×{1}（かけ算。コインの「壁の補強」と、転生の回数の ×{2} の上に掛かる）"),
+				Fmt(Now), Fmt(Next), Fmt(GetPrestigeAutoWallHPMultiplier()));
 			break;
 		case EPrestigeUpgrade::Treasure:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTreasureDesc", "お宝 1 個でもらえる宝石 {0} → {1} 個・全部取ったボーナス {2} → {3} 個"),
@@ -1013,11 +1038,8 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 				FMath::RoundToInt(BaseSoundHP * Now), FMath::RoundToInt(BaseSoundHP * Next));
 			break;
 		}
-		case EPrestigeUpgrade::MashIncome:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeMashDesc", "連打で稼げるコイン ×{0} → ×{1}（コインの「連打コイン強化」の上に掛かる）"), Fmt(Now), Fmt(Next));
-			break;
-		case EPrestigeUpgrade::TimeIncome:
-			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeTimeDesc", "時間で稼げるコイン ×{0} → ×{1}（コインの「時間コイン強化」の上に掛かる）"), Fmt(Now), Fmt(Next));
+		case EPrestigeUpgrade::Income:
+			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeIncomeDesc", "稼ぐコイン（連打・時間・逃げ切りの報酬）×{0} → ×{1}"), Fmt(Now), Fmt(Next));
 			break;
 		default:
 			break;
@@ -1163,7 +1185,8 @@ double AKakurenboGameMode::GetTrapCost(int32 TrapTypeIndex) const
 
 double AKakurenboGameMode::GetClearReward() const
 {
-	return GetStageSettings().ClearReward;
+	// 転生のお店の「お金アップ」は逃げ切りの報酬にも掛かる
+	return GetStageSettings().ClearReward * GetPrestigeValue(EPrestigeUpgrade::Income);
 }
 
 int32 AKakurenboGameMode::GetAllTreasureBonusGems(int32 Level) const
@@ -1208,9 +1231,9 @@ float AKakurenboGameMode::GetMapNoiseScale() const
 	{
 		return 1.f;
 	}
+	// 館の一辺に比例（2026-10-19。館の何割まで届くかがステージで大きく変わらないように）
 	const int32 Side = FMath::Max(Grid->GetSizeX(), Grid->GetSizeY());
-	const float Alpha = FMath::Clamp(static_cast<float>(Side - MapNoiseSmallSide) / FMath::Max(1, MapNoiseLargeSide - MapNoiseSmallSide), 0.f, 1.f);
-	return FMath::Lerp(MapNoiseScaleSmall, 1.f, Alpha);
+	return static_cast<float>(Side) / FMath::Max(1, MapNoiseReferenceSide);
 }
 
 int32 AKakurenboGameMode::GetNumOnis() const
@@ -3670,8 +3693,8 @@ bool AKakurenboGameMode::Prestige()
 		State->PrestigeCount, Gained, State->PrestigePoints, State->TotalPrestigePoints);
 	Sfx2D(this, EKakurenboSfx::Prestige);
 	FlashScreen(FLinearColor(0.7f, 0.5f, 1.f, 0.6f), 1.2f);
-	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生した。転生ポイント +{0}・はじめのコイン {1}（ポイントは「転生のお店」で）"),
-		Gained, FText::FromString(UKakurenboLibrary::FormatBigNumber(State->Coins))), 6.f);
+	ShowNotice(FText::Format(NSLOCTEXT("Kakurenbo", "NoticePrestige", "転生した。転生ポイント +{0}・はじめのコイン {1}・壁の耐久 ×{2}"),
+		Gained, FText::FromString(UKakurenboLibrary::FormatBigNumber(State->Coins)), FText::FromString(UKakurenboLibrary::FormatStatNumber(GetPrestigeAutoWallHPMultiplier()))), 6.f);
 
 	// まずは転生のお店で、もらったポイントを使ってもらう（そのあと設置 → ステージ 1 のかくれんぼ）
 	StartShopPhase();
@@ -3749,6 +3772,13 @@ bool AKakurenboGameMode::LoadProgress()
 	State->TotalPrestigePoints = Save->SaveVersion >= 4 ? Save->TotalPrestigePoints : Save->PrestigePoints;
 	State->PrestigeCount = Save->PrestigeCount;
 	State->PrestigeLevels = Save->PrestigeLevels;
+	// 2026-10-19：「連打のお金アップ」「時間のお金アップ」を「お金アップ」にまとめた。なくなった商品（時間のお金アップ）に使ったポイントは返す
+	for (int32 i = static_cast<int32>(EPrestigeUpgrade::Count); i < State->PrestigeLevels.Num(); ++i)
+	{
+		const int32 Refund = GetPrestigeRefund(EPrestigeUpgrade::Income, State->PrestigeLevels[i]);
+		State->PrestigePoints += Refund;
+		UE_LOG(LogKakurenbo, Log, TEXT("Refunded %d prestige points of a removed upgrade (slot %d, Lv%d)"), Refund, i, State->PrestigeLevels[i]);
+	}
 	State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 版 5 までの壁（木・石・鉄・消音壁）は、今の種類（通常壁・消音壁・クライミング壁）に付け替える

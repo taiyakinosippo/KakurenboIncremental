@@ -50,12 +50,19 @@ int32 KakurenboBalance::GetPrestigePoints(int32 Stage, const FKakurenboPrestigeR
 	{
 		return 0;
 	}
-	return (Stage - Settings.MinStage + 1) * FMath::Max(1, Settings.PointsPerStage);
+	// 指数で増える（深く進んでから転生するほど得。1 回の転生で約 4 ステージ先まで進めるように合わせた）。小数の誤差で 1 少なくならないよう少し足す
+	const double Points = FMath::Max(0.0, Settings.PointsBase) * FMath::Pow(FMath::Max(1.0, Settings.PointsGrowth), static_cast<double>(Stage - Settings.MinStage));
+	return FMath::Max(1, FMath::FloorToInt(Points + 1e-6));
 }
 
 double KakurenboBalance::GetPrestigeStartCoins(int32 PrestigeCount, const FKakurenboPrestigeRow& Settings)
 {
 	return FMath::Max(0, PrestigeCount) * FMath::Max(0.0, Settings.StartCoinsPerPrestige);
+}
+
+double KakurenboBalance::GetPrestigeWallHPMultiplier(int32 PrestigeCount, const FKakurenboPrestigeRow& Settings)
+{
+	return FMath::Pow(FMath::Max(1.0, Settings.WallHPPerPrestige), static_cast<double>(FMath::Max(0, PrestigeCount)));
 }
 
 int32 KakurenboBalance::GetPrestigeUpgradeCost(const FKakurenboPrestigeUpgradeRow& Row, int32 Level)

@@ -474,8 +474,8 @@ void AKakurenboPlayerController::PlaytestShop()
 
 		// 転生のお店：使えるポイントを、逃げる道具 → 壁の硬さ → よじ登る → 稼ぎの順で
 		{
-			const EPrestigeUpgrade Priority[] = { EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Climb, EPrestigeUpgrade::MashIncome,
-				EPrestigeUpgrade::SmokeCount, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::TimeIncome, EPrestigeUpgrade::Treasure, EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::QuietHP };
+			const EPrestigeUpgrade Priority[] = { EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Climb, EPrestigeUpgrade::Income,
+				EPrestigeUpgrade::SmokeCount, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Income, EPrestigeUpgrade::Treasure, EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::QuietHP };
 			for (int32 Guard = 0; Guard < 40; ++Guard)
 			{
 				const TArray<FShopItemView> Items = GM->GetPrestigeShopItems();

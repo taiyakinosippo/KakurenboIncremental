@@ -19,7 +19,7 @@
 | NumTreasures | お宝の数 |
 | ClearReward | 逃げ切り報酬（コイン）。お宝 1 個はこの 30% |
 | OniDamage | 鬼の攻撃力の基本値（壁の耐久値と比べる）。種類ごとの倍率（OniTypes.csv の DamageScale）がかかる |
-| OniHearingRadius | 連打の音が聞こえる距離の基本値（cm）。種類ごとの倍率（HearingScale）がかかる |
+| OniHearingRadius | 連打の音が聞こえる距離の基本値（cm。**一辺 40 マスの館での距離**。館の一辺に比例して小さくなる：16 マスなら ×0.4）。種類ごとの倍率（HearingScale）がかかる |
 | OniSpeedBonus | 鬼の速さに足す値（cm/秒）。基本の速さは うろうろ 420 / 調べる 700 / 追いかける 840（プレイヤーは 420）に種類ごとの倍率（SpeedScale）をかけたもの |
 | Map | 館のマップ（Maps.csv の行の名前）。空なら前のステージと同じ。今はステージごとに全部違う。マップが変わると、置いていた壁と罠は在庫に戻る（設計図はマップごとに残る） |
 
@@ -67,12 +67,13 @@
 | 列 | 意味 |
 |---|---|
 | MinStage | このステージまで来たら転生できる |
-| PointsPerStage | 転生ポイント = (今のステージ − MinStage + 1) × PointsPerStage |
+| PointsBase / PointsGrowth | 転生ポイント = 切り捨て(PointsBase × PointsGrowth ^ (今のステージ − MinStage))（指数。今は 4 と 1.28：ステージ 8 で 8、12 で 22） |
 | StartCoinsPerPrestige | 転生した後のはじめのコイン = 転生した回数 × これ（強化ではなく、転生するたびに自動で増える。今は 500） |
+| WallHPPerPrestige | 転生するたびに、すべての壁の耐久が自動でこの倍率ずつ硬くなる（× これ ^ 転生した回数。今は 1.4） |
 
 ## PrestigeUpgrades.csv（転生のお店）
 
-転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP / MashIncome / TimeIncome）は
+転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP / Income）は
 プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
 
 | 列 | 意味 |
@@ -90,8 +91,7 @@
 | SmokeCount | 1 ラウンドに煙幕ダッシュを使える回数。**ここだけ足し算**：回数 = BaseValue + ValueGrowth × レベル（1, 2, 3, 4 回） |
 | Climb | **Lv0 はよじ登れない**（Lv1 で解放。クライミング壁も買えるようになる）。Lv2 から登る速さ = 値(Lv) ÷ 値(1)（ValueGrowth 1.3 ずつ）。GameMode の ClimbTwoTierLevel（3）から 2 段の高さにも登れる |
 | QuietHP | 消音壁が音を消せる回数（Walls.csv の SoundHP）の倍率 |
-| MashIncome | 連打で稼げるコインの倍率（Upgrades.csv の連打コイン強化の上に掛かる） |
-| TimeIncome | 時間で稼げるコインの倍率（Upgrades.csv の時間コイン強化の上に掛かる） |
+| Income | お金アップ：稼ぐコイン（連打・時間・逃げ切りの報酬）の倍率（Upgrades.csv の強化の上に掛かる）。2026-10-19 に前の MashIncome / TimeIncome をまとめた |
 
 ## Walls.csv（壁）
 
@@ -157,8 +157,8 @@ Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれ�
 | WainscotSurface / WainscotTint | 腰壁（壁の下の 95cm に貼る木の板）の見た目と色。空なら腰壁なし（壁紙が床まで） |
 
 - **床は部屋ごと**：間取りの `[floor]` の文字（下の FloorKinds.csv）。`w`（館の床）は FloorSurface / FloorTint を使う
-- **音の届く距離は館の大きさで変わる**（M14）：館の一辺が 16 マスで ×0.45、40 マスで ×1.0（その間はまっすぐ）。連打・足音・ダッシュ・おとりが全部これで小さくなる。
-  数値は GameMode の MapNoiseScaleSmall / MapNoiseSmallSide / MapNoiseLargeSide（間取りの無いテスト用の舞台は ×1）
+- **音の届く距離は館の大きさで変わる**（M14。2026-10-19 から一辺に比例）：倍率 = 館の一辺 ÷ 40（16 マスで ×0.4、40 マスで ×1.0）。連打・足音・ダッシュ・おとりが全部これで小さくなる。
+  数値は GameMode の MapNoiseReferenceSide（間取りの無いテスト用の舞台は ×1）
 
 ### Maps/*.txt（間取り）
 

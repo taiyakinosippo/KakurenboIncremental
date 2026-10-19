@@ -150,7 +150,7 @@ public:
 	double StageOniDamageGrowth = 1.6;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
-	float StageOniHearingGrowth = 100.f;
+	float StageOniHearingGrowth = 10.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
 	float StageOniSpeedGrowth = 15.f;
@@ -524,7 +524,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetTimeUpgradeCost() const;
 
-	/** 今の壁の耐久の倍率（転生のお店の「壁の硬さ」で決まる。かけ算） */
+	/** 今の壁の耐久の倍率（転生のお店の「壁の硬さ」× 転生した回数で自動で硬くなる分。かけ算） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	double GetWallHPMultiplier() const;
 
@@ -555,6 +555,13 @@ public:
 
 	/** 1 つ上げる価格（転生ポイント。最大なら INDEX_NONE） */
 	int32 GetPrestigeUpgradeCost(EPrestigeUpgrade Upgrade) const;
+
+	/** CostOf の値段の並びで Level まで上げるのに使ったポイント（なくなった商品のポイントを返すとき） */
+	int32 GetPrestigeRefund(EPrestigeUpgrade CostOf, int32 Level) const;
+
+	/** 転生した回数で自動で硬くなる壁の耐久の倍率（Prestige.csv の WallHPPerPrestige ^ 回数。PrestigeCount を省くと今の回数） */
+	double GetPrestigeAutoWallHPMultiplier(int32 PrestigeCount) const;
+	double GetPrestigeAutoWallHPMultiplier() const;
 
 	/** 転生のお店の商品一覧（並び＝EPrestigeUpgrade の順＝番号キー順） */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
@@ -767,21 +774,16 @@ public:
 	float GetOniHearingRadius() const;
 
 	/**
-	 * M14：音の届く距離の、館の大きさによる倍率。小さい館（16 マス）で MapNoiseScaleSmall、大きい館（40 マス）で 1。
+	 * M14：音の届く距離の、館の大きさによる倍率。館の一辺に比例する（一辺 ÷ MapNoiseReferenceSide。16 マスで ×0.4、40 マスで ×1）。
 	 * 連打・足音・ダッシュ・おとりの音が全部これで小さくなる（小さい館で連打の音が館じゅうに届いて連打できなかった）。
 	 * 間取りの無い舞台（テスト用の家具の無い舞台）は 1
 	 */
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	float GetMapNoiseScale() const;
 
+	/** この一辺（マス）の館で音の倍率が 1（Stages.csv の OniHearingRadius は、この大きさの館での距離） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
-	float MapNoiseScaleSmall = 0.45f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
-	int32 MapNoiseSmallSide = 16;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Noise")
-	int32 MapNoiseLargeSide = 40;
+	int32 MapNoiseReferenceSide = 40;
 
 	UFUNCTION(BlueprintPure, Category = "Kakurenbo")
 	int32 GetNumOnis() const;

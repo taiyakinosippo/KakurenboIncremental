@@ -135,8 +135,8 @@ enum class EPrestigeUpgrade : uint8
 	SmokeCount   UMETA(DisplayName = "SmokeCount"),   // 煙幕の数：1 ラウンドに煙幕ダッシュを使える回数（1 + Lv）。セーブの並びを変えないよう、元の「ダッシュの回復」の場所
 	Climb        UMETA(DisplayName = "Climb"),        // よじ登る：Lv1 で壁・家具によじ登れるようになる（元の「ジャンプ」の場所。セーブのレベルはそのまま）
 	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
-	MashIncome   UMETA(DisplayName = "MashIncome"),   // 連打のお金アップ：連打 1 回のコインの倍率
-	TimeIncome   UMETA(DisplayName = "TimeIncome"),   // 時間のお金アップ：時間で増えるコインの倍率
+	Income       UMETA(DisplayName = "Income"),       // お金アップ：稼ぐコイン（連打・時間・逃げ切りの報酬）の倍率。元の「連打のお金アップ」の場所
+	// 2026-10-19：「時間のお金アップ」はお金アップにまとめた（古いセーブのその分のポイントは読み込むときに返す）
 	Count        UMETA(Hidden)
 };
 
@@ -352,13 +352,20 @@ struct FKakurenboPrestigeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	int32 MinStage = 5;
 
-	/** 転生ポイント = (今のステージ - MinStage + 1) × PointsPerStage */
+	/** 転生ポイント = 切り捨て(PointsBase × PointsGrowth ^ (今のステージ - MinStage))。深く進むほど大きく増える（指数） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
-	int32 PointsPerStage = 1;
+	double PointsBase = 4.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double PointsGrowth = 1.28;
 
 	/** 転生した後のはじめのコイン = 転生した回数 × これ（強化ではなく、転生するたびに自動で増える） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	double StartCoinsPerPrestige = 500.0;
+
+	/** 転生するたびに、すべての壁の耐久が自動でこの倍率ずつ硬くなる（耐久 × これ ^ 転生した回数。転生のお店の「壁の硬さ」とは別に掛かる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double WallHPPerPrestige = 1.4;
 };
 
 /**
