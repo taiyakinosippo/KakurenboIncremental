@@ -6,3 +6,5 @@ s21-s24: Cartoon ghost horn call, a wobbly eerie toy trumpet blast echoing in a 
 seconds=2.5 steps=100
 s31-s34: A cartoon monster with an antenna on its head sends out radar pings, deep eerie sonar ping sweeping and repeating, with a low wobbly creature hum underneath, spooky cute game sound effect
 seconds=2.5 steps=100
+s41-s48: Dramatic alarming horror stinger, a deep ominous monster horn blast swelling into an urgent wailing siren, dread and panic, you have been found and the monsters are coming, spooky cartoon game alert
+seconds=3.0 steps=100

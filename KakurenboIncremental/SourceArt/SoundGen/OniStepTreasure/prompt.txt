@@ -2,3 +2,11 @@ s21-s24: Single footstep of a cartoon monster on a wooden floor with a jingle of
 seconds=1.0 steps=100
 s31-s34: Single heavy stomping footstep of a big burly cartoon monster on an old wooden floor, with a loud jingle and clatter of many gold coins and jewels in a heavy sack, deep and weighty, close mic
 seconds=1.0 steps=100
+s41-s44: OniStepTreasure_s34 を元に（strength 0.5）: Single heavy thudding stomp of a big burly cartoon monster on an old wooden floor, gold coins spilling out and bouncing and clinking on the floor with the step, deep weighty footstep with scattering coins, close mic
+seconds=1.5 steps=100
+s41-s41: OniStepTreasure_s34 を元に（strength 0.5）: Single heavy thudding stomp of a big burly cartoon monster on an old wooden floor, gold coins spilling out and bouncing and clinking on the floor with the step, deep weighty footstep with scattering coins, close mic
+seconds=1.5 steps=100
+s42-s44: OniStepTreasure_s34 を元に（strength 0.5）: Single heavy thudding stomp of a big burly cartoon monster on an old wooden floor, gold coins spilling out and bouncing and clinking on the floor with the step, deep weighty footstep with scattering coins, close mic
+seconds=1.5 steps=100
+s41-s44: OniStepTreasure_s34 を元に（strength 0.3）: Single heavy thudding stomp of a big burly cartoon monster on an old wooden floor, gold coins spilling out and bouncing and clinking on the floor with the step, deep weighty footstep with scattering coins, close mic
+seconds=1.5 steps=100

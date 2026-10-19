@@ -33,6 +33,10 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 
 ## 一覧
 
+**4 回目（2026-10-19。s41〜s48）**：3 回目から BlockHit_s33・BlockBreak_s34・TrapSticky_s34・DollStep_s31 を採用。残りの 2 個を作り直した：
+宝物鬼の足音「歩くたびにお金が落ちて、どしどし歩く感じ。強いて言うなら s34 が近い」→ **s41〜s44 は s34 を元に**作り直した候補（`Tools/SoundGen/VaryCandidate.py`。画像 AI の img2img と同じで、元の音にノイズを足して説明文で作り直す。strength 0.3。CLAP で s34 との近さ 0.51〜0.87、新しい説明文の候補は 0.63〜0.72）、s45〜s48 は新しい説明文から。
+探知鬼の呼び声「見つかった時の絶望感と、鬼を呼び寄せる緊急性」→ s41〜s48。
+
 **3 回目（2026-10-19。s31〜s34）**：2 回目を聞いたユーザーの感想から 6 個を作り直した：宝物鬼の足音「もっとジャラジャラしつつ重厚感」・探知鬼「もっとレーダーみたいな音、ただし鬼から出ているような音」（Summon。ゲームでも探知鬼の場所から鳴らすようにした）・
 壁（BlockHit・BlockBreak）「もっと短く重厚感」・トリモチ「今みたいな音を世界観に合わせて」・身代わり人形「もっとドタドタと音を立てて進む」（ゲームでも歩幅ごとに鳴らすようにした）。
 2 回目の「★AI の予想」は 19 個中 9 個が当たった（でたらめなら 4.8 個）。
@@ -48,11 +52,11 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 | Mash | 連打 | s1, s2, s3, s900, s11, s12, s13, **s21, s22, s23, s24** | **Mash_s22** |
 | Treasure | お宝を取った | s1, s2, s3, **s11, s12, s13** | **Treasure_s1** |
 | Alert | 鬼に見つかって追いかけられ始めた | s1, s2, s3, **s11, s12, s13** | **Alert_s11** |
-| BlockHit | 壁が攻撃された（壊れていない） | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
-| BlockBreak | 壁が壊れた | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| BlockHit | 壁が攻撃された（壊れていない） | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | **BlockHit_s33** |
+| BlockBreak | 壁が壊れた | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | **BlockBreak_s34** |
 | Caught | 見つかった（アウト） | s1, s2, s3, **s11, s12, s13** | **Caught_s12** |
 | Clear | 逃げ切った | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **Clear_s22** |
-| TrapSticky | トリモチにかかった | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| TrapSticky | トリモチにかかった | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | **TrapSticky_s34** |
 | DecoyPing | おとりが音を出した | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **DecoyPing_s24** |
 | DecoyBreak | おとりが壊された | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **DecoyBreak_s21** |
 | CountdownBeep | 開始前のカウントダウン | s1, s2, s3, **s11, s12, s13** | （今のまま） |
@@ -68,7 +72,7 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 | PlayerClimb | プレイヤーがよじ登った（ガサッ） | s1, s2, s3, **s11, s12, s13** | **PlayerClimb_s12** |
 | OniStep | 鬼の足音（どたどた） | s1, s2, s3, **s11, s12, s13** | **OniStep_s13** |
 | TreasureSparkle | お宝のキラキラ | s1, s2, s3, **s11, s12, s13** | （今のまま） |
-| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s48** | — |
 | Smoke | 煙幕を投げた（ボフッ） | s1, s2, s3, **s11, s12, s13** | **Smoke_s11** |
 | Heartbeat | 鬼が近い（ドクン） | s1, s2, s3, **s11, s12, s13** | **Heartbeat_s1** |
 | OniNotice | 鬼が音に気づいた（「ン？」） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **OniNotice_s24** |
@@ -83,11 +87,11 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 | OniIntro | 初めての鬼が出てきた（図鑑） | **s21, s22, s23, s24** | **OniIntro_s23** |
 | OniLeap | 鬼が家具・壁に飛び乗った | **s21, s22, s23, s24** | **OniLeap_s22** |
 | CurtainPass | 鬼がのれんをくぐった | **s21, s22, s23, s24** | **CurtainPass_s24** |
-| DollStep | 身代わり人形の足音（とことこ） | s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| DollStep | 身代わり人形の足音（とことこ） | s21, s22, s23, s24, **s31, s32, s33, s34** | **DollStep_s31** |
 | OniStepScout | スピード鬼の足音（たったっ） | **s21, s22, s23, s24** | **OniStepScout_s23** |
 | OniStepBreaker | パワー鬼の足音（ずしん） | **s21, s22, s23, s24** | **OniStepBreaker_s22** |
 | OniStepCareful | 慎重鬼の足音（ぎしっ） | **s21, s22, s23, s24** | **OniStepCareful_s22** |
-| OniStepTreasure | 宝物鬼の足音（じゃらっ） | s21, s22, s23, s24, **s31, s32, s33, s34** | — |
+| OniStepTreasure | 宝物鬼の足音（じゃらっ） | s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s44（s34 を元に）, s45, s46, s47, s48** | — |
 | Music_Title | BGM：タイトル | ACE s1, s2, s3, **s4, s5, s6** | **MusicGen:Music_Title_s2** |
 | Music_Calm | BGM：購入・設置・リザルト（のんびり） | s1, s2, s3, s900 / ACE s1, s2, s3 | **MusicGen:Music_Calm_s2** |
 | Music_Hide | BGM：かくれんぼ中（速くて少し怖い） | s1, s2, s3 / ACE s1, s2, s3 | **MusicGen:Music_Hide_s2** |

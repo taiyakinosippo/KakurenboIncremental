@@ -29,7 +29,7 @@ GAME_STYLE = "cute cartoon video game sound effect"
 REAL_STYLE = "realistic field recording of a real sound"
 
 # この数字より大きいシード値の候補は、まだユーザーが聞いて決めていないので好みの学習に使わない（決めたら上げる）
-JUDGED_BELOW = 31
+JUDGED_BELOW = 41
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 try:
