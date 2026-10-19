@@ -2,3 +2,5 @@ Wooden block placed down on a wooden floor, solid soft clack, short sound effect
 seconds=1.0 steps=100
 s11-s13: Wooden toy block placed on a wooden floor, soft solid clack, cute, short sound effect
 seconds=1.0 steps=100
+s21-s24: Satisfying soft wooden block click into place, solid thunk, cute building game sound effect, very short, dry
+seconds=1.0 steps=100

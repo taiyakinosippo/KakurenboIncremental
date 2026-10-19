@@ -1,0 +1,2 @@
+s21-s24: Single slow careful footstep on an old creaky wooden floorboard, soft step with a creak, close mic
+seconds=1.0 steps=100

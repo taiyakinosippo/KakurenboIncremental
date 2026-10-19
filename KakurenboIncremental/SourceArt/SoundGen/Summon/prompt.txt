@@ -2,3 +2,5 @@ Eerie horn call echoing in a big hall, monster calling allies, spooky sound effe
 seconds=3.0 steps=100
 s11-s13: Eerie playful horn call with a wobbly theremin echoing in a big hall, monster calling its friends, spooky cute sound effect
 seconds=3.0 steps=100
+s21-s24: Cartoon ghost horn call, a wobbly eerie toy trumpet blast echoing in a hall, monster calling friends, spooky cute game sound effect
+seconds=2.5 steps=100

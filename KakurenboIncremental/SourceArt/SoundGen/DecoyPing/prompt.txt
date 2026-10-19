@@ -2,3 +2,5 @@ Small wind-up toy rattle and squeak, clockwork toy noise, short sound effect
 seconds=1.5 steps=100
 s11-s13: Wind-up music box toy rattle and squeak, clockwork toy jingle, cute, short sound effect
 seconds=1.5 steps=100
+s21-s24: Wind-up toy monkey banging two tiny cymbals, quick clang clang, cartoon noisy toy, short
+seconds=1.5 steps=100

@@ -1,4 +1,5 @@
 <title>かせぐんぼの音えらび</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -19,7 +20,7 @@
   --accent: #f0ac43; --accent-soft: #3a2f22; --now: #6cc4ae; --now-soft: #1d3833; color-scheme: dark; }
 
 body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.6; }
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 120px; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 140px; }
 header { display: grid; gap: 8px; margin-bottom: 20px; }
 h1 { font-family: var(--display); font-weight: 700; font-size: clamp(26px, 5vw, 36px); line-height: 1.25; margin: 0; text-wrap: balance; }
 .lead { color: var(--muted); max-width: 62ch; margin: 0; }
@@ -66,7 +67,8 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 28p
 .cell .pick { margin-left: 4px; }
 
 .tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: var(--surface); border-top: 1px solid var(--line);
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .tray .in { max-width: 1080px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .tray .count { font-family: var(--display); font-weight: 700; white-space: nowrap; }
 .tray .list { flex: 1 1 16rem; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; max-height: 3.2em; overflow: auto; }
@@ -74,6 +76,22 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 28p
 .tray button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
 .tray button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .tray textarea { width: 100%; font-family: var(--mono); font-size: 12px; }
+
+.badge { font-size: 11px; font-weight: 500; padding: 0 6px; border-radius: 999px; line-height: 1.6; white-space: nowrap; }
+.badge.game { background: var(--now-soft); color: var(--now); }
+.badge.ai { background: var(--accent-soft); color: var(--accent); }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; }
+.warn { font-size: 11px; color: var(--muted); margin-left: 4px; max-width: 9.5rem; }
+.clip.ai { border-color: var(--accent); }
+.cell.old { display: none; }
+.sound.show-old .cell.old { display: flex; }
+.more { font: inherit; font-size: 12px; align-self: center; padding: 4px 10px; border-radius: 8px; border: 1px dashed var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.state { font-size: 12px; color: var(--muted); }
+.state b { font-weight: 500; color: var(--now); }
+.state.pending b { color: var(--accent); }
+.filter { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+body.only-pending .sound:not(.pending) { display: none; }
+body.only-pending h2.empty, body.only-pending section.empty { display: none; }
 
 @media (max-width: 640px) {
   .sound { grid-template-columns: minmax(0, 1fr); }
@@ -87,8 +105,11 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 28p
 <div class="wrap">
   <header>
     <h1>かせぐんぼの音えらび</h1>
-    <p class="lead">ゲームで鳴る効果音 31 種類と BGM 4 曲の候補です。「今の音」はプログラムで作っている、いま鳴っている音。ほかは Stable Audio Open が作った候補（BGM の「ACE」は曲専用の AI の ACE-Step 1.5 の候補）で、s の後ろの数字がシード値です。効果音の s11〜s13 は BGM と同じ世界観（ポップなホラー・オルゴールやチェレスタ・拍子木や木魚）の説明文で作り直したもの、s1〜s3 は最初の説明文のもの（同じ数字で同じ音を作り直せます）。気に入った音は「これにする」を押すと下の帯にたまるので、コピーして Claude に送ってください。</p>
-    <div class="legend"><span><b>今の音</b>：緑の丸</span><span><b>AI の候補</b>：橙の丸</span><span>決めた音はこのブラウザに覚えておきます</span></div>
+    <p class="lead">ゲームで鳴る効果音と BGM の候補です。「今の音」はプログラムで作っている音（新しい音は今までの音の高さ違い）。ほかは Stable Audio Open が作った候補（BGM の「ACE」は曲専用の AI の ACE-Step 1.5）で、s の後ろの数字がシード値です。
+    <b>2 回目（2026-10-19）</b>：前に選ばなかった 14 個を「リアルすぎず、動きに合う」説明文で作り直した s21〜s24 と、新しい音 12 個（メニュー・鬼の種類ごとの足音・飛び乗り・のれん・人形・鬼の紹介）、明るくしたタイトル曲（ACE s4〜）と大きな館のかくれんぼ曲を足しました。前の候補はたたんであります。
+    気に入った音は「これにする」を押すと下の帯にたまるので、コピーして Claude に送ってください。</p>
+    <div class="legend"><span><b>今の音</b>：緑の丸</span><span><b>AI の候補</b>：橙の丸</span><span><b>ゲーム中</b>：いまゲームで鳴っている音</span><span><b>★AI の予想</b>：今までの選び方から学んだ予想（当たるのは 4 回に 1 回くらい。目安です）</span><span>決めた音はこのブラウザに覚えておきます</span></div>
+    <label class="filter"><input type="checkbox" id="onlyPending" checked> 決めていない音だけ出す</label>
   </header>
   <nav id="nav" aria-label="音の種類"></nav>
   <main id="list"></main>
@@ -99,6 +120,7 @@ h2 { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 28p
     <span class="count" id="count">0 / 33 決定</span>
     <span class="list" id="picked">まだ決めていません</span>
     <button type="button" id="copy">コピー</button>
+    <button type="button" class="ghost" id="aiFill">★AI の予想を入れる</button>
     <button type="button" class="ghost" id="clear">選び直す</button>
     <textarea id="fallback" rows="2" readonly hidden aria-label="コピー用の文"></textarea>
   </div>
@@ -121,14 +143,19 @@ DATA.forEach((group, gi) => {
   const a = el("a", null, group.title); a.href = "#g" + gi; nav.append(a);
   const h = el("h2", null, group.title); h.id = "g" + gi; list.append(h);
   const section = el("section");
+  if (!group.items.some(i => i.pending)) { h.classList.add("empty"); section.classList.add("empty"); }
   group.items.forEach(item => {
-    const row = el("div", "sound");
+    const row = el("div", "sound" + (item.pending ? " pending" : ""));
     const info = el("div", "info");
-    info.append(el("span", "name", item.name), el("span", "desc", item.desc), el("span", "prompt", item.prompt));
+    const state = el("span", "state" + (item.pending ? " pending" : ""));
+    const gameClip = item.clips.find(c => c.game);
+    state.append("ゲーム中：", el("b", null, gameClip ? (gameClip.now ? "今の音" : gameClip.label) : "今の音"));
+    if (item.pending) state.append("（新しい候補あり）");
+    info.append(el("span", "name", item.name), el("span", "desc", item.desc), state, el("span", "prompt", item.prompt));
     const clips = el("div", "clips");
     item.clips.forEach(c => {
-      const cell = el("div", "cell");
-      const b = el("button", "clip" + (c.now ? " now" : ""));
+      const cell = el("div", "cell" + (c.old ? " old" : ""));
+      const b = el("button", "clip" + (c.now ? " now" : "") + (c.ai ? " ai" : ""));
       b.type = "button"; b.dataset.src = c.src; b.dataset.id = c.id;
       b.setAttribute("aria-label", `${item.name} ${c.label} を再生（${c.sec} 秒）`);
       const play = el("span", "play"); play.innerHTML = PLAY;
@@ -138,8 +165,21 @@ DATA.forEach((group, gi) => {
       const p = el("button", "pick", c.now ? "今のままにする" : "これにする");
       p.type = "button"; p.dataset.sound = item.name; p.dataset.id = c.now ? item.name + "（今のまま）" : c.id;
       p.setAttribute("aria-pressed", String(picks[item.name] === p.dataset.id));
-      cell.append(b, p); clips.append(cell);
+      const badges = el("span", "badges");
+      if (c.game) badges.append(el("span", "badge game", "ゲーム中"));
+      if (c.ai) badges.append(el("span", "badge ai", "★AI の予想"));
+      cell.append(b, p);
+      if (badges.childNodes.length) cell.append(badges);
+      if (c.warn) cell.append(el("span", "warn", "注意：" + c.warn));
+      clips.append(cell);
     });
+    const oldCount = item.clips.filter(c => c.old).length;
+    if (oldCount) {
+      const more = el("button", "more", `前の候補 ${oldCount} 個`);
+      more.type = "button";
+      more.addEventListener("click", () => { const on = row.classList.toggle("show-old"); more.textContent = on ? "前の候補をたたむ" : `前の候補 ${oldCount} 個`; });
+      clips.append(more);
+    }
     row.append(info, clips); section.append(row);
   });
   list.append(section);
@@ -155,6 +195,7 @@ function stop() {
   current = null;
 }
 list.addEventListener("click", e => {
+  if (e.target.closest(".more")) return;
   const pick = e.target.closest(".pick");
   if (pick) {
     const name = pick.dataset.sound, id = pick.dataset.id;
@@ -185,9 +226,11 @@ function pickText() {
   const order = DATA.flatMap(g => g.items.map(i => i.name));
   return order.filter(n => picks[n]).map(n => picks[n]).join(", ");
 }
+const pendingNames = DATA.flatMap(g => g.items.filter(i => i.pending).map(i => i.name));
 function renderTray() {
   const n = Object.keys(picks).length;
-  countEl.textContent = `${n} / ${total} 決定`;
+  const p = pendingNames.filter(x => picks[x]).length;
+  countEl.textContent = pendingNames.length ? `新しい候補 ${p} / ${pendingNames.length} 決定（全部で ${n}）` : `${n} / ${total} 決定`;
   pickedEl.textContent = n ? pickText() : "まだ決めていません";
 }
 document.getElementById("copy").addEventListener("click", () => {
@@ -197,6 +240,18 @@ document.getElementById("copy").addEventListener("click", () => {
     navigator.clipboard.writeText(text).then(() => { const b = document.getElementById("copy"); b.textContent = "コピーしました"; setTimeout(() => b.textContent = "コピー", 1600); }, show);
   } else show();
 });
+document.getElementById("aiFill").addEventListener("click", () => {
+  DATA.forEach(g => g.items.forEach(i => {
+    const c = i.clips.find(x => x.ai);
+    if (i.pending && c && !picks[i.name]) picks[i.name] = c.id;
+  }));
+  document.querySelectorAll(".pick").forEach(x => x.setAttribute("aria-pressed", String(picks[x.dataset.sound] === x.dataset.id)));
+  save(); renderTray();
+});
+const onlyPending = document.getElementById("onlyPending");
+const applyFilter = () => document.body.classList.toggle("only-pending", onlyPending.checked && pendingNames.length > 0);
+onlyPending.addEventListener("change", applyFilter);
+applyFilter();
 document.getElementById("clear").addEventListener("click", () => {
   picks = {}; save(); renderTray();
   document.querySelectorAll(".pick").forEach(x => x.setAttribute("aria-pressed", "false"));

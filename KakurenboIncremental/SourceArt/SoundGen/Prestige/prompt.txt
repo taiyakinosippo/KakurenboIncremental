@@ -2,3 +2,5 @@ Magical ascending shimmer with choir and bells, rebirth power up, sparkling, fan
 seconds=5.0 steps=100
 s11-s13: Magical ascending celesta and music box glissando with bells and harp, sparkling rebirth power up, whimsical halloween fantasy game sound effect
 seconds=5.0 steps=100
+s21-s24: Magical rising whoosh into a bright sparkling chime burst, ascending harp glissando and celesta with a warm choir pad swell, fantasy power up, game sound
+seconds=4.0 steps=100

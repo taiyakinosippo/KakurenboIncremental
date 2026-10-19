@@ -2,3 +2,5 @@ Happy short victory fanfare, music box and bells, cheerful success jingle for a 
 seconds=4.0 steps=100
 s11-s13: Happy short victory jingle on music box, celesta and glockenspiel with pizzicato strings, cute playful halloween game success sound
 seconds=4.0 steps=100
+s21-s24: Short cheerful cartoon victory jingle, bright xylophone and glockenspiel melody rising to a happy chord with a toy trumpet, cute game level clear sound
+seconds=3.0 steps=100

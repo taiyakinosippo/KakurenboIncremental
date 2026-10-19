@@ -1,0 +1,2 @@
+s21-s24: Single footstep of a cartoon monster on a wooden floor with a jingle of coins in a bag, close mic
+seconds=1.0 steps=100

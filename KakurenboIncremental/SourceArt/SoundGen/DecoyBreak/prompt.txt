@@ -2,3 +2,5 @@ Small plastic toy breaking with a crack and spring boing, short cartoon sound ef
 seconds=2.0 steps=100
 s11-s13: Small wooden toy breaking with a crack and a cartoon spring boing, playful, short sound effect
 seconds=2.0 steps=100
+s21-s24: Cartoon broken toy, a sproing of a loose spring and small plastic pieces clattering, comedic fail, short
+seconds=1.5 steps=100

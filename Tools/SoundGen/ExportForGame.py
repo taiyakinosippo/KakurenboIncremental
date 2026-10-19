@@ -3,6 +3,7 @@
 # 引数は <音の名前（EKakurenboSfx）>=<SourceArt/SoundGen の候補の名前>。
 #   ・ゲームの効果音と同じ形（モノラル・44100Hz・16bit）にする。左右の振り分け・こもりはゲームが付ける
 #   ・大きさは今のプログラムの音（_Current/<音>.wav）の鳴っている部分の RMS にそろえる（音どうしの大きさの釣り合いを変えない）
+#   ・頭とお尻の無音は切る（trim）
 import sys
 from pathlib import Path
 
@@ -33,8 +34,21 @@ def active_rms(mono):
     return float(np.sqrt((loud ** 2).mean())) if len(loud) else 0.0
 
 
+def trim(mono):
+    """頭とお尻の無音を切る（AI の音は鳴り始めが遅れることがあり、押してから鳴るまでがもたつく）。
+    頭は最大の -34dB を超える 5ms 前から、お尻は -50dB を超える最後の所の 20ms 後まで"""
+    peak = float(np.abs(mono).max())
+    if peak <= 0:
+        return mono
+    loud = np.nonzero(np.abs(mono) > peak * 0.02)[0]
+    audible = np.nonzero(np.abs(mono) > peak * 0.003)[0]
+    start = max(int(loud[0]) - int(0.005 * RATE), 0)
+    end = min(int(audible[-1]) + int(0.02 * RATE), len(mono))
+    return mono[start:end].copy()
+
+
 def export(name, pick):
-    mono = load_mono(SRC / name / f"{pick}.wav")
+    mono = trim(load_mono(SRC / name / f"{pick}.wav"))
     current = SRC / "_Current" / f"{name}.wav"
     target = active_rms(load_mono(current)) if current.exists() else 0.25
     mono *= target / max(active_rms(mono), 1e-6)

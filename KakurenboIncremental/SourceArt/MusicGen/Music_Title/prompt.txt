@@ -1,2 +1,4 @@
 whimsical haunted mansion theme, moonlit night, spooky cute, playful halloween, celesta and music box, soft strings pad, pizzicato strings, harpsichord, mysterious, inviting, mischievous, instrumental, no vocals, game bgm, loopable
 seconds=90.0 bpm=95 key=A minor model=acestep-v15-turbo
+s4-s6: bright whimsical haunted mansion theme, moonlit night, cheerful spooky cute, playful halloween, major key, celesta and music box, glockenspiel, bouncy pizzicato strings, harpsichord, light percussion, warm, inviting, mischievous, fun adventure, instrumental, no vocals, game bgm, loopable
+seconds=90.0 bpm=108 key=F major model=acestep-v15-turbo

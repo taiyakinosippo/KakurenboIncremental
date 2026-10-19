@@ -2,3 +2,5 @@ Heavy fist punch hitting a wooden plank wall, dull thud, short impact sound effe
 seconds=1.5 steps=100
 s11-s13: Cartoon heavy thump on a wooden plank wall, dull wooden bonk, playful, short impact sound effect
 seconds=1.5 steps=100
+s21-s24: Single punchy cartoon thump on a wooden toy crate, muffled bonk with a tiny wobble, playful game impact sound effect, short, dry
+seconds=1.5 steps=100

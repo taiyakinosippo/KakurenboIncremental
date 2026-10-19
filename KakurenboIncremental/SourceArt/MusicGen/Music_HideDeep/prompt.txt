@@ -1,0 +1,2 @@
+deep night in a huge haunted mansion, sneaky tension, hide and seek, playful horror, low pizzicato bass, bassoon, contrabassoon, ticking clock percussion, soft low drums, distant church bells, eerie music box, celesta, suspenseful but cute, whimsical tension, sparse mid range, instrumental, no vocals, game bgm, loopable
+seconds=90.0 bpm=132 key=E minor model=acestep-v15-turbo

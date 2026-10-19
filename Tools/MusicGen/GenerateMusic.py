@@ -93,7 +93,12 @@ def generate(dit, llm, name, prompt, seconds, bpm, key, seeds, overwrite):
 
     folder = OUT_DIR / name
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "prompt.txt").write_text(f"{prompt}\nseconds={seconds} bpm={bpm} key={key} model={DIT_MODEL}\n", encoding="utf-8")
+    # 説明文を変えて別のシード値で作り直すことがあるので、前の説明文は消さずに「どのシード値をどの説明文で作ったか」を足していく
+    record = folder / "prompt.txt"
+    old = record.read_text(encoding="utf-8") if record.exists() else ""
+    if prompt not in old:
+        head = f"s{seeds[0]}-s{seeds[-1]}: " if old else ""
+        record.write_text(old + f"{head}{prompt}\nseconds={seconds} bpm={bpm} key={key} model={DIT_MODEL}\n", encoding="utf-8")
     for seed in seeds:
         path = folder / f"{name}_s{seed}.wav"
         if path.exists() and not overwrite:

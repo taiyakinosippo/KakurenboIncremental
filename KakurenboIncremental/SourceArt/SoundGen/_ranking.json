@@ -1,0 +1,1040 @@
+{
+ "Mash": [
+  {
+   "id": "Mash_s21",
+   "text": 0.5668,
+   "style": 0.1502,
+   "lead": 0.002,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.636
+  },
+  {
+   "id": "Mash_s22",
+   "text": 0.5829,
+   "style": -0.085,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.468
+  },
+  {
+   "id": "Mash_s24",
+   "text": 0.6407,
+   "style": 0.1462,
+   "lead": 0.002,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.073
+  },
+  {
+   "id": "Mash_s900",
+   "text": 0.0752,
+   "style": 0.1705,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.879
+  },
+  {
+   "id": "Mash_s23",
+   "text": 0.5702,
+   "style": 0.1074,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.152
+  }
+ ],
+ "BlockHit": [
+  {
+   "id": "BlockHit_s24",
+   "text": 0.3499,
+   "style": 0.2302,
+   "lead": 0.094,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.09 秒"
+   ],
+   "score": 0.936
+  },
+  {
+   "id": "BlockHit_s21",
+   "text": 0.5123,
+   "style": 0.2583,
+   "lead": 0.031,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.241
+  },
+  {
+   "id": "BlockHit_s23",
+   "text": 0.3409,
+   "style": 0.1399,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.752
+  },
+  {
+   "id": "BlockHit_s22",
+   "text": 0.3786,
+   "style": 0.1926,
+   "lead": 0.01,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.019
+  }
+ ],
+ "BlockBreak": [
+  {
+   "id": "BlockBreak_s22",
+   "text": 0.5414,
+   "style": 0.0903,
+   "lead": 0.005,
+   "onsets": 6,
+   "notes": [],
+   "score": 1.494
+  },
+  {
+   "id": "BlockBreak_s23",
+   "text": 0.4917,
+   "style": -0.0704,
+   "lead": 0.006,
+   "onsets": 10,
+   "notes": [],
+   "score": 0.312
+  },
+  {
+   "id": "BlockBreak_s21",
+   "text": 0.5284,
+   "style": 0.0998,
+   "lead": 0.006,
+   "onsets": 5,
+   "notes": [],
+   "score": -0.764
+  },
+  {
+   "id": "BlockBreak_s24",
+   "text": 0.5491,
+   "style": 0.0389,
+   "lead": 0.005,
+   "onsets": 3,
+   "notes": [],
+   "score": -1.042
+  }
+ ],
+ "Clear": [
+  {
+   "id": "Clear_s21",
+   "text": 0.3155,
+   "style": 0.2304,
+   "lead": 0.004,
+   "onsets": 4,
+   "notes": [
+    "音が 4 回"
+   ],
+   "score": 1.205
+  },
+  {
+   "id": "Clear_s24",
+   "text": 0.3775,
+   "style": 0.2327,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.301
+  },
+  {
+   "id": "Clear_s22",
+   "text": 0.3549,
+   "style": 0.1855,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.787
+  },
+  {
+   "id": "Clear_s23",
+   "text": 0.3629,
+   "style": 0.2054,
+   "lead": 0.007,
+   "onsets": 3,
+   "notes": [
+    "音が 3 回"
+   ],
+   "score": -0.868
+  }
+ ],
+ "TrapSticky": [
+  {
+   "id": "TrapSticky_s22",
+   "text": 0.5586,
+   "style": 0.4277,
+   "lead": 0.007,
+   "onsets": 4,
+   "notes": [],
+   "score": 1.484
+  },
+  {
+   "id": "TrapSticky_s24",
+   "text": 0.2464,
+   "style": 0.2641,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.24
+  },
+  {
+   "id": "TrapSticky_s21",
+   "text": 0.2116,
+   "style": 0.1914,
+   "lead": 0.006,
+   "onsets": 3,
+   "notes": [],
+   "score": -0.504
+  },
+  {
+   "id": "TrapSticky_s23",
+   "text": 0.314,
+   "style": 0.3139,
+   "lead": 0.015,
+   "onsets": 2,
+   "notes": [],
+   "score": -1.22
+  }
+ ],
+ "DecoyPing": [
+  {
+   "id": "DecoyPing_s24",
+   "text": 0.4007,
+   "style": -0.0749,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.151
+  },
+  {
+   "id": "DecoyPing_s22",
+   "text": 0.377,
+   "style": 0.0446,
+   "lead": 0.02,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.834
+  },
+  {
+   "id": "DecoyPing_s23",
+   "text": 0.4441,
+   "style": 0.0721,
+   "lead": 0.001,
+   "onsets": 2,
+   "notes": [],
+   "score": -0.922
+  },
+  {
+   "id": "DecoyPing_s21",
+   "text": 0.3693,
+   "style": -0.1484,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.063
+  }
+ ],
+ "DecoyBreak": [
+  {
+   "id": "DecoyBreak_s23",
+   "text": -0.0117,
+   "style": -0.0572,
+   "lead": 0.011,
+   "onsets": 3,
+   "notes": [],
+   "score": 1.722
+  },
+  {
+   "id": "DecoyBreak_s21",
+   "text": -0.0011,
+   "style": -0.028,
+   "lead": 0.006,
+   "onsets": 4,
+   "notes": [],
+   "score": -0.419
+  },
+  {
+   "id": "DecoyBreak_s22",
+   "text": -0.0376,
+   "style": -0.1174,
+   "lead": 0.034,
+   "onsets": 5,
+   "notes": [],
+   "score": -0.586
+  },
+  {
+   "id": "DecoyBreak_s24",
+   "text": 0.0427,
+   "style": 0.0187,
+   "lead": 0.043,
+   "onsets": 3,
+   "notes": [],
+   "score": -0.717
+  }
+ ],
+ "TimeTick": [
+  {
+   "id": "TimeTick_s21",
+   "text": 0.294,
+   "style": 0.1529,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.216
+  },
+  {
+   "id": "TimeTick_s23",
+   "text": 0.239,
+   "style": -0.0296,
+   "lead": 0.002,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.479
+  },
+  {
+   "id": "TimeTick_s24",
+   "text": 0.1356,
+   "style": 0.0756,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.194
+  },
+  {
+   "id": "TimeTick_s22",
+   "text": 0.2012,
+   "style": 0.0443,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.501
+  }
+ ],
+ "Place": [
+  {
+   "id": "Place_s24",
+   "text": 0.4113,
+   "style": 0.1513,
+   "lead": 0.037,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.303
+  },
+  {
+   "id": "Place_s23",
+   "text": 0.4429,
+   "style": 0.1332,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.572
+  },
+  {
+   "id": "Place_s21",
+   "text": 0.3673,
+   "style": 0.0542,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.609
+  },
+  {
+   "id": "Place_s22",
+   "text": 0.3891,
+   "style": 0.0292,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.267
+  }
+ ],
+ "Prestige": [
+  {
+   "id": "Prestige_s22",
+   "text": 0.529,
+   "style": 0.0337,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.7
+  },
+  {
+   "id": "Prestige_s21",
+   "text": 0.4401,
+   "style": 0.0447,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.26
+  },
+  {
+   "id": "Prestige_s24",
+   "text": 0.4697,
+   "style": 0.0164,
+   "lead": 0.045,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.666
+  },
+  {
+   "id": "Prestige_s23",
+   "text": 0.5134,
+   "style": 0.0281,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.774
+  }
+ ],
+ "Summon": [
+  {
+   "id": "Summon_s21",
+   "text": 0.5208,
+   "style": 0.4405,
+   "lead": 0.022,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.413
+  },
+  {
+   "id": "Summon_s24",
+   "text": 0.3283,
+   "style": 0.4149,
+   "lead": 0.032,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.466
+  },
+  {
+   "id": "Summon_s22",
+   "text": 0.314,
+   "style": 0.2883,
+   "lead": 0.027,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.839
+  },
+  {
+   "id": "Summon_s23",
+   "text": 0.5112,
+   "style": 0.449,
+   "lead": 0.01,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.041
+  }
+ ],
+ "OniNotice": [
+  {
+   "id": "OniNotice_s24",
+   "text": 0.3115,
+   "style": 0.4051,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.959
+  },
+  {
+   "id": "OniNotice_s23",
+   "text": 0.26,
+   "style": 0.2627,
+   "lead": 0.016,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.883
+  },
+  {
+   "id": "OniNotice_s22",
+   "text": 0.2474,
+   "style": 0.1262,
+   "lead": 0.018,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.37
+  },
+  {
+   "id": "OniNotice_s21",
+   "text": 0.1779,
+   "style": 0.1887,
+   "lead": 0.024,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.471
+  }
+ ],
+ "Daruma": [
+  {
+   "id": "Daruma_s23",
+   "text": 0.3393,
+   "style": 0.1701,
+   "lead": 0.009,
+   "onsets": 5,
+   "notes": [
+    "音が 5 回"
+   ],
+   "score": 0.908
+  },
+  {
+   "id": "Daruma_s21",
+   "text": 0.3556,
+   "style": 0.2162,
+   "lead": 0.008,
+   "onsets": 4,
+   "notes": [
+    "音が 4 回"
+   ],
+   "score": -0.586
+  },
+  {
+   "id": "Daruma_s22",
+   "text": 0.2675,
+   "style": 0.2409,
+   "lead": 0.007,
+   "onsets": 3,
+   "notes": [
+    "音が 3 回"
+   ],
+   "score": -0.97
+  },
+  {
+   "id": "Daruma_s24",
+   "text": 0.2961,
+   "style": 0.2108,
+   "lead": 0.006,
+   "onsets": 3,
+   "notes": [
+    "音が 3 回"
+   ],
+   "score": -1.102
+  }
+ ],
+ "Poof": [
+  {
+   "id": "Poof_s21",
+   "text": 0.0454,
+   "style": 0.2894,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.312
+  },
+  {
+   "id": "Poof_s24",
+   "text": -0.0121,
+   "style": 0.3982,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.627
+  },
+  {
+   "id": "Poof_s22",
+   "text": -0.0376,
+   "style": 0.2833,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.911
+  },
+  {
+   "id": "Poof_s23",
+   "text": 0.0854,
+   "style": 0.2778,
+   "lead": 0.003,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.028
+  }
+ ],
+ "UIClick": [
+  {
+   "id": "UIClick_s21",
+   "text": 0.4571,
+   "style": 0.0395,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.725
+  },
+  {
+   "id": "UIClick_s23",
+   "text": 0.4279,
+   "style": 0.07,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.482
+  },
+  {
+   "id": "UIClick_s24",
+   "text": 0.431,
+   "style": 0.1661,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.529
+  },
+  {
+   "id": "UIClick_s22",
+   "text": 0.4375,
+   "style": 0.1127,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.715
+  }
+ ],
+ "UIMove": [
+  {
+   "id": "UIMove_s23",
+   "text": 0.5271,
+   "style": -0.0152,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.672
+  },
+  {
+   "id": "UIMove_s24",
+   "text": 0.4493,
+   "style": 0.037,
+   "lead": 0.002,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.22
+  },
+  {
+   "id": "UIMove_s22",
+   "text": 0.4456,
+   "style": 0.0625,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.5
+  },
+  {
+   "id": "UIMove_s21",
+   "text": 0.445,
+   "style": 0.02,
+   "lead": 0.0,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.952
+  }
+ ],
+ "MenuOpen": [
+  {
+   "id": "MenuOpen_s24",
+   "text": 0.1644,
+   "style": 0.143,
+   "lead": 0.015,
+   "onsets": 3,
+   "notes": [],
+   "score": 1.293
+  },
+  {
+   "id": "MenuOpen_s22",
+   "text": 0.2577,
+   "style": 0.167,
+   "lead": 0.062,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.06 秒"
+   ],
+   "score": 0.073
+  },
+  {
+   "id": "MenuOpen_s23",
+   "text": 0.1608,
+   "style": 0.1615,
+   "lead": 0.052,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.05 秒"
+   ],
+   "score": -1.327
+  },
+  {
+   "id": "MenuOpen_s21",
+   "text": 0.1669,
+   "style": 0.1874,
+   "lead": 0.059,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.06 秒"
+   ],
+   "score": -1.71
+  }
+ ],
+ "MenuClose": [
+  {
+   "id": "MenuClose_s24",
+   "text": 0.3741,
+   "style": 0.0429,
+   "lead": 0.033,
+   "onsets": 3,
+   "notes": [],
+   "score": 1.649
+  },
+  {
+   "id": "MenuClose_s23",
+   "text": 0.1957,
+   "style": -0.1647,
+   "lead": 0.044,
+   "onsets": 2,
+   "notes": [],
+   "score": -0.3
+  },
+  {
+   "id": "MenuClose_s21",
+   "text": 0.3135,
+   "style": 0.357,
+   "lead": 0.132,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.13 秒"
+   ],
+   "score": -0.933
+  },
+  {
+   "id": "MenuClose_s22",
+   "text": 0.0882,
+   "style": -0.2307,
+   "lead": 0.566,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.57 秒"
+   ],
+   "score": -2.048
+  }
+ ],
+ "OniIntro": [
+  {
+   "id": "OniIntro_s21",
+   "text": 0.1696,
+   "style": 0.1821,
+   "lead": 0.013,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.928
+  },
+  {
+   "id": "OniIntro_s24",
+   "text": 0.1779,
+   "style": 0.1374,
+   "lead": 0.034,
+   "onsets": 2,
+   "notes": [],
+   "score": 0.534
+  },
+  {
+   "id": "OniIntro_s22",
+   "text": 0.1378,
+   "style": 0.1782,
+   "lead": 0.091,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.09 秒"
+   ],
+   "score": -0.377
+  },
+  {
+   "id": "OniIntro_s23",
+   "text": 0.1565,
+   "style": 0.1115,
+   "lead": 0.062,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.06 秒"
+   ],
+   "score": -2.238
+  }
+ ],
+ "OniLeap": [
+  {
+   "id": "OniLeap_s22",
+   "text": 0.4958,
+   "style": 0.1887,
+   "lead": 0.032,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.517
+  },
+  {
+   "id": "OniLeap_s21",
+   "text": 0.517,
+   "style": 0.2522,
+   "lead": 0.013,
+   "onsets": 2,
+   "notes": [],
+   "score": 0.281
+  },
+  {
+   "id": "OniLeap_s23",
+   "text": 0.5717,
+   "style": 0.152,
+   "lead": 0.026,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.844
+  },
+  {
+   "id": "OniLeap_s24",
+   "text": 0.5632,
+   "style": 0.1958,
+   "lead": 0.022,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.953
+  }
+ ],
+ "CurtainPass": [
+  {
+   "id": "CurtainPass_s24",
+   "text": 0.5316,
+   "style": 0.1151,
+   "lead": 0.115,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.11 秒"
+   ],
+   "score": 0.38
+  },
+  {
+   "id": "CurtainPass_s22",
+   "text": 0.5873,
+   "style": 0.0912,
+   "lead": 0.136,
+   "onsets": 4,
+   "notes": [
+    "頭の無音 0.14 秒"
+   ],
+   "score": 0.369
+  },
+  {
+   "id": "CurtainPass_s21",
+   "text": 0.5479,
+   "style": 0.0408,
+   "lead": 0.008,
+   "onsets": 4,
+   "notes": [],
+   "score": -0.993
+  },
+  {
+   "id": "CurtainPass_s23",
+   "text": 0.4527,
+   "style": 0.0602,
+   "lead": 0.136,
+   "onsets": 3,
+   "notes": [
+    "頭の無音 0.14 秒"
+   ],
+   "score": -1.642
+  }
+ ],
+ "DollStep": [
+  {
+   "id": "DollStep_s22",
+   "text": 0.4348,
+   "style": 0.154,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.603
+  },
+  {
+   "id": "DollStep_s23",
+   "text": 0.3762,
+   "style": 0.149,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.216
+  },
+  {
+   "id": "DollStep_s24",
+   "text": 0.3891,
+   "style": 0.1695,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.236
+  },
+  {
+   "id": "DollStep_s21",
+   "text": 0.4603,
+   "style": 0.0944,
+   "lead": 0.001,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.152
+  }
+ ],
+ "OniStepScout": [
+  {
+   "id": "OniStepScout_s23",
+   "text": 0.3862,
+   "style": 0.2471,
+   "lead": 0.063,
+   "onsets": 2,
+   "notes": [
+    "頭の無音 0.06 秒"
+   ],
+   "score": 0.18
+  },
+  {
+   "id": "OniStepScout_s24",
+   "text": 0.3172,
+   "style": 0.1724,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.104
+  },
+  {
+   "id": "OniStepScout_s21",
+   "text": 0.2933,
+   "style": 0.2142,
+   "lead": 0.058,
+   "onsets": 4,
+   "notes": [
+    "頭の無音 0.06 秒",
+    "音が 4 回"
+   ],
+   "score": -0.24
+  },
+  {
+   "id": "OniStepScout_s22",
+   "text": 0.1807,
+   "style": 0.2129,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.664
+  }
+ ],
+ "OniStepBreaker": [
+  {
+   "id": "OniStepBreaker_s22",
+   "text": 0.5705,
+   "style": 0.283,
+   "lead": 0.028,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.69
+  },
+  {
+   "id": "OniStepBreaker_s21",
+   "text": 0.6177,
+   "style": 0.2725,
+   "lead": 0.047,
+   "onsets": 2,
+   "notes": [],
+   "score": -0.345
+  },
+  {
+   "id": "OniStepBreaker_s24",
+   "text": 0.6056,
+   "style": 0.2075,
+   "lead": 0.015,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.425
+  },
+  {
+   "id": "OniStepBreaker_s23",
+   "text": 0.5773,
+   "style": 0.191,
+   "lead": 0.046,
+   "onsets": 2,
+   "notes": [],
+   "score": -0.92
+  }
+ ],
+ "OniStepCareful": [
+  {
+   "id": "OniStepCareful_s22",
+   "text": 0.5926,
+   "style": 0.1432,
+   "lead": 0.007,
+   "onsets": 1,
+   "notes": [],
+   "score": 1.591
+  },
+  {
+   "id": "OniStepCareful_s21",
+   "text": 0.3812,
+   "style": 0.2148,
+   "lead": 0.008,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.046
+  },
+  {
+   "id": "OniStepCareful_s23",
+   "text": 0.2653,
+   "style": 0.1213,
+   "lead": 0.006,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.404
+  },
+  {
+   "id": "OniStepCareful_s24",
+   "text": 0.5242,
+   "style": 0.0094,
+   "lead": 0.049,
+   "onsets": 2,
+   "notes": [],
+   "score": -1.141
+  }
+ ],
+ "OniStepTreasure": [
+  {
+   "id": "OniStepTreasure_s21",
+   "text": 0.3979,
+   "style": -0.0025,
+   "lead": 0.243,
+   "onsets": 1,
+   "notes": [
+    "頭の無音 0.24 秒"
+   ],
+   "score": 0.615
+  },
+  {
+   "id": "OniStepTreasure_s23",
+   "text": 0.188,
+   "style": -0.1184,
+   "lead": 0.018,
+   "onsets": 1,
+   "notes": [],
+   "score": 0.219
+  },
+  {
+   "id": "OniStepTreasure_s22",
+   "text": 0.156,
+   "style": -0.0732,
+   "lead": 0.005,
+   "onsets": 1,
+   "notes": [],
+   "score": -0.133
+  },
+  {
+   "id": "OniStepTreasure_s24",
+   "text": 0.0921,
+   "style": -0.2062,
+   "lead": 0.023,
+   "onsets": 1,
+   "notes": [],
+   "score": -1.445
+  }
+ ]
+}

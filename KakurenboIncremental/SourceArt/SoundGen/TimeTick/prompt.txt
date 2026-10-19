@@ -2,3 +2,5 @@ Single clock tick, mechanical pocket watch tick, dry, close
 seconds=1.0 steps=100
 s11-s13: Single cute clock tick with a tiny glockenspiel ting, toy pocket watch, dry, close
 seconds=1.0 steps=100
+s21-s24: Single crisp high woodblock tick, short sharp click, tense game countdown timer, dry
+seconds=1.0 steps=100

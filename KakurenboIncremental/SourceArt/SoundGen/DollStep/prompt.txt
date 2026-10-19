@@ -1,0 +1,2 @@
+s21-s24: Single quick light wooden doll footstep on a wooden floor, tiny clack, toy, close mic
+seconds=1.0 steps=100

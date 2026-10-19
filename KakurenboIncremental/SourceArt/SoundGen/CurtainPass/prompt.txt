@@ -1,0 +1,2 @@
+s21-s24: Soft cloth curtain swish, fabric brushing aside, short, gentle
+seconds=1.5 steps=100

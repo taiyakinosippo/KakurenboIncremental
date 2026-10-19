@@ -1,0 +1,2 @@
+s21-s24: Spooky playful reveal sting, pizzicato strings run up to a toy piano chord with a soft cymbal swell, a new cartoon monster appears, game sound
+seconds=2.5 steps=100
