@@ -72,7 +72,7 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 | PlayerClimb | プレイヤーがよじ登った（ガサッ） | s1, s2, s3, **s11, s12, s13** | **PlayerClimb_s12** |
 | OniStep | 鬼の足音（どたどた） | s1, s2, s3, **s11, s12, s13** | **OniStep_s13** |
 | TreasureSparkle | お宝のキラキラ | s1, s2, s3, **s11, s12, s13** | （今のまま） |
-| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s48** | — |
+| Summon | 探知鬼が仲間を呼んだ | s1, s2, s3, s11, s12, s13, s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s48** | **Summon_s45** |
 | Smoke | 煙幕を投げた（ボフッ） | s1, s2, s3, **s11, s12, s13** | **Smoke_s11** |
 | Heartbeat | 鬼が近い（ドクン） | s1, s2, s3, **s11, s12, s13** | **Heartbeat_s1** |
 | OniNotice | 鬼が音に気づいた（「ン？」） | s1, s2, s3, s11, s12, s13, **s21, s22, s23, s24** | **OniNotice_s24** |
@@ -91,7 +91,7 @@ Tools\SoundGen\.venv\Scripts\python.exe -I Tools\SoundGen\ExportForGame.py Buy=B
 | OniStepScout | スピード鬼の足音（たったっ） | **s21, s22, s23, s24** | **OniStepScout_s23** |
 | OniStepBreaker | パワー鬼の足音（ずしん） | **s21, s22, s23, s24** | **OniStepBreaker_s22** |
 | OniStepCareful | 慎重鬼の足音（ぎしっ） | **s21, s22, s23, s24** | **OniStepCareful_s22** |
-| OniStepTreasure | 宝物鬼の足音（じゃらっ） | s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s44（s34 を元に）, s45, s46, s47, s48** | — |
+| OniStepTreasure | 宝物鬼の足音（じゃらっ） | s21, s22, s23, s24, s31, s32, s33, s34, **s41〜s44（s34 を元に）, s45, s46, s47, s48** | **OniStepTreasure_s46** |
 | Music_Title | BGM：タイトル | ACE s1, s2, s3, **s4, s5, s6** | **MusicGen:Music_Title_s2** |
 | Music_Calm | BGM：購入・設置・リザルト（のんびり） | s1, s2, s3, s900 / ACE s1, s2, s3 | **MusicGen:Music_Calm_s2** |
 | Music_Hide | BGM：かくれんぼ中（速くて少し怖い） | s1, s2, s3 / ACE s1, s2, s3 | **MusicGen:Music_Hide_s2** |
