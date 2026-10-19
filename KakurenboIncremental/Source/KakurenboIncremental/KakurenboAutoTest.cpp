@@ -3859,6 +3859,33 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 1.f, [=, this]
 		{
 			Check(FString::Printf(TEXT("result plays the calm BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
+			// 大きな館（DeepHideMusicStage から）はかくれんぼの曲が変わる
+			const int32 StageBefore = GS()->Stage;
+			GS()->Stage = GM->DeepHideMusicStage;
+			const EKakurenboMusic Deep = GM->GetHideMusic();
+			GS()->Stage = 1;
+			const EKakurenboMusic Early = GM->GetHideMusic();
+			GS()->Stage = StageBefore;
+			Check(TEXT("big mansions use the deep hide BGM"), Deep == EKakurenboMusic::HideDeep && Early == EKakurenboMusic::Hide);
+			// 鬼の種類ごとの足音（WAV が無ければ OniStep の高さ違い）。次のラウンドのスピード鬼が門から歩いて出てくる足音を数える
+			SetStageOniTypes({ EOniType::Scout });
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Counts->OniSteps = Sound()->GetPlayCount(EKakurenboSfx::OniStepScout);
+		} });
+		Steps.Add({ 5.f, [=, this] // 「もういいかい」の間（HideStartDelay）の後、鬼が門から歩いて出てくる
+		{
+			const AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0] : nullptr;
+			Check(FString::Printf(TEXT("the scout has its own step sound (%s)"), Oni ? *UEnum::GetValueAsString(Oni->StepSfx) : TEXT("-")), Oni && Oni->StepSfx == EKakurenboSfx::OniStepScout);
+			Check(FString::Printf(TEXT("a walking scout patters (%d step sounds, oni counted %d)"), Sound()->GetPlayCount(EKakurenboSfx::OniStepScout) - Counts->OniSteps, Oni ? Oni->GetStepSoundCount() : -1),
+				Oni && Sound()->GetPlayCount(EKakurenboSfx::OniStepScout) - Counts->OniSteps >= 2);
+			const bool bHasWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/OniStepScout.wav")));
+			Check(FString::Printf(TEXT("scout steps come from Data/Sounds when the WAV exists (wav=%d)"), bHasWav ? 1 : 0),
+				Sound()->IsSfxFromFile(EKakurenboSfx::OniStepScout) == bHasWav);
 		} });
 	}
 	// ================================================================ Swatches（M12：Data/Surfaces.csv の見た目を並べて撮る・プレイヤーと宝石の見た目）

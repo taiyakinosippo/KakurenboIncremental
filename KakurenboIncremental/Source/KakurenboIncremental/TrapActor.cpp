@@ -529,7 +529,7 @@ void ATrapActor::TickOneWay()
 			if (bThrough)
 			{
 				++PassCount;
-				UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::PickUp, Center + FVector(0.f, 0.f, 150.f), 0.7f, 0.7f);
+				UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::CurtainPass, Center + FVector(0.f, 0.f, 150.f));
 				if (Def.Uses > 0 && PassCount >= Def.Uses)
 				{
 					bTriggered = true;

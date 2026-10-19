@@ -22,14 +22,14 @@ namespace
 	/** 鬼の足音・お宝のキラキラ：場所の手がかりになる音（何体ぶん重なってもよい。近いほど大きい減り方） */
 	bool IsCueSfx(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
+		return KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
 			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert || Sfx == EKakurenboSfx::Meow;
 	}
 
 	/** 重なってもよい音（間隔を空けない） */
 	bool AllowsOverlap(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
+		return KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
 			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Meow;
 	}
 
@@ -39,6 +39,10 @@ namespace
 	 */
 	void GetDistanceRange(EKakurenboSfx Sfx, float& OutFullCm, float& OutMaxCm)
 	{
+		if (KakurenboSynth::IsOniStepSfx(Sfx))
+		{
+			Sfx = EKakurenboSfx::OniStep; // 種類ごとの足音・飛び乗り・人形の足音も同じ距離で聞こえる
+		}
 		switch (Sfx)
 		{
 		case EKakurenboSfx::OniStep:         OutFullCm = 300.f;  OutMaxCm = 3200.f; break;
@@ -186,7 +190,9 @@ void UKakurenboSoundSubsystem::PlayMusic(EKakurenboMusic Music)
 	if (!Loop)
 	{
 		Loop = &MusicCache.Add(Music);
-		Loop->bFromFile = LoadMusicWav(Music, Loop->Samples, Loop->SampleRate, Loop->Channels);
+		// 大きな館の曲が無ければ、ふつうのかくれんぼの曲
+		Loop->bFromFile = LoadMusicWav(Music, Loop->Samples, Loop->SampleRate, Loop->Channels)
+			|| (Music == EKakurenboMusic::HideDeep && LoadMusicWav(EKakurenboMusic::Hide, Loop->Samples, Loop->SampleRate, Loop->Channels));
 		if (!Loop->bFromFile)
 		{
 			Loop->Samples = KakurenboSynth::RenderMusic(Music);
@@ -414,7 +420,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		Spatial.LowPass *= KakurenboSynth::DistanceLowPass(ToSource.Size2D(), FullCm, MaxCm);
 		// 近くの音が割れて（頭打ちになって）遠くの音と同じ大きさに聞こえないよう、1 を超えないようにしてから距離で小さくする
 		// 鬼の足音は種類・走っているかで大きさが変わる（最大 ×2.5）ので、その差が残るよう先に小さくしておく
-		const float Headroom = Sfx == EKakurenboSfx::OniStep ? 0.55f : 1.f;
+		const float Headroom = KakurenboSynth::IsOniStepSfx(Sfx) ? 0.55f : 1.f;
 		Volume = FMath::Min(Volume * Headroom, 1.f) * DistanceGain;
 
 		LastSpatial.SetNum(static_cast<int32>(EKakurenboSfx::Count));

@@ -332,8 +332,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float StepVolume = 1.f;
 
+	/** 足音の高さ（標準鬼・探知鬼。種類ごとの足音（StepSfx）がある鬼は、その音に高さが入っている） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float StepPitch = 1.f;
+
+	/** 足音の種類（スピード鬼「たったっ」・パワー鬼「ずしん」…。Data/Sounds の WAV が無ければ OniStep の高さ違い） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	EKakurenboSfx StepSfx = EKakurenboSfx::OniStep;
 
 	/** 追いかけてくる・音を調べに来るときの足音の大きさの倍率（向かってくるのが音でわかる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")

@@ -533,7 +533,7 @@ void AKakurenboPlayerController::OpenMenu(EKakurenboMenu Menu)
 	WaitingKeySlot = INDEX_NONE;
 	DraggingSlider = INDEX_NONE;
 	FocusAction = EKakurenboUIAction::None; // コントローラー：開いたメニューの最初のボタンを選ぶ
-	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.4f, 1.5f);
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::MenuOpen);
 }
 
 void AKakurenboPlayerController::CloseMenu()
@@ -550,7 +550,7 @@ void AKakurenboPlayerController::CloseMenu()
 		bPausedByMenu = false;
 		SetPause(false);
 	}
-	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::PickUp, 0.35f, 1.4f);
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::MenuClose);
 }
 
 void AKakurenboPlayerController::CloseAllMenus()
@@ -648,7 +648,7 @@ void AKakurenboPlayerController::OpenOniIntro(const TArray<EOniType>& Types, boo
 	}
 	OpenMenu(EKakurenboMenu::OniIntro);
 	OniIntroPageShownTime = FPlatformTime::Seconds();
-	UKakurenboSoundSubsystem::Play2D(this, bBook ? EKakurenboSfx::Place : EKakurenboSfx::Alert, bBook ? 0.4f : 0.7f, bBook ? 1.5f : 0.9f);
+	UKakurenboSoundSubsystem::Play2D(this, bBook ? EKakurenboSfx::MenuOpen : EKakurenboSfx::OniIntro);
 }
 
 bool AKakurenboPlayerController::CanTurnOniIntroPage() const
@@ -672,7 +672,7 @@ void AKakurenboPlayerController::TurnOniIntroPage(int32 Delta)
 	OniIntroPage = FMath::Clamp(Next, 0, OniIntroPages.Num() - 1);
 	OniIntroPageShownTime = FPlatformTime::Seconds();
 	FocusAction = EKakurenboUIAction::None;
-	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.35f, 1.7f);
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::UIClick);
 }
 
 bool AKakurenboPlayerController::IsTitleItemEnabled(EKakurenboTitleItem Item) const
@@ -814,12 +814,12 @@ void AKakurenboPlayerController::HandleTitleInput()
 	if (WasInputKeyJustPressed(EKeys::Up) || WasInputKeyJustPressed(EKeys::W) || Nav.Y < 0)
 	{
 		Step(-1);
-		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.3f, 1.8f);
+		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::UIMove);
 	}
 	if (WasInputKeyJustPressed(EKeys::Down) || WasInputKeyJustPressed(EKeys::S) || Nav.Y > 0)
 	{
 		Step(1);
-		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.3f, 1.8f);
+		UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::UIMove);
 	}
 	// カーソルを乗せた項目を選ぶ
 	FVector2D Cursor;
@@ -987,7 +987,7 @@ void AKakurenboPlayerController::ToggleSetting(EKakurenboSettingToggle Toggle)
 	}
 	S->Apply(this);
 	S->Save();
-	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.5f, 1.3f);
+	UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::UIClick);
 }
 
 // ---------------------------------------------------------------- 操作のヒント
@@ -1576,7 +1576,7 @@ void AKakurenboPlayerController::HandleGamepadFocus(float RealDeltaSeconds, bool
 			{
 				FocusAction = Buttons[Best].Action;
 				FocusIndex = Buttons[Best].Index;
-				UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::Place, 0.25f, 1.9f);
+				UKakurenboSoundSubsystem::Play2D(this, EKakurenboSfx::UIMove);
 			}
 		}
 	}

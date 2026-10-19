@@ -39,6 +39,35 @@ namespace KakurenboSynth
 		}
 	}
 
+	FSfxFallback GetFallback(EKakurenboSfx Sfx)
+	{
+		// 高さ・大きさは、専用の音を作る前に鳴らしていた音と同じ（Tools/SoundGen/ExportForGame.py はこの大きさに WAV をそろえる）。
+		// 鬼の足音の高さは AOniCharacter の StepPitch と同じ
+		switch (Sfx)
+		{
+		case EKakurenboSfx::UIClick:         return { EKakurenboSfx::Place, 1.3f, 0.5f };
+		case EKakurenboSfx::UIMove:          return { EKakurenboSfx::Place, 1.8f, 0.3f };
+		case EKakurenboSfx::MenuOpen:        return { EKakurenboSfx::Place, 1.5f, 0.4f };
+		case EKakurenboSfx::MenuClose:       return { EKakurenboSfx::PickUp, 1.4f, 0.35f };
+		case EKakurenboSfx::OniIntro:        return { EKakurenboSfx::Alert, 0.9f, 0.7f };
+		case EKakurenboSfx::OniLeap:         return { EKakurenboSfx::OniStep, 0.75f, 1.5f };
+		case EKakurenboSfx::CurtainPass:     return { EKakurenboSfx::PickUp, 0.7f, 0.7f };
+		case EKakurenboSfx::DollStep:        return { EKakurenboSfx::OniStep, 1.6f, 1.3f };
+		case EKakurenboSfx::OniStepScout:    return { EKakurenboSfx::OniStep, 1.3f, 1.f };
+		case EKakurenboSfx::OniStepBreaker:  return { EKakurenboSfx::OniStep, 0.75f, 1.f };
+		case EKakurenboSfx::OniStepCareful:  return { EKakurenboSfx::OniStep, 1.1f, 1.f };
+		case EKakurenboSfx::OniStepTreasure: return { EKakurenboSfx::OniStep, 1.18f, 1.f };
+		default:                             return { Sfx, 1.f, 1.f };
+		}
+	}
+
+	bool IsOniStepSfx(EKakurenboSfx Sfx)
+	{
+		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::OniStepScout || Sfx == EKakurenboSfx::OniStepBreaker
+			|| Sfx == EKakurenboSfx::OniStepCareful || Sfx == EKakurenboSfx::OniStepTreasure || Sfx == EKakurenboSfx::OniLeap
+			|| Sfx == EKakurenboSfx::DollStep;
+	}
+
 	TArray<FNote> GetRecipe(EKakurenboSfx Sfx)
 	{
 		switch (Sfx)
@@ -251,7 +280,22 @@ namespace KakurenboSynth
 			};
 
 		default:
-			return {};
+		{
+			// 代わりの音の設計図を、高さ・大きさを変えて使う
+			const FSfxFallback Fallback = GetFallback(Sfx);
+			if (Fallback.Sfx == Sfx)
+			{
+				return {};
+			}
+			TArray<FNote> Notes = GetRecipe(Fallback.Sfx);
+			for (FNote& N : Notes)
+			{
+				N.Freq *= Fallback.Pitch;
+				N.FreqEnd *= Fallback.Pitch;
+				N.Volume *= Fallback.Volume;
+			}
+			return Notes;
+		}
 		}
 	}
 
@@ -572,6 +616,7 @@ namespace KakurenboSynth
 		case EKakurenboMusic::Calm:
 		case EKakurenboMusic::Title: return CalmRecipe(OutLoopSeconds); // タイトル・追われている間の曲はプログラムでは作らない（WAV が無いときの代わり）
 		case EKakurenboMusic::Hide:
+		case EKakurenboMusic::HideDeep:
 		case EKakurenboMusic::Chase: return HideRecipe(OutLoopSeconds);
 		default:                     return {};
 		}

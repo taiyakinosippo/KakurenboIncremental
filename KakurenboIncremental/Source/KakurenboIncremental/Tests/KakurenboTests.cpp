@@ -610,7 +610,8 @@ bool FKakurenboSynthTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(FString::Printf(TEXT("%s has a recipe"), *Name), Expected > 0.f && Expected < 2.f);
 		TestTrue(FString::Printf(TEXT("%s length %.3f s (recipe %.3f s)"), *Name, Seconds, Expected), Seconds >= Expected && Seconds <= Expected + 0.02f);
-		TestTrue(FString::Printf(TEXT("%s is audible (peak %d)"), *Name, Peak), Peak > 3000);
+		// 代わりの音（GetFallback）で小さく鳴らす音（メニューの音など）は、その分小さくてよい
+		TestTrue(FString::Printf(TEXT("%s is audible (peak %d)"), *Name, Peak), Peak > 3000 * FMath::Min(KakurenboSynth::GetFallback(Sfx).Volume, 1.f));
 		TestTrue(FString::Printf(TEXT("%s ends silent"), *Name), Samples.Num() > 0 && FMath::Abs(static_cast<int32>(Samples.Last())) < 50);
 		// 毎回同じ波形になる（テストや見直しで差が出ないように）
 		TestTrue(FString::Printf(TEXT("%s is deterministic"), *Name), KakurenboSynth::RenderSfx(Sfx) == Samples);

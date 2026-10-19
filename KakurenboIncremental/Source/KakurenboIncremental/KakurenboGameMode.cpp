@@ -517,12 +517,18 @@ float AKakurenboGameMode::ComputeOniCloseness() const
 	return Closeness;
 }
 
-EKakurenboMusic AKakurenboGameMode::GetPhaseMusic(EKakurenboPhase Phase)
+EKakurenboMusic AKakurenboGameMode::GetHideMusic() const
+{
+	const AKakurenboGameState* State = GS();
+	return State && State->Stage >= DeepHideMusicStage ? EKakurenboMusic::HideDeep : EKakurenboMusic::Hide;
+}
+
+EKakurenboMusic AKakurenboGameMode::GetPhaseMusic(EKakurenboPhase Phase) const
 {
 	switch (Phase)
 	{
 	case EKakurenboPhase::Title: return EKakurenboMusic::Title;
-	case EKakurenboPhase::Hide:  return EKakurenboMusic::Hide;
+	case EKakurenboPhase::Hide:  return GetHideMusic();
 	default:                     return EKakurenboMusic::Calm;
 	}
 }
@@ -543,7 +549,7 @@ void AKakurenboGameMode::TickChaseMusic(float DeltaSeconds)
 	ChaseMusicTimer = bChased ? 0.f : ChaseMusicTimer + DeltaSeconds;
 	if (UKakurenboSoundSubsystem* Sound = GetWorld()->GetSubsystem<UKakurenboSoundSubsystem>())
 	{
-		Sound->PlayMusic(ChaseMusicTimer < ChaseMusicHoldSeconds ? EKakurenboMusic::Chase : EKakurenboMusic::Hide);
+		Sound->PlayMusic(ChaseMusicTimer < ChaseMusicHoldSeconds ? EKakurenboMusic::Chase : GetHideMusic());
 	}
 }
 

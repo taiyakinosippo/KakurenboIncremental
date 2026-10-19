@@ -266,12 +266,13 @@ void AOniCharacter::ApplyTypeSettings(EOniType Type, const FKakurenboOniTypeRow&
 	switch (Type)
 	{
 	// （うろうろしているだけの鬼も、遠くからどっちにいるかわかる大きさにする）
-	case EOniType::Breaker:  StepVolume = 1.7f; StepPitch = 0.75f; break;
-	case EOniType::Scout:    StepVolume = 1.2f; StepPitch = 1.3f; break;
-	case EOniType::Careful:  StepVolume = 1.1f; StepPitch = 1.1f; break;
-	case EOniType::Treasure: StepVolume = 1.25f; StepPitch = 1.18f; break;
-	case EOniType::Detector: StepVolume = 1.35f; StepPitch = 0.9f; break;
-	default:                 StepVolume = 1.4f; StepPitch = 1.f; break;
+	// 高さ StepPitch は「ン？」の声にも使う。種類ごとの足音の WAV が無いときの高さは KakurenboSynth::GetFallback（同じ値）
+	case EOniType::Breaker:  StepVolume = 1.7f; StepPitch = 0.75f; StepSfx = EKakurenboSfx::OniStepBreaker; break;
+	case EOniType::Scout:    StepVolume = 1.2f; StepPitch = 1.3f; StepSfx = EKakurenboSfx::OniStepScout; break;
+	case EOniType::Careful:  StepVolume = 1.1f; StepPitch = 1.1f; StepSfx = EKakurenboSfx::OniStepCareful; break;
+	case EOniType::Treasure: StepVolume = 1.25f; StepPitch = 1.18f; StepSfx = EKakurenboSfx::OniStepTreasure; break;
+	case EOniType::Detector: StepVolume = 1.35f; StepPitch = 0.9f; StepSfx = EKakurenboSfx::OniStep; break;
+	default:                 StepVolume = 1.4f; StepPitch = 1.f; StepSfx = EKakurenboSfx::OniStep; break;
 	}
 }
 
@@ -934,13 +935,14 @@ void AOniCharacter::TickFootsteps()
 	}
 	StepDistance = 0.f;
 	++StepSoundCount;
-	const float Pitch = StepPitch * ((StepSoundCount % 2 == 0) ? 1.f : 0.9f) * FMath::FRandRange(0.97f, 1.03f);
+	const float TypePitch = StepSfx == EKakurenboSfx::OniStep ? StepPitch : 1.f; // 種類ごとの足音は音そのものに高さが入っている
+	const float Pitch = TypePitch * ((StepSoundCount % 2 == 0) ? 1.f : 0.9f) * FMath::FRandRange(0.97f, 1.03f);
 	const FVector Feet = Loc - FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 	// 走っている（音を調べに来る・追いかけてくる）ときは大きく、少し高く（向かってくるのが音でわかる）
 	const EOniState Intent = GetIntent();
 	const float Urgency = Intent == EOniState::Chase ? ChaseStepVolumeScale
 		: (Intent == EOniState::Investigate || Intent == EOniState::Inspect) ? InvestigateStepVolumeScale : 1.f;
-	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Feet, StepVolume * Urgency, Pitch * (Intent == EOniState::Chase ? 1.08f : 1.f));
+	UKakurenboSoundSubsystem::Play3D(this, StepSfx, Feet, StepVolume * Urgency, Pitch * (Intent == EOniState::Chase ? 1.08f : 1.f));
 }
 
 // ---------------------------------------------------------------- 見つけたときの「!」
@@ -1498,7 +1500,7 @@ bool AOniCharacter::TryStartLeap()
 	LeapElapsed = 0.f;
 	LeapCooldown = LeapCooldownSeconds;
 	++LeapCount;
-	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Me, 1.5f, 0.75f);
+	UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniLeap, Me);
 	return true;
 }
 

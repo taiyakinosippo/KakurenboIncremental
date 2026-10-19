@@ -423,6 +423,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float ChaseMusicHoldSeconds = 4.f;
 
+	/** このステージから、かくれんぼの BGM を大きな館の曲（HideDeep。もっと深い夜）にする */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	int32 DeepHideMusicStage = 11;
+
+	/** かくれんぼの BGM（DeepHideMusicStage からは大きな館の曲） */
+	EKakurenboMusic GetHideMusic() const;
+
 	/** 近さ（0〜1）がこれ以上で鳴り始める */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float HeartbeatMinCloseness = 0.12f;
@@ -1155,7 +1162,7 @@ protected:
 	/** かくれんぼ中、鬼に追われている間は追われている間の BGM にする */
 	void TickChaseMusic(float DeltaSeconds);
 	/** パートに合う BGM（タイトル・かくれんぼ・それ以外） */
-	static EKakurenboMusic GetPhaseMusic(EKakurenboPhase Phase);
+	EKakurenboMusic GetPhaseMusic(EKakurenboPhase Phase) const;
 
 	/** 画面の点滅・大きな文字（HUD に頼む） */
 	void FlashScreen(const FLinearColor& Color, float Duration) const;

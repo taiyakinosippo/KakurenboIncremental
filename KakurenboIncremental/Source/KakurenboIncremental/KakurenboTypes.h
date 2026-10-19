@@ -175,6 +175,19 @@ enum class EKakurenboSfx : uint8
 	Daruma        UMETA(DisplayName = "Daruma"),        // だるまさんがころんだ（かけ声のメロディ）
 	Poof          UMETA(DisplayName = "Poof"),          // 身代わり人形が捕まって消えた・のれんが壊れた・タッチで鬼が門へ帰った（ポン）
 	Gem           UMETA(DisplayName = "Gem"),           // 宝石を全部集めた（ボーナス）
+	// ここから下は専用の音（Data/Sounds/<名前>.wav）が無ければ、上の音の高さ違いで鳴る（KakurenboSynth::GetFallback）
+	UIClick       UMETA(DisplayName = "UIClick"),       // ボタンを押した（設定を変えた・図鑑のページをめくった）
+	UIMove        UMETA(DisplayName = "UIMove"),        // カーソル・選択の移動（コントローラー・キー）
+	MenuOpen      UMETA(DisplayName = "MenuOpen"),      // メニューを開いた
+	MenuClose     UMETA(DisplayName = "MenuClose"),     // メニューを閉じた
+	OniIntro      UMETA(DisplayName = "OniIntro"),      // 初めて出てくる鬼のチュートリアル
+	OniLeap       UMETA(DisplayName = "OniLeap"),       // 鬼が家具・壁に飛び乗った（その場所から聞こえる）
+	CurtainPass   UMETA(DisplayName = "CurtainPass"),   // 鬼がのれんをくぐった（その場所から聞こえる）
+	DollStep      UMETA(DisplayName = "DollStep"),      // 身代わり人形が逃げる足音（その場所から聞こえる）
+	OniStepScout  UMETA(DisplayName = "OniStepScout"),  // スピード鬼の足音
+	OniStepBreaker UMETA(DisplayName = "OniStepBreaker"), // パワー鬼の足音
+	OniStepCareful UMETA(DisplayName = "OniStepCareful"), // 慎重鬼の足音
+	OniStepTreasure UMETA(DisplayName = "OniStepTreasure"), // 宝物鬼の足音
 	Count         UMETA(Hidden)
 };
 
@@ -187,6 +200,7 @@ enum class EKakurenboMusic : uint8
 	Hide UMETA(DisplayName = "Hide"),   // かくれんぼ：速くて少し怖い曲
 	Title UMETA(DisplayName = "Title"), // タイトル：少し不気味な夜の館への招待（プログラムの曲は Calm と同じ）
 	Chase UMETA(DisplayName = "Chase"), // かくれんぼ中に鬼に追われている間：どたばた（プログラムの曲は Hide と同じ）
+	HideDeep UMETA(DisplayName = "HideDeep"), // 大きな館のかくれんぼ（GameMode の DeepHideMusicStage から）：もっと深い夜。WAV が無ければ Hide の曲
 };
 
 /** 購入パートの商品 1 つ分の表示用データ */

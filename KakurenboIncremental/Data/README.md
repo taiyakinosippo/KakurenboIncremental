@@ -227,11 +227,13 @@ Kind は `FakeHider`（身代わり人形）・`OneWay`（一方通行ののれ�
 ## Sounds/<音>.wav（効果音）
 
 名前は `EKakurenboSfx`（`OniStep.wav` など）。**モノラル・44100Hz・16bit** の WAV。その音を初めて鳴らすときに読み、プログラムの音と同じ左右の振り分け・こもり・距離の処理を通す。
-無い音はプログラムで作った音。AI の候補から作るときは `Tools/SoundGen/ExportForGame.py`（形と大きさをそろえる）。採用の記録は docs/Sounds.md。
+無い音はプログラムで作った音。AI の候補から作るときは `Tools/SoundGen/ExportForGame.py`（形と大きさをそろえ、頭とお尻の無音を切る）。採用の記録は docs/Sounds.md。
+2026-10-19 に足した音（UIClick・UIMove・MenuOpen・MenuClose・OniIntro・OniLeap・CurtainPass・DollStep・OniStepScout・OniStepBreaker・OniStepCareful・OniStepTreasure）は、
+WAV が無ければ今までの音の高さ違い（`KakurenboSynth::GetFallback`）。
 
 ## Sounds/Music_*.wav（BGM）
 
-`Music_Title` / `Music_Calm` / `Music_Hide` / `Music_Chase`（名前は `EKakurenboMusic`）。16bit のモノラルかステレオの WAV で、
+`Music_Title` / `Music_Calm` / `Music_Hide` / `Music_HideDeep`（大きな館のかくれんぼ。GameMode の DeepHideMusicStage＝ステージ 11 から。無ければ Music_Hide）/ `Music_Chase`（名前は `EKakurenboMusic`）。16bit のモノラルかステレオの WAV で、
 最後から最初へそのままつながる（くり返せる）こと。起動後、その曲を初めて流すときに読む（無ければプログラムで作った曲）。
 BGM を作る AI の候補から作るときは `Tools/MusicGen/ExportForGame.py`（くり返せる形に切って、大きさをそろえる）。採用の記録は docs/Sounds.md。
 

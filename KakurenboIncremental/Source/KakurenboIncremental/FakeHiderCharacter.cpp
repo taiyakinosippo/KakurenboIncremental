@@ -135,6 +135,6 @@ void AFakeHiderCharacter::Tick(float DeltaSeconds)
 			GM->HandleGadgetNoise(Trap, GM->FakeHiderNoiseLoudness, EKakurenboNoise::Dash);
 		}
 		const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());
-		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::OniStep, Feet, 1.3f, 1.6f);
+		UKakurenboSoundSubsystem::Play3D(this, EKakurenboSfx::DollStep, Feet);
 	}
 }
