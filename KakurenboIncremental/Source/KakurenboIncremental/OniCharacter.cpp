@@ -2528,7 +2528,7 @@ void AOniCharacter::BeginAttack(const FIntPoint& WallCell)
 	}
 }
 
-TArray<FIntPoint> AOniCharacter::GetAttackBoxCells() const
+TArray<FIntPoint> AOniCharacter::GetAttackBoxCells(int32 Width, int32 Depth) const
 {
 	TArray<FIntPoint> Cells;
 	const UKakurenboGridSubsystem* G = Grid();
@@ -2546,9 +2546,9 @@ TArray<FIntPoint> AOniCharacter::GetAttackBoxCells() const
 	auto CountWalls = [&](const FIntPoint& Dir)
 	{
 		int32 Count = 0;
-		for (int32 W = 1; W < AttackBoxWidth; ++W)
+		for (int32 W = 1; W < Width; ++W)
 		{
-			for (int32 D = 0; D < AttackBoxDepth; ++D)
+			for (int32 D = 0; D < Depth; ++D)
 			{
 				Count += G->GetColumnHeight(AttackCell + Dir * W + Forward * D) > 0 ? 1 : 0;
 			}
@@ -2559,9 +2559,9 @@ TArray<FIntPoint> AOniCharacter::GetAttackBoxCells() const
 	{
 		Side = FIntPoint(-Side.X, -Side.Y);
 	}
-	for (int32 W = 0; W < FMath::Max(1, AttackBoxWidth); ++W)
+	for (int32 W = 0; W < FMath::Max(1, Width); ++W)
 	{
-		for (int32 D = 0; D < FMath::Max(1, AttackBoxDepth); ++D)
+		for (int32 D = 0; D < FMath::Max(1, Depth); ++D)
 		{
 			const FIntPoint Cell = AttackCell + Side * W + Forward * D;
 			if (G->IsInside(Cell))
@@ -2571,6 +2571,22 @@ TArray<FIntPoint> AOniCharacter::GetAttackBoxCells() const
 		}
 	}
 	return Cells;
+}
+
+float AOniCharacter::GetOverkillRangeScale(double WallHP) const
+{
+	const AKakurenboGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<AKakurenboGameMode>() : nullptr;
+	if ((GM && !GM->bOniOverkillRange) || WallHP <= 0.0 || OverkillRangeStart <= 0.0)
+	{
+		return 1.f;
+	}
+	const double Ratio = AttackDamage / WallHP;
+	if (Ratio <= OverkillRangeStart)
+	{
+		return 1.f;
+	}
+	const float Scale = 1.f + OverkillRangePerDoubling * static_cast<float>(FMath::Log2(Ratio / OverkillRangeStart));
+	return FMath::Clamp(Scale, 1.f, FMath::Max(1.f, OverkillRangeMax));
 }
 
 void AOniCharacter::ResetBodyScale()
@@ -2596,6 +2612,10 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 		int32 Destroyed = 0;
 		UKakurenboFxSubsystem* Fx = GetWorld()->GetSubsystem<UKakurenboFxSubsystem>();
 		ATrapActor* GateTrap = G->GetTrap(AttackCell);
+		// 壁の耐久が攻撃力よりずっと低いと、攻撃範囲が広がる（最大 3 倍）
+		const APlaceableBlock* TargetBlock = G->GetBlock(AttackCell, 0);
+		const float RangeScale = GetOverkillRangeScale(TargetBlock ? TargetBlock->MaxHP : 0.0);
+		LastAttackRangeScale = RangeScale;
 		if (GateTrap && GateTrap->GetKind() == ETrapKind::OneWay)
 		{
 			// のれんを壊す（どの鬼も、のれんだけに当たる）
@@ -2606,18 +2626,52 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 		}
 		else if (bSingleTargetAttack)
 		{
-			// 目の前の壁 1 個だけ（壁の破片と音はグリッドからの通知で GameMode が出す）
-			Destroyed = G->DamageBottomBlock(AttackCell, AttackDamage);
+			// 目の前の壁 1 個だけ（壁の破片と音はグリッドからの通知で GameMode が出す）。
+			// 範囲が広がったら、そのまわりの近い壁にも 1 個ずつ（倍率の数まで）
+			TArray<FIntPoint> Targets = { AttackCell };
+			const int32 NumTargets = FMath::RoundToInt(RangeScale);
+			if (NumTargets > 1)
+			{
+				const int32 Reach = NumTargets - 1;
+				TArray<FIntPoint> Near;
+				for (int32 DY = -Reach; DY <= Reach; ++DY)
+				{
+					for (int32 DX = -Reach; DX <= Reach; ++DX)
+					{
+						const FIntPoint Cell = AttackCell + FIntPoint(DX, DY);
+						if ((DX != 0 || DY != 0) && G->IsInside(Cell) && G->GetColumnHeight(Cell) > 0)
+						{
+							Near.Add(Cell);
+						}
+					}
+				}
+				const FVector Me = GetActorLocation();
+				Near.Sort([&](const FIntPoint& A, const FIntPoint& B)
+				{
+					const int32 DA = (A - AttackCell).SizeSquared(), DB = (B - AttackCell).SizeSquared();
+					return DA != DB ? DA < DB : FVector::DistSquared2D(G->CellFloorCenter(A), Me) < FVector::DistSquared2D(G->CellFloorCenter(B), Me);
+				});
+				for (int32 i = 0; i < Near.Num() && Targets.Num() < NumTargets; ++i)
+				{
+					Targets.Add(Near[i]);
+				}
+			}
+			for (const FIntPoint& Cell : Targets)
+			{
+				Destroyed += G->DamageBottomBlock(Cell, AttackDamage);
+			}
 			if (Fx)
 			{
-				Fx->Ring(G->CellFloorCenter(AttackCell), 20.f, G->GetCellSize() * 0.6f, 0.2f, FLinearColor(1.f, 0.35f, 0.15f), 8.f);
+				Fx->Ring(G->CellFloorCenter(AttackCell), 20.f, G->GetCellSize() * 0.6f * RangeScale, 0.2f, FLinearColor(1.f, 0.35f, 0.15f), 8.f);
 			}
 		}
 		else if (AttackBoxWidth > 0 && AttackBoxDepth > 0 && AttackBoxLevels > 0)
 		{
-			// 前方の箱（パワー鬼）：目の前の壁から 横 × 奥 × 段 の壁にまとめて当たる
-			const TArray<FIntPoint> Cells = GetAttackBoxCells();
-			Destroyed = G->DamageBlocksInCells(Cells, AttackBoxLevels, AttackDamage);
+			// 前方の箱（パワー鬼）：目の前の壁から 横 × 奥 × 段 の壁にまとめて当たる（範囲が広がると箱も大きく）
+			const int32 BoxWidth = FMath::RoundToInt(AttackBoxWidth * RangeScale);
+			const int32 BoxDepth = FMath::RoundToInt(AttackBoxDepth * RangeScale);
+			const TArray<FIntPoint> Cells = GetAttackBoxCells(BoxWidth, BoxDepth);
+			Destroyed = G->DamageBlocksInCells(Cells, FMath::RoundToInt(AttackBoxLevels * RangeScale), AttackDamage);
 			if (Fx)
 			{
 				FVector Center = FVector::ZeroVector;
@@ -2626,16 +2680,17 @@ void AOniCharacter::TickAttack(float DeltaSeconds)
 					Center += G->CellFloorCenter(Cell);
 				}
 				Center /= FMath::Max(1, Cells.Num());
-				Fx->Ring(Center, 30.f, G->GetCellSize() * 0.75f * FMath::Max(AttackBoxWidth, AttackBoxDepth), 0.3f, FLinearColor(1.f, 0.35f, 0.15f), 14.f);
+				Fx->Ring(Center, 30.f, G->GetCellSize() * 0.75f * FMath::Max(BoxWidth, BoxDepth), 0.3f, FLinearColor(1.f, 0.35f, 0.15f), 14.f);
 			}
 		}
 		else
 		{
-			// 範囲攻撃：足元から衝撃波が広がる
-			Destroyed = G->DamageBlocksInRadius(GetActorLocation(), AttackRadius, AttackDamage);
+			// 範囲攻撃：足元から衝撃波が広がる（範囲が広がると半径も）
+			const float Radius = AttackRadius * RangeScale;
+			Destroyed = G->DamageBlocksInRadius(GetActorLocation(), Radius, AttackDamage);
 			if (Fx)
 			{
-				Fx->Ring(GetActorLocation(), 30.f, AttackRadius, 0.25f, FLinearColor(1.f, 0.35f, 0.15f), 12.f);
+				Fx->Ring(GetActorLocation(), 30.f, Radius, 0.25f, FLinearColor(1.f, 0.35f, 0.15f), 12.f);
 			}
 		}
 		if (Destroyed > 0)

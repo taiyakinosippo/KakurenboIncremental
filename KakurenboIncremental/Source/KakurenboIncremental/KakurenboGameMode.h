@@ -159,6 +159,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
 	int32 StageExtraOniEvery = 3;
 
+	/** Stages.csv より後のステージは、置ける壁の数（WallLimit）がこの数ずつ増える */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Balance|Stage Growth")
+	int32 StageWallLimitGrowth = 2;
+
 	// ===== かくれんぼのルール =====
 
 	/** かくれんぼ開始から鬼が出てくるまでの猶予（秒） */
@@ -598,6 +602,16 @@ public:
 	int32 GetSmokeUsesPerRound(int32 Level) const;
 	int32 GetSmokeUsesPerRound() const { return GetSmokeUsesPerRound(GetPrestigeLevel(EPrestigeUpgrade::SmokeCount)); }
 
+	/**
+	 * 置ける壁の数（Stages.csv の WallLimit × 転生のお店「壁の数」の倍率 BaseValue × ValueGrowth ^ Lv）。
+	 * 「壁の数」が最大レベル・WallLimit が 0・bWallLimit が false なら INDEX_NONE（無制限）
+	 */
+	int32 GetWallLimitFor(int32 Stage, int32 Level) const;
+	int32 GetWallLimit() const;
+
+	/** 置いている壁の数（設計図の数。壊れて直していない壁も数える） */
+	int32 GetPlacedWallCount() const;
+
 	/** 煙幕が残る時間（秒）。「煙幕ダッシュ」のレベルで決まる（足し算。MinSmokeDuration〜MaxSmokeDuration に収める） */
 	float GetSmokeDuration(int32 Level) const;
 	float GetSmokeDuration() const { return GetSmokeDuration(GetPrestigeLevel(EPrestigeUpgrade::SmokeDuration)); }
@@ -845,8 +859,8 @@ public:
 	/** M15：宝石のお店の商品一覧（宝石で買う道具：Traps.csv の bGemItem の行） */
 	TArray<FShopItemView> GetGemShopItems() const;
 
-	/** 宝石のお店で買う（Index は 0 始まり）。@return 買った数 */
-	int32 TryBuyGemShopItem(int32 Index, int32 Count = 1);
+	/** 宝石のお店で 1 個買う（Index は 0 始まり。まとめ買いは無い）。@return 買った数 */
+	int32 TryBuyGemShopItem(int32 Index);
 
 	/** 宝石のお店の Index 番目の道具は、TrapTypes の何番か（無ければ INDEX_NONE） */
 	int32 GetGemShopTrapType(int32 Index) const;
@@ -976,6 +990,14 @@ public:
 	/** 鬼の勘（OniTypes.csv の Intuition）を使うか。自動テストは Intuition シナリオ以外では切る（鬼の動きが変わらないように） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
 	bool bOniIntuition = true;
+
+	/** ステージごとの置ける壁の数の制限を使うか。自動テストは WallLimit シナリオ以外では切る（たくさん壁を置くテストがあるので） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Build")
+	bool bWallLimit = true;
+
+	/** 壁の耐久が鬼の攻撃力よりずっと低いとき、鬼の壁への攻撃範囲を広げるか（AOniCharacter::GetOverkillRangeScale）。自動テストは Overkill シナリオ以外では切る */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	bool bOniOverkillRange = true;
 
 	/** だるまさんがころんだ：使った瞬間に、プレイヤーの体が向いている方からこの角度（度）以内・この距離（cm）以内に見えている鬼が止まる（カメラの向きではない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gem")

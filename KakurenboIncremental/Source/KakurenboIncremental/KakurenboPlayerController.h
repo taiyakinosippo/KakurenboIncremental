@@ -461,6 +461,18 @@ protected:
 	/** 設置パート：左スティック・十字キーでカーソル、A で置く、X で回収、LB・RB で置く物を選ぶ */
 	void HandleGamepadBuild(float DeltaTime);
 
+	/** 壁を置いた・回収したマスから、押したままなぞる（長押し）の一筆を始める */
+	void BeginWallStroke(bool bRemove, const FIntPoint& Cell, int32 Level);
+
+	/** 押したままなら、カーソルが新しく指したマスにも続けて置く・回収する（一筆で同じマスは 1 回だけ。置くときは始めた段と同じ高さのマスだけ） */
+	void ContinueWallStroke(bool bPlaceDown, bool bRemoveDown);
+
+	/** 長押しの一筆（置く / 回収）の途中か・回収か・置く段・もう触ったマス */
+	bool bWallStroke = false;
+	bool bWallStrokeRemove = false;
+	int32 WallStrokeLevel = 0;
+	TSet<FIntPoint> WallStrokeCells;
+
 	/** マスを指したときの置き場所と回収対象（コントローラーのカーソル用） */
 	void UpdateBuildTargetAtCell(const FIntPoint& Cell);
 

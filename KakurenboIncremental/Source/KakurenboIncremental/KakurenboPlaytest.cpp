@@ -474,7 +474,7 @@ void AKakurenboPlayerController::PlaytestShop()
 
 		// 転生のお店：使えるポイントを、逃げる道具 → 壁の硬さ → よじ登る → 稼ぎの順で
 		{
-			const EPrestigeUpgrade Priority[] = { EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Climb, EPrestigeUpgrade::Income,
+			const EPrestigeUpgrade Priority[] = { EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Climb, EPrestigeUpgrade::WallCount, EPrestigeUpgrade::Income,
 				EPrestigeUpgrade::SmokeCount, EPrestigeUpgrade::WallHP, EPrestigeUpgrade::Income, EPrestigeUpgrade::Treasure, EPrestigeUpgrade::SmokeDuration, EPrestigeUpgrade::QuietHP };
 			for (int32 Guard = 0; Guard < 40; ++Guard)
 			{
@@ -597,7 +597,7 @@ void AKakurenboPlayerController::PlaytestShop()
 					}
 				}
 			}
-			if (Pick == INDEX_NONE || GM->TryBuyGemShopItem(Pick, 1) <= 0)
+			if (Pick == INDEX_NONE || GM->TryBuyGemShopItem(Pick) <= 0)
 			{
 				break;
 			}

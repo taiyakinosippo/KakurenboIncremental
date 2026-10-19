@@ -1614,7 +1614,7 @@ bool AKakurenboPlayerController::BuyItem(int32 ItemNumber)
 	switch (ShopTab)
 	{
 	case EKakurenboShopTab::Prestige: return GM->TryBuyPrestigeUpgrade(ItemNumber - 1);
-	case EKakurenboShopTab::Gem:      return GM->TryBuyGemShopItem(ItemNumber - 1, GetBuyCount()) > 0;
+	case EKakurenboShopTab::Gem:      return GM->TryBuyGemShopItem(ItemNumber - 1) > 0; // 宝石のお店は 1 個ずつ
 	default:                          return GM->TryBuyShopItem(ItemNumber - 1, GetBuyCount()) > 0;
 	}
 }
@@ -1743,14 +1743,25 @@ void AKakurenboPlayerController::HandleBuildInput()
 		}
 		else
 		{
-			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
+			const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+			const int32 Level = Grid ? Grid->GetColumnHeight(BuildTargetCell) : 0;
+			if (GM->PlaceWall(BuildTargetCell, GetSelectedWallType()))
+			{
+				BeginWallStroke(false, BuildTargetCell, Level);
+			}
 		}
 	}
+	const FKey RemoveKey = bUsingGamepad ? UKakurenboSettings::PadFace(EKakurenboPadFace::X) : EKeys::RightMouseButton;
 	if (WasInputKeyJustPressed(EKeys::RightMouseButton) || (bUsingGamepad && WasInputKeyJustPressed(UKakurenboSettings::PadFace(EKakurenboPadFace::X))))
 	{
 		if (PickUpTarget)
 		{
-			GM->PickUpWall(PickUpTarget);
+			const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+			const FIntPoint Cell = Grid ? Grid->WorldToCell(PickUpTarget->GetActorLocation()) : FIntPoint::NoneValue;
+			if (GM->PickUpWall(PickUpTarget))
+			{
+				BeginWallStroke(true, Cell, 0);
+			}
 			PickUpTarget = nullptr;
 		}
 		else if (bHasTrapPickUpTarget)
@@ -1759,6 +1770,10 @@ void AKakurenboPlayerController::HandleBuildInput()
 			bHasTrapPickUpTarget = false;
 		}
 	}
+
+	// 押したまま動かすと、なぞったマスにも続けて置く・回収する
+	const FKey PlaceKey = bUsingGamepad ? UKakurenboSettings::PadFace(EKakurenboPadFace::A) : EKeys::LeftMouseButton;
+	ContinueWallStroke(IsInputKeyDown(PlaceKey), IsInputKeyDown(RemoveKey));
 
 	// T: かくれんぼを始める場所をカーソルのマスへ
 	if (WasActionPressed(EKakurenboAction::SetStart) && bHasBuildTarget)
@@ -1847,9 +1862,59 @@ void AKakurenboPlayerController::HandleGamepadBuild(float DeltaTime)
 		}
 		else
 		{
-			GM->PlaceWall(BuildTargetCell, GetSelectedWallType());
+			const int32 Level = Grid->GetColumnHeight(BuildTargetCell);
+			if (GM->PlaceWall(BuildTargetCell, GetSelectedWallType()))
+			{
+				BeginWallStroke(false, BuildTargetCell, Level);
+			}
 		}
 		UpdateBuildTargetAtCell(BuildTargetCell);
+	}
+}
+
+void AKakurenboPlayerController::BeginWallStroke(bool bRemove, const FIntPoint& Cell, int32 Level)
+{
+	bWallStroke = true;
+	bWallStrokeRemove = bRemove;
+	WallStrokeLevel = Level;
+	WallStrokeCells.Reset();
+	WallStrokeCells.Add(Cell);
+}
+
+void AKakurenboPlayerController::ContinueWallStroke(bool bPlaceDown, bool bRemoveDown)
+{
+	AKakurenboGameMode* GM = GetKakurenboGameMode();
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	// ボタンを離した・設置パートが終わった・置く物を罠に変えた → 一筆おわり
+	const bool bHeld = bWallStrokeRemove ? bRemoveDown : bPlaceDown;
+	if (!bWallStroke || !bHeld || !GM || !Grid || GM->GetPhase() != EKakurenboPhase::Build || (!bWallStrokeRemove && IsTrapSlotSelected()))
+	{
+		bWallStroke = false;
+		WallStrokeCells.Reset();
+		return;
+	}
+	if (!bWallStrokeRemove)
+	{
+		// 置く：始めた段と同じ高さのマスだけ（同じマスに積み上がらない。2 段目をなぞれば 2 段目の列になる）
+		if (bHasBuildTarget && bCanPlaceAtTarget && !WallStrokeCells.Contains(BuildTargetCell) && Grid->GetColumnHeight(BuildTargetCell) == WallStrokeLevel
+			&& GM->PlaceWall(BuildTargetCell, GetSelectedWallType()))
+		{
+			WallStrokeCells.Add(BuildTargetCell);
+			if (bUsingGamepad)
+			{
+				UpdateBuildTargetAtCell(BuildTargetCell);
+			}
+		}
+	}
+	else if (PickUpTarget)
+	{
+		// 回収：なぞったマスの一番上を 1 個ずつ
+		const FIntPoint Cell = Grid->WorldToCell(PickUpTarget->GetActorLocation());
+		if (!WallStrokeCells.Contains(Cell) && GM->PickUpWall(PickUpTarget))
+		{
+			WallStrokeCells.Add(Cell);
+			PickUpTarget = nullptr;
+		}
 	}
 }
 

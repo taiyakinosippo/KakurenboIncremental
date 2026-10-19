@@ -84,6 +84,16 @@ int32 UKakurenboGridSubsystem::GetBlockCount() const
 	return Count;
 }
 
+int32 UKakurenboGridSubsystem::GetDesignWallCount() const
+{
+	int32 Count = 0;
+	for (const FKakurenboBlockColumn& Column : Columns)
+	{
+		Count += FMath::Max(Column.Design.Num(), Column.Blocks.Num());
+	}
+	return Count;
+}
+
 bool UKakurenboGridSubsystem::CanPlaceBlock(const FIntPoint& Cell, FText* OutReason) const
 {
 	if (!IsInside(Cell))

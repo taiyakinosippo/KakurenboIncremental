@@ -442,6 +442,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	double AttackDamage = 1.0;
 
+	float LastAttackRangeScale = 1.f;
+
 	/** true なら目の前の壁 1 個だけを壊す（範囲攻撃しない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	bool bSingleTargetAttack = false;
@@ -464,8 +466,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	int32 AttackBoxLevels = 0;
 
-	/** 前方の箱の攻撃が当たるマス（今攻撃している壁から。テスト・表示用） */
-	TArray<FIntPoint> GetAttackBoxCells() const;
+	/** 前方の箱の攻撃が当たるマス（今攻撃している壁から。テスト・表示用）。Width・Depth を渡すとその大きさで */
+	TArray<FIntPoint> GetAttackBoxCells() const { return GetAttackBoxCells(AttackBoxWidth, AttackBoxDepth); }
+	TArray<FIntPoint> GetAttackBoxCells(int32 Width, int32 Depth) const;
+
+	/**
+	 * 壁の耐久 WallHP が攻撃力よりずっと低いときの、壁への攻撃範囲の倍率（1〜OverkillRangeMax）。
+	 * 攻撃力 ÷ 耐久 が OverkillRangeStart 倍を超えると、2 倍になるごとに OverkillRangePerDoubling ずつ広がる。
+	 * 範囲攻撃は半径・パワー鬼は箱の横・奥・段・慎重鬼は当たる壁の数にかかる
+	 */
+	float GetOverkillRangeScale(double WallHP) const;
+
+	/** 攻撃力 ÷ 壁の耐久 がこの倍を超えると攻撃範囲が広がり始める */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	double OverkillRangeStart = 3.0;
+
+	/** 攻撃力 ÷ 壁の耐久 が 2 倍になるごとに広がる倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	float OverkillRangePerDoubling = 0.5f;
+
+	/** 攻撃範囲の倍率の上限（元の 3 倍まで。ユーザーの指定） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	float OverkillRangeMax = 3.f;
+
+	/** 最後の攻撃の範囲の倍率（テスト用） */
+	float GetLastAttackRangeScale() const { return LastAttackRangeScale; }
 
 	/** 今攻撃している（しようとしている）壁のマス */
 	FIntPoint GetAttackCell() const { return AttackCell; }

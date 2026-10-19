@@ -1478,8 +1478,8 @@ void AKakurenboHUD::DrawShop(AKakurenboGameState* State, AKakurenboGameMode* GM)
 		bGemTab ? FLinearColor::Black : GemTextColor);
 	DrawButton(X + 472, Y + 12, 250, 44, FString::Printf(TEXT("転生のお店（%d pt）"), State->PrestigePoints), EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige), bPrestigeTab, 21,
 		bPrestigeTab ? FLinearColor::Black : Purple);
-	// まとめ買い（×1 / ×10 / 買えるだけ）。転生のお店は 1 つずつ
-	if (!bPrestigeTab)
+	// まとめ買い（×1 / ×10 / 買えるだけ）。転生のお店・宝石のお店は 1 つずつ
+	if (!bPrestigeTab && !bGemTab)
 	{
 		static const TCHAR* AmountLabels[] = { TEXT("×1"), TEXT("×10"), TEXT("最大") };
 		for (int32 i = 0; i < 3; ++i)
@@ -1657,6 +1657,7 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 		TArray<FString> HelpLines;
 		HelpLines.Add(FString::Printf(TEXT("%s 置く　%s 回収　%s 置く物"), *PC->UIKeyLabel(EKakurenboUIKey::Place), *PC->UIKeyLabel(EKakurenboUIKey::PickUp),
 			*PC->UIKeyLabel(EKakurenboUIKey::SelectSlot)));
+		HelpLines.Add(TEXT("壁は押したままなぞると続けて置く・回収"));
 		if (bPad)
 		{
 			HelpLines.Add(FString::Printf(TEXT("%s・[十字キー] カーソル　%s ズーム"), *PC->UIKeyLabel(EKakurenboUIKey::Cursor), *PC->UIKeyLabel(EKakurenboUIKey::Zoom)));
@@ -1707,6 +1708,14 @@ void AKakurenboHUD::DrawBuild(AKakurenboGameState* State, AKakurenboGameMode* GM
 	if (State->LastRepairedWalls > 0 || State->LastRefilledTraps > 0)
 	{
 		Text(FString::Printf(TEXT("在庫から直した：壁 %d・罠 %d"), State->LastRepairedWalls, State->LastRefilledTraps), 0, NoticeY, 19, Good, true);
+		NoticeY -= 32;
+	}
+	// このステージで置ける壁の数（転生のお店の「壁の数」で増える。最大レベルで無制限）
+	const int32 WallLimit = GM->GetWallLimit();
+	if (WallLimit != INDEX_NONE)
+	{
+		const int32 Placed = GM->GetPlacedWallCount();
+		Text(FString::Printf(TEXT("置いた壁 %d / %d（このステージの上限）"), Placed, WallLimit), 0, NoticeY, 19, Placed >= WallLimit ? Bad : FLinearColor::White, true);
 	}
 
 	// 壁と罠の在庫（下部中央に並べる。宝石の道具は持っているものだけ）。右下のボタンとかぶらない幅にする

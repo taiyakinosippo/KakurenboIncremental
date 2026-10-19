@@ -152,7 +152,9 @@ powershell -ExecutionPolicy Bypass -File Tools\ResetAgentPlaytest.ps1 -DryRun   
   ScoutCorner（スピード鬼は曲がり角が苦手：まっすぐの通路は減速しない・L 字の角で減速して戻る）、
   DetectorClear（探知鬼は見張りの場所のまわりの壁を壊す・届かない壁は狙わない）、DetectorLure（探知鬼はおとりの音が聞こえたら、見えていなくてもその場所へ仲間を呼ぶ）、
   Exclaim（見つけたとき鬼の頭の上の玉が 3D の「!」になり、しばらくして玉に戻る。窓口には「！」の名前を渡す）、
-  Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））。
+  Intuition（鬼の勘：見えず聞こえずでもプレイヤーのそばへ来やすい。**勘は自動テストでは Intuition シナリオ以外切る**（`bOniIntuition`））、
+  WallLimit（ステージごとの置ける壁の数・転生のお店「壁の数」・長押しでなぞって置く／回収・宝石のお店は 1 個ずつ。**壁の数の上限は自動テストでは WallLimit シナリオ以外切る**（`bWallLimit`））、
+  Overkill（壁の耐久が攻撃力よりずっと低いと鬼の攻撃範囲が広がる・最大 3 倍。**自動テストでは Overkill シナリオ以外切る**（`bOniOverkillRange`））。
   Catalog は素材選び用（`Saved/catalog.txt` の `/Game/...` のメッシュを並べて撮る。テストではない）。
   Showcase は紹介用（ポートフォリオ）のスクリーンショット（本物のステージ 10「大広間」で、お店・設置・追われる・だるまさんがころんだ・お宝。`-ResX 1920 -ResY 1080` で撮る）。仕様を変えたら全部流す
 - 鬼のテストは `KeepOnlyOni` で 1 体だけ残す（他は地下へ移して止める）と結果が安定する。鬼は必ず東の門の前から出てくるので、

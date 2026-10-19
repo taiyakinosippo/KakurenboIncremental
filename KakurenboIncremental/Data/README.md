@@ -22,6 +22,7 @@
 | OniHearingRadius | 連打の音が聞こえる距離の基本値（cm。**一辺 40 マスの館での距離**。館の一辺に比例して小さくなる：16 マスなら ×0.4）。種類ごとの倍率（HearingScale）がかかる |
 | OniSpeedBonus | 鬼の速さに足す値（cm/秒）。基本の速さは うろうろ 420 / 調べる 700 / 追いかける 840（プレイヤーは 420）に種類ごとの倍率（SpeedScale）をかけたもの |
 | Map | 館のマップ（Maps.csv の行の名前）。空なら前のステージと同じ。今はステージごとに全部違う。マップが変わると、置いていた壁と罠は在庫に戻る（設計図はマップごとに残る） |
+| WallLimit | 置ける壁の数（設計図の数。壊れて直していない壁も数える）。転生のお店の「壁の数」で ×1.5^Lv、最大レベルで無制限。0 なら制限なし。表より後のステージは +2 ずつ（GameMode の StageWallLimitGrowth） |
 
 ## OniTypes.csv（鬼の種類）
 
@@ -73,7 +74,7 @@
 
 ## PrestigeUpgrades.csv（転生のお店）
 
-転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP / Income）は
+転生ポイントで買う永続強化（転生しても残る）。Treasure（お宝の宝石）は M15 から足し算：お宝 1 個の宝石 = BaseValue + ValueGrowth × レベル。行の名前（WallHP / Treasure / SmokeDuration / SmokeCount / Climb / QuietHP / Income / WallCount）は
 プログラムが使うので変えないでください。並び順はプログラムで決まっています（この順）。
 
 | 列 | 意味 |
@@ -92,6 +93,7 @@
 | Climb | **Lv0 はよじ登れない**（Lv1 で解放。クライミング壁も買えるようになる）。Lv2 から登る速さ = 値(Lv) ÷ 値(1)（ValueGrowth 1.3 ずつ）。GameMode の ClimbTwoTierLevel（3）から 2 段の高さにも登れる |
 | QuietHP | 消音壁が音を消せる回数（Walls.csv の SoundHP）の倍率 |
 | Income | お金アップ：稼ぐコイン（連打・時間・逃げ切りの報酬）の倍率（Upgrades.csv の強化の上に掛かる）。2026-10-19 に前の MashIncome / TimeIncome をまとめた |
+| WallCount | 壁の数：Stages.csv の WallLimit の倍率。**MaxLevel に届くと無制限** |
 
 ## Walls.csv（壁）
 

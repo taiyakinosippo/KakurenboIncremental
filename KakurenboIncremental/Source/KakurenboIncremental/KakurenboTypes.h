@@ -137,6 +137,7 @@ enum class EPrestigeUpgrade : uint8
 	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
 	Income       UMETA(DisplayName = "Income"),       // お金アップ：稼ぐコイン（連打・時間・逃げ切りの報酬）の倍率。元の「連打のお金アップ」の場所
 	// 2026-10-19：「時間のお金アップ」はお金アップにまとめた（古いセーブのその分のポイントは読み込むときに返す）
+	WallCount    UMETA(DisplayName = "WallCount"),    // 壁の数：ステージごとに置ける壁の数の倍率（最大レベルで無制限）。セーブ版 8 から（版 7 までのこの場所は時間のお金アップ）
 	Count        UMETA(Hidden)
 };
 
@@ -474,6 +475,10 @@ struct FKakurenboStageRow : public FTableRowBase
 	/** 館のマップ（Maps.csv の行の名前）。空なら前のステージと同じ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
 	FName Map;
+
+	/** 置ける壁の数（設計図の数。転生のお店の「壁の数」で増える）。0 なら制限なし */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	int32 WallLimit = 0;
 };
 
 /** 鬼の種類ごとの数値。Data/OniTypes.csv の 1 行（行名は Balanced / Scout / Breaker / Careful） */

@@ -147,6 +147,7 @@ AKakurenboGameMode::AKakurenboGameMode()
 	AddPrestigeUpgrade(TEXT("よじ登る"), 5, 2.0, 1.6, 1.0, 1.3);       // Climb: Lv1 で解放。Lv2 から登る速さ ×1.3^(Lv-1)・ClimbTwoTierLevel で 2 段
 	AddPrestigeUpgrade(TEXT("消音壁の丈夫さ"), 0, 1.0, 1.5, 1.0, 1.5); // QuietHP: 音を消せる回数 ×1.5^Lv
 	AddPrestigeUpgrade(TEXT("お金アップ"), 0, 1.0, 1.5, 1.0, 1.5);    // Income: 稼ぐコイン（連打・時間・逃げ切りの報酬）×1.5^Lv
+	AddPrestigeUpgrade(TEXT("壁の数"), 4, 2.0, 2.2, 1.0, 1.5);        // WallCount: 置ける壁の数 ×1.5^Lv・Lv4（最大）で無制限
 	check(PrestigeUpgrades.Num() == static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 鬼の種類の既定値（Data/OniTypes.csv が読めなかったときに使う）
@@ -816,6 +817,7 @@ FKakurenboStageRow AKakurenboGameMode::GetStageSettingsFor(int32 Stage) const
 	Growth.OniHearingRadiusPerStage = StageOniHearingGrowth;
 	Growth.OniSpeedBonusPerStage = StageOniSpeedGrowth;
 	Growth.ExtraOniEveryStages = StageExtraOniEvery;
+	Growth.WallLimitPerStage = StageWallLimitGrowth;
 	return KakurenboBalance::ResolveStage(StageRows, Stage, Growth);
 }
 
@@ -1047,6 +1049,21 @@ TArray<FShopItemView> AKakurenboGameMode::GetPrestigeShopItems() const
 		case EPrestigeUpgrade::Income:
 			Item.Description = FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeIncomeDesc", "稼ぐコイン（連打・時間・逃げ切りの報酬）×{0} → ×{1}"), Fmt(Now), Fmt(Next));
 			break;
+		case EPrestigeUpgrade::WallCount:
+		{
+			// 今のステージで置ける数で見せる（最大レベルは無制限）
+			const AKakurenboGameState* State = GS();
+			const int32 Stage = State ? State->Stage : 1;
+			auto LimitText = [this, Stage](int32 L)
+			{
+				const int32 Limit = GetWallLimitFor(Stage, L);
+				return Limit == INDEX_NONE ? NSLOCTEXT("Kakurenbo", "WallLimitNone", "無制限") : FText::Format(NSLOCTEXT("Kakurenbo", "WallLimitNum", "{0} 個"), Limit);
+			};
+			Item.Description = Item.bMaxed ? FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallCountMax", "置ける壁の数 {0}"), LimitText(Level))
+				: FText::Format(NSLOCTEXT("Kakurenbo", "PrestigeWallCountDesc", "このステージで置ける壁 {0} → {1}（Lv.{2} で無制限）"),
+					LimitText(Level), LimitText(Level + 1), Row.MaxLevel);
+			break;
+		}
 		default:
 			break;
 		}
@@ -1120,6 +1137,30 @@ int32 AKakurenboGameMode::GetSmokeUsesPerRound(int32 Level) const
 	// 古いセーブの「ダッシュの回復」のレベル（最大 6）を引き継いでも、最大レベルを超えないようにする
 	const int32 ClampedLevel = Row.MaxLevel > 0 ? FMath::Min(Level, Row.MaxLevel) : Level;
 	return FMath::Max(0, FMath::RoundToInt(Row.BaseValue + Row.ValueGrowth * ClampedLevel));
+}
+
+int32 AKakurenboGameMode::GetWallLimitFor(int32 Stage, int32 Level) const
+{
+	const int32 Base = GetStageSettingsFor(Stage).WallLimit;
+	const int32 Index = static_cast<int32>(EPrestigeUpgrade::WallCount);
+	const bool bMaxed = PrestigeUpgrades.IsValidIndex(Index) && PrestigeUpgrades[Index].MaxLevel > 0 && Level >= PrestigeUpgrades[Index].MaxLevel;
+	if (!bWallLimit || Base <= 0 || bMaxed)
+	{
+		return INDEX_NONE;
+	}
+	return FMath::Max(1, FMath::FloorToInt(Base * GetPrestigeValue(EPrestigeUpgrade::WallCount, Level) + 1e-6));
+}
+
+int32 AKakurenboGameMode::GetWallLimit() const
+{
+	const AKakurenboGameState* State = GS();
+	return GetWallLimitFor(State ? State->Stage : 1, GetPrestigeLevel(EPrestigeUpgrade::WallCount));
+}
+
+int32 AKakurenboGameMode::GetPlacedWallCount() const
+{
+	const UKakurenboGridSubsystem* Grid = GetWorld()->GetSubsystem<UKakurenboGridSubsystem>();
+	return Grid ? Grid->GetDesignWallCount() : 0;
 }
 
 float AKakurenboGameMode::GetSmokeDuration(int32 Level) const
@@ -1481,14 +1522,11 @@ TArray<FShopItemView> AKakurenboGameMode::GetGemShopItems() const
 	return Items;
 }
 
-int32 AKakurenboGameMode::TryBuyGemShopItem(int32 Index, int32 Count)
+int32 AKakurenboGameMode::TryBuyGemShopItem(int32 Index)
 {
+	// 宝石のお店は 1 個ずつ（まとめ買いは無い。ユーザーの希望）
 	const int32 Type = GetGemShopTrapType(Index);
-	int32 Bought = 0;
-	while (Type != INDEX_NONE && Bought < FMath::Max(1, Count) && TryBuyTrap(Type))
-	{
-		++Bought;
-	}
+	const int32 Bought = Type != INDEX_NONE && TryBuyTrap(Type) ? 1 : 0;
 	if (GetPhase() == EKakurenboPhase::Shop && Type != INDEX_NONE)
 	{
 		Sfx2D(this, Bought > 0 ? EKakurenboSfx::Buy : EKakurenboSfx::BuyFail, 1.f, Bought > 0 ? 1.25f : 1.f);
@@ -1816,6 +1854,19 @@ bool AKakurenboGameMode::CanPlaceWall(const FIntPoint& Cell, int32 WallTypeIndex
 	if (!Grid->CanPlaceBlock(Cell, OutReason))
 	{
 		return false;
+	}
+
+	// ステージごとに置ける壁の数（設計図の数）。壊れた壁のマス（赤）に置き直すときは数が増えないので置ける
+	const int32 Limit = GetWallLimit();
+	if (Limit != INDEX_NONE)
+	{
+		const int32 Height = Grid->GetColumnHeight(Cell);
+		const int32 Added = (Height + 1) - FMath::Max(Height, Grid->GetDesignHeight(Cell));
+		if (Added > 0 && GetPlacedWallCount() + Added > Limit)
+		{
+			if (OutReason) *OutReason = FText::Format(NSLOCTEXT("Kakurenbo", "PlaceWallLimit", "このステージで置ける壁は {0} 個までです（転生のお店の「壁の数」で増やせます）"), Limit);
+			return false;
+		}
 	}
 
 	// プレイヤーと重なる場所には置けない（真上から見て重なり、高さも重なるか）
@@ -3779,13 +3830,16 @@ bool AKakurenboGameMode::LoadProgress()
 	State->TotalPrestigePoints = Save->SaveVersion >= 4 ? Save->TotalPrestigePoints : Save->PrestigePoints;
 	State->PrestigeCount = Save->PrestigeCount;
 	State->PrestigeLevels = Save->PrestigeLevels;
-	// 2026-10-19：「連打のお金アップ」「時間のお金アップ」を「お金アップ」にまとめた。なくなった商品（時間のお金アップ）に使ったポイントは返す
-	for (int32 i = static_cast<int32>(EPrestigeUpgrade::Count); i < State->PrestigeLevels.Num(); ++i)
+	// 2026-10-19：「連打のお金アップ」「時間のお金アップ」を「お金アップ」にまとめた。なくなった商品（時間のお金アップ）に使ったポイントは返す。
+	// 版 7 までは「壁の数」（WallCount）の場所が時間のお金アップだったので、そこから返す
+	const int32 FirstRemoved = Save->SaveVersion >= 8 ? static_cast<int32>(EPrestigeUpgrade::Count) : static_cast<int32>(EPrestigeUpgrade::WallCount);
+	for (int32 i = FirstRemoved; i < State->PrestigeLevels.Num(); ++i)
 	{
 		const int32 Refund = GetPrestigeRefund(EPrestigeUpgrade::Income, State->PrestigeLevels[i]);
 		State->PrestigePoints += Refund;
 		UE_LOG(LogKakurenbo, Log, TEXT("Refunded %d prestige points of a removed upgrade (slot %d, Lv%d)"), Refund, i, State->PrestigeLevels[i]);
 	}
+	State->PrestigeLevels.SetNum(FMath::Min(State->PrestigeLevels.Num(), FirstRemoved));
 	State->PrestigeLevels.SetNum(static_cast<int32>(EPrestigeUpgrade::Count));
 
 	// 版 5 までの壁（木・石・鉄・消音壁）は、今の種類（通常壁・消音壁・クライミング壁）に付け替える

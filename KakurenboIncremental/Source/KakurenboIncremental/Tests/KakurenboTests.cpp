@@ -235,6 +235,7 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	Rows[1].OniHearingRadius = 1300.f;
 	Rows[1].OniSpeedBonus = 15.f;
 	Rows[1].OniTypes = { EOniType::Scout, EOniType::Breaker, EOniType::Careful };
+	Rows[1].WallLimit = 12;
 
 	// 表の中はその行
 	TestEqual(TEXT("stage 1 from table"), KakurenboBalance::ResolveStage(Rows, 1, Growth).HideDuration, 30.f);
@@ -248,6 +249,7 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("stage 4 hearing"), S4.OniHearingRadius, 1500.f);
 	TestEqual(TEXT("stage 4 speed bonus"), S4.OniSpeedBonus, 45.f);
 	TestEqual(TEXT("stage 4 keeps last row's oni types"), S4.OniTypes.Num(), 3);
+	TestEqual(TEXT("stage 4 wall limit grows"), S4.WallLimit, 12 + 2 * Growth.WallLimitPerStage);
 	// 鬼の数に上限は無い：表より後は 3 ステージごとに 1 体（最後の行の種類を順に。探知鬼は増やさない）
 	const FKakurenboStageRow S8 = KakurenboBalance::ResolveStage(Rows, 8, Growth);
 	TestTrue(TEXT("stage 8 has two more onis, taken from the last row in order"), S8.OniTypes.Num() == 5 && S8.OniTypes[3] == EOniType::Scout && S8.OniTypes[4] == EOniType::Breaker);
@@ -257,6 +259,7 @@ bool FKakurenboResolveStageTest::RunTest(const FString& Parameters)
 	const FKakurenboStageRow S3 = KakurenboBalance::ResolveStage({}, 3, Growth);
 	TestEqual(TEXT("empty table stage 3 duration"), S3.HideDuration, 40.f);
 	TestTrue(TEXT("empty table stage 3 reward"), FMath::IsNearlyEqual(S3.ClearReward, 1600.0));
+	TestEqual(TEXT("no wall limit stays unlimited"), S3.WallLimit, 0);
 	return true;
 }
 

@@ -105,6 +105,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		}
 	}
 
+	// ステージごとの置ける壁の数は、たくさん壁を置くテストがあるので WallLimit シナリオだけ使う。
+	// 壁が弱すぎると鬼の攻撃範囲が広がるのは、壁を壊す数を確かめるテストの結果を変えるので Overkill シナリオだけ使う
+	GM->bWallLimit = Scenario.Equals(TEXT("WallLimit"), ESearchCase::IgnoreCase);
+	GM->bOniOverkillRange = Scenario.Equals(TEXT("Overkill"), ESearchCase::IgnoreCase);
+
 	// ---------------------------------------------------------------- 共通の道具
 
 	auto GS = [this]() { return GetWorld()->GetGameState<AKakurenboGameState>(); };
@@ -6731,6 +6736,220 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("walls outside the box are not hit (behind %d, other side %d)"), H(2, 0), H(0, -1)), H(2, 0) == 2 && H(0, -1) == 2);
 			LookAtOni();
 			ShotLater(TEXT("powerbox_01"));
+		} });
+	}
+	// ================================================================ WallLimit（ステージごとの置ける壁の数・転生のお店「壁の数」・長押しでなぞって置く／回収・宝石のお店は 1 個ずつ）
+	else if (Scenario.Equals(TEXT("WallLimit"), ESearchCase::IgnoreCase))
+	{
+		struct FLimitTest { TArray<FIntPoint> Row; int32 Gem = INDEX_NONE; FIntPoint Broken = FIntPoint::NoneValue; };
+		TSharedRef<FLimitTest> T = MakeShared<FLimitTest>();
+		const int32 WallCountIndex = static_cast<int32>(EPrestigeUpgrade::WallCount);
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			const int32 Base = GM->GetStageSettings().WallLimit;
+			const int32 Stage = GS()->Stage;
+			Check(FString::Printf(TEXT("stage %d has a wall limit (%d, csv %d)"), Stage, GM->GetWallLimit(), Base), Base > 0 && GM->GetWallLimit() == Base);
+			Check(FString::Printf(TEXT("later stages allow more walls (stage 25: %d, stage 30: %d)"), GM->GetWallLimitFor(25, 0), GM->GetWallLimitFor(30, 0)),
+				GM->GetWallLimitFor(25, 0) > Base && GM->GetWallLimitFor(30, 0) > GM->GetWallLimitFor(25, 0));
+			Check(FString::Printf(TEXT("prestige wall count: Lv1 %d, Lv3 %d (plenty), Lv4 unlimited (%d)"), GM->GetWallLimitFor(Stage, 1), GM->GetWallLimitFor(Stage, 3), GM->GetWallLimitFor(Stage, 4)),
+				GM->GetWallLimitFor(Stage, 1) > Base && GM->GetWallLimitFor(Stage, 3) >= Base * 3 && GM->GetWallLimitFor(Stage, 4) == INDEX_NONE);
+			// 転生のお店で買える
+			GS()->PrestigePoints = 100;
+			ShopTab = EKakurenboShopTab::Prestige;
+			KakuBuyPrestige(WallCountIndex + 1);
+			Check(FString::Printf(TEXT("bought the wall count upgrade in the prestige shop (Lv%d, limit %d)"), GM->GetPrestigeLevel(EPrestigeUpgrade::WallCount), GM->GetWallLimit()),
+				GM->GetPrestigeLevel(EPrestigeUpgrade::WallCount) == 1 && GM->GetWallLimit() == GM->GetWallLimitFor(Stage, 1)
+				&& GM->GetPrestigeShopItems()[WallCountIndex].DisplayName.ToString().Contains(TEXT("壁の数")));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("walllimit_01_prestige_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 宝石のお店は ×10 を選んでいても 1 個ずつ
+			GS()->PrestigeLevels[WallCountIndex] = 0;
+			GS()->PrestigePoints = 0;
+			ShopTab = EKakurenboShopTab::Gem;
+			BuyAmount = EKakurenboBuyAmount::Ten;
+			KakuAddGems(500);
+			T->Gem = GM->GetGemShopTrapType(0);
+			KakuBuyGem(1);
+			Check(FString::Printf(TEXT("the gem shop sells one at a time even with x10 (stock %d)"), GS()->TrapStock[T->Gem]), GS()->TrapStock[T->Gem] == 1);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			FVector2D C;
+			Check(TEXT("the gem shop has no bulk buttons"), !GetHUD<AKakurenboHUD>()->GetButtonCenter(EKakurenboUIAction::BuyAmount, 1, C));
+			Shot(TEXT("walllimit_02_gem_shop"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			BuyAmount = EKakurenboBuyAmount::One;
+			ShopTab = EKakurenboShopTab::Coin;
+			GS()->WallStock[0] = 100;
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → 設置
+			SelectedBuildSlot = 0;
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			// 自分の 4 マス前（画面の上）に、横 5 マスの列
+			UKakurenboGridSubsystem* G = Grid();
+			AHiderCharacter* Hider = GetHider();
+			const FRotator Yaw(0.f, Hider->GetOverheadYaw(), 0.f);
+			const FVector Fwd = FRotationMatrix(Yaw).GetUnitAxis(EAxis::X);
+			const FVector Right = FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y);
+			for (int32 k = -2; k <= 2; ++k)
+			{
+				T->Row.Add(G->WorldToCell(Hider->GetActorLocation() + Fwd * 400.f + Right * (k * G->GetCellSize())));
+			}
+			FVector2D Screen;
+			ProjectWorldLocationToScreen(G->CellFloorCenter(T->Row[0]), Screen, true);
+			bUseTestCursor = true;
+			TestCursorPosition = Screen;
+			SimulateKey(EKeys::LeftMouseButton, IE_Pressed); // 押したまま
+		} });
+		for (int32 k = 1; k < 5; ++k)
+		{
+			Steps.Add({ 0.2f, [=, this]
+			{
+				FVector2D Screen;
+				ProjectWorldLocationToScreen(Grid()->CellFloorCenter(T->Row[k]), Screen, true);
+				TestCursorPosition = Screen; // なぞる
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			SimulateKey(EKeys::LeftMouseButton, IE_Released);
+			UKakurenboGridSubsystem* G = Grid();
+			FString Heights;
+			bool bAll = true;
+			for (const FIntPoint& Cell : T->Row)
+			{
+				Heights += FString::Printf(TEXT("%d "), G->GetColumnHeight(Cell));
+				bAll &= G->GetColumnHeight(Cell) == 1;
+			}
+			Check(FString::Printf(TEXT("holding the button and dragging places one wall on each cell (heights %s)"), *Heights), bAll);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Shot(TEXT("walllimit_03_dragged_walls")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 右ボタンを押したまま 3 マスなぞる → その 3 マスだけ回収
+			UKakurenboGridSubsystem* G = Grid();
+			FVector2D Screen;
+			ProjectWorldLocationToScreen(G->CellToWorld(T->Row[0], 0) + FVector(0.f, 0.f, G->GetBlockHeight() * 0.5f), Screen, true);
+			TestCursorPosition = Screen;
+			SimulateKey(EKeys::RightMouseButton, IE_Pressed);
+		} });
+		for (int32 k = 1; k < 3; ++k)
+		{
+			Steps.Add({ 0.2f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				FVector2D Screen;
+				ProjectWorldLocationToScreen(G->CellToWorld(T->Row[k], 0) + FVector(0.f, 0.f, G->GetBlockHeight() * 0.5f), Screen, true);
+				TestCursorPosition = Screen;
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			SimulateKey(EKeys::RightMouseButton, IE_Released);
+			UKakurenboGridSubsystem* G = Grid();
+			auto H = [G, T](int32 i) { return G->GetColumnHeight(T->Row[i]); };
+			Check(FString::Printf(TEXT("holding the right button and dragging picks up the walls it passes (heights %d %d %d %d %d)"), H(0), H(1), H(2), H(3), H(4)),
+				H(0) == 0 && H(1) == 0 && H(2) == 0 && H(3) == 1 && H(4) == 1);
+			bUseTestCursor = false;
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 上限まで置く（列の 2 個と合わせて）。上限を超える 1 個は置けない
+			UKakurenboGridSubsystem* G = Grid();
+			const int32 Limit = GM->GetWallLimit();
+			const FIntPoint Me = G->WorldToCell(GetPawn()->GetActorLocation());
+			TArray<FIntPoint> Free;
+			for (int32 Y = 1; Y < G->GetSizeY() - 1 && Free.Num() < Limit + 5; Y += 2)
+			{
+				for (int32 X = 1; X < G->GetSizeX() / 2 && Free.Num() < Limit + 5; X += 2)
+				{
+					const FIntPoint C(X, Y);
+					if (G->GetColumnHeight(C) == 0 && FMath::Abs(C.X - Me.X) + FMath::Abs(C.Y - Me.Y) > 2 && GM->CanPlaceWall(C, 0))
+					{
+						Free.Add(C);
+					}
+				}
+			}
+			int32 i = 0;
+			while (GM->GetPlacedWallCount() < Limit && Free.IsValidIndex(i))
+			{
+				GM->PlaceWall(Free[i++], 0);
+			}
+			FText Reason;
+			const bool bCanMore = Free.IsValidIndex(i) && GM->CanPlaceWall(Free[i], 0, &Reason);
+			Check(FString::Printf(TEXT("placed up to the limit (%d / %d) and no more: %s"), GM->GetPlacedWallCount(), Limit, *Reason.ToString()),
+				GM->GetPlacedWallCount() == Limit && Free.IsValidIndex(i) && !bCanMore && Reason.ToString().Contains(TEXT("壁の数")));
+			if (!Free.IsValidIndex(i))
+			{
+				return;
+			}
+			// 壊れた壁（設計図だけのマス）も数える。そのマスには置き直せる
+			T->Broken = Free[0];
+			G->DamageBottomBlock(T->Broken, 1e9);
+			Check(FString::Printf(TEXT("a broken wall still counts (%d / %d), another cell is refused"), GM->GetPlacedWallCount(), Limit),
+				GM->GetPlacedWallCount() == Limit && G->GetColumnHeight(T->Broken) == 0 && !GM->CanPlaceWall(Free[i], 0));
+			Check(TEXT("the broken wall's cell can be refilled"), GM->PlaceWall(T->Broken, 0) && GM->GetPlacedWallCount() == Limit);
+			// 「壁の数」の最大レベルで無制限
+			GS()->PrestigeLevels[WallCountIndex] = GM->PrestigeUpgrades[WallCountIndex].MaxLevel;
+			Check(FString::Printf(TEXT("max level: unlimited walls (limit %d)"), GM->GetWallLimit()), GM->GetWallLimit() == INDEX_NONE && GM->PlaceWall(Free[i], 0));
+			GS()->PrestigeLevels[WallCountIndex] = 0;
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("walllimit_04_full")); } });
+	}
+	// ================================================================ Overkill（壁の耐久が鬼の攻撃力よりずっと低いと、鬼の壁への攻撃範囲が広がる。最大 3 倍）
+	else if (Scenario.Equals(TEXT("Overkill"), ESearchCase::IgnoreCase))
+	{
+		struct FOverTest { FIntPoint Base; };
+		TSharedRef<FOverTest> T = MakeShared<FOverTest>();
+		Steps.Add({ 0.3f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			UKakurenboGridSubsystem* G = Grid();
+			// 倍率：攻撃力 ÷ 耐久 が 3 倍までは 1、それより上は 2 倍ごとに +0.5、最大 3
+			const double Damage0 = Oni->AttackDamage;
+			Oni->AttackDamage = 2.0;
+			const float S1 = Oni->GetOverkillRangeScale(1.0);
+			Oni->AttackDamage = 12.0;
+			const float S2 = Oni->GetOverkillRangeScale(1.0);
+			Oni->AttackDamage = 1000.0;
+			const float S3 = Oni->GetOverkillRangeScale(1.0);
+			Check(FString::Printf(TEXT("range scale: x2 damage %.2f, x12 %.2f, x1000 %.2f (max 3)"), S1, S2, S3),
+				FMath::IsNearlyEqual(S1, 1.f) && FMath::IsNearlyEqual(S2, 2.f, 0.01f) && FMath::IsNearlyEqual(S3, 3.f));
+			Oni->AttackDamage = Damage0;
+
+			TeleportPlayer(G->CellFloorCenter(FIntPoint(1, 1)));
+			// 鬼の東に壁（耐久 1）：すぐ前・その奥・4 マス先。攻撃力 12 → 半径 ×2
+			T->Base = FIntPoint(G->GetSizeX() / 2, G->GetSizeY() / 2);
+			for (const int32 DX : { 0, 1, 4 })
+			{
+				G->PlaceBlock(T->Base + FIntPoint(DX, 0), 0, 1.0, FLinearColor::Gray);
+			}
+			Oni->AttackDamage = 12.0;
+			Oni->SetActorLocation(G->CellFloorCenter(T->Base + FIntPoint(-1, 0)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator::ZeroRotator);
+			Oni->DebugGoTo(T->Base);
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			auto H = [G, T](int32 DX) { return G->GetColumnHeight(T->Base + FIntPoint(DX, 0)); };
+			Check(FString::Printf(TEXT("weak walls: the attack reaches twice as far (scale %.2f, heights %d %d / far %d)"), Oni->GetLastAttackRangeScale(), H(0), H(1), H(4)),
+				FMath::IsNearlyEqual(Oni->GetLastAttackRangeScale(), 2.f, 0.01f) && H(0) == 0 && H(1) == 0 && H(4) == 1);
+			LookAtOni();
+			ShotLater(TEXT("overkill_01"));
 		} });
 	}
 	// ================================================================ BuildRay（M15：設置パートのカーソルが、見えない壁に当たらない）

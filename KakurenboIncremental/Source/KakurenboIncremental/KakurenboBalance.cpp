@@ -20,6 +20,10 @@ FKakurenboStageRow KakurenboBalance::ResolveStage(const TArray<FKakurenboStageRo
 	Row.OniDamage *= FMath::Pow(Growth.OniDamageGrowth, static_cast<double>(Steps));
 	Row.OniHearingRadius += Growth.OniHearingRadiusPerStage * Steps;
 	Row.OniSpeedBonus += Growth.OniSpeedBonusPerStage * Steps;
+	if (Row.WallLimit > 0)
+	{
+		Row.WallLimit += Growth.WallLimitPerStage * Steps;
+	}
 	// 鬼の数に上限は無い（ユーザーの希望：後半の上限を取り払う）
 	if (Growth.ExtraOniEveryStages > 0 && Steps > 0)
 	{

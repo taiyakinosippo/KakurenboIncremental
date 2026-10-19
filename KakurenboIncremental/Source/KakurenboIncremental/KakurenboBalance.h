@@ -22,6 +22,8 @@ namespace KakurenboBalance
 		float OniSpeedBonusPerStage = 15.f;
 		/** 表より後は、このステージ数ごとに鬼が 1 体増える（0 なら増えない）。増える種類は最後の行の鬼（探知鬼を除く）を順に */
 		int32 ExtraOniEveryStages = 3;
+		/** 表より後は、置ける壁の数（WallLimit）がこの数ずつ増える */
+		int32 WallLimitPerStage = 2;
 	};
 
 	/**

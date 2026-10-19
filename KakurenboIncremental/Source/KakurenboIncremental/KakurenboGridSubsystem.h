@@ -87,6 +87,9 @@ public:
 	APlaceableBlock* GetBlock(const FIntPoint& Cell, int32 Level) const;
 	int32 GetBlockCount() const;
 
+	/** 置いた壁の数（マスごとに 設計図の段数 と 今ある段数 の多い方を足す。壊れて直していない壁も数える） */
+	int32 GetDesignWallCount() const;
+
 	/** そのマスの一番上にブロックを置けるか。置けない理由を返す */
 	bool CanPlaceBlock(const FIntPoint& Cell, FText* OutReason = nullptr) const;
 
