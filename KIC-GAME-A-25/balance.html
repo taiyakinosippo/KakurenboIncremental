@@ -1,0 +1,134 @@
+<!doctype html><html lang=ja><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+<title>バランスの推論</title><style>body{font-family:system-ui,sans-serif;max-width:1100px;margin:0 auto;padding:16px;line-height:1.6;background:#fff;color:#222}table{border-collapse:collapse;display:block;overflow-x:auto;font-size:13px}td,th{border:1px solid #ccc;padding:3px 6px;white-space:nowrap}th{background:#f3f3f3}@media(prefers-color-scheme:dark){body{background:#181818;color:#ddd}th{background:#2a2a2a}td,th{border-color:#444}}</style><body>
+<h1>バランスの推論（かせぐんぼ）</h1>
+<p>作った時刻：2026-10-20 11:57　記録：<code>C:\KakurenboIncremental\KakurenboIncremental\Saved\AgentPlaytest</code> の全部のフォルダ</p>
+<p>テストプレイ AI（3 つの性格）の記録を全部まとめ、ステージ・転生を重ねるとどうなるかを推論する。遊ぶ AI と違って記録用の本当の値（ステージ・転生の回数・鬼の種類・稼ぎ）も使う。ゲームの仕様（CSV）は読まず、遊んだ結果だけから推論する。AI は人より上手な所も下手な所もあるので、数字は目安（何回遊んだかも一緒に書く）。</p>
+<h2>データの量</h2>
+<table>
+<tr><th>性格</th><th>ラウンド</th><th>遊んだ時間</th><th>転生の回数（最大）</th><th>一番先のステージ</th></tr>
+<tr><td>慎重型（動かない）</td><td>203</td><td>1.7 時間</td><td>5</td><td>10</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>299</td><td>1.7 時間</td><td>7</td><td>8</td></tr>
+<tr><td>強欲型</td><td>261</td><td>1.7 時間</td><td>3</td><td>8</td></tr>
+<tr><td>建築大好き</td><td>213</td><td>1.7 時間</td><td>5</td><td>11</td></tr>
+<tr><td>壁なし</td><td>377</td><td>1.7 時間</td><td>7</td><td>6</td></tr>
+</table>
+<h2>推論のまとめ</h2>
+<ul>
+<li>ステージが 1 進むごとにクリアしにくくなる（対数オッズ -0.424／ステージ）。転生 0 回だと、クリア率が 50% を切るのは ステージ 2 ごろ。</li>
+<li>転生 1 回は約 0.72 ステージぶん楽になる。クリア率 50% にするのに要る転生の回数の推論：ステージ 15 は 19.2 回・ステージ 20 は 26.1 回・ステージ 25 は 33.0 回・ステージ 30 は 39.9 回。転生を重ねても最後のステージまで届きにくい（強化幅が小さい）。</li>
+<li>性格の差（慎重型（動かない）とくらべた対数オッズ）：近くのお宝 -1.64・強欲 -1.45・建築大好き +0.01・壁なし -2.27。お宝を取りに動くほど見つかりやすい。</li>
+<li>1 ラウンドの稼ぎはステージ 1 つで ×1.80、転生 1 回で ×1.30（中央値の傾き）。</li>
+<li>設置パートの 48% で壁が 1 つも立っていない。壁を置かない囲い方のクリア率 9%・壁で囲む囲い方 18%。壁で囲むと有利。</li>
+<li>お宝を取った割合は全体で 10%。お宝（宝石）は取りに行きにくく、宝石のお店の道具を買う数がたまりにくい。</li>
+</ul>
+<h2>Level カーブ（全体の傾き）</h2>
+<p>クリア率 = σ(+0.47 -0.424×ステージ +0.307×転生の回数 ＋ 性格（近くのお宝 -1.64・強欲 -1.45・建築大好き +0.01・壁なし -2.27））　※ σ はロジスティック関数。係数のばらつき（±1 標準誤差）：ステージ ±0.041・転生 ±0.050</p>
+<p>ステージ・転生の回数ごとのクリア率の推論（慎重型（動かない）。太字は遊んだことのある組み合わせ。カッコは 1 回クリアするのに要る挑戦の回数の目安）：</p>
+<table>
+<tr><th>転生 \ ステージ</th><th>1</th><th>3</th><th>5</th><th>8</th><th>10</th><th>13</th><th>15</th><th>18</th><th>20</th><th>23</th><th>25</th><th>28</th><th>30</th></tr>
+<tr><td>0 回</td><td><b>51%（2）</b></td><td><b>31%（3）</b></td><td><b>16%（6）</b></td><td><b>5%（20）</b></td><td>2%（45）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>1 回</td><td><b>59%（2）</b></td><td><b>38%（3）</b></td><td><b>21%（5）</b></td><td><b>7%（15）</b></td><td>3%（33）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>2 回</td><td><b>66%（2）</b></td><td><b>45%（2）</b></td><td><b>26%（4）</b></td><td><b>9%（11）</b></td><td>4%（25）</td><td>1%（85）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>3 回</td><td><b>72%（1）</b></td><td><b>53%（2）</b></td><td><b>33%（3）</b></td><td><b>12%（8）</b></td><td><b>5%（18）</b></td><td>2%（63）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>5 回</td><td><b>83%（1）</b></td><td><b>68%（1）</b></td><td><b>47%（2）</b></td><td><b>20%（5）</b></td><td><b>10%（10）</b></td><td>3%（34）</td><td>1%（79）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>8 回</td><td>92%（1）</td><td>84%（1）</td><td>69%（1）</td><td>39%（3）</td><td>21%（5）</td><td>7%（14）</td><td>3%（32）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+<tr><td>10 回</td><td>96%（1）</td><td>91%（1）</td><td>81%（1）</td><td>54%（2）</td><td>33%（3）</td><td>12%（8）</td><td>6%（18）</td><td>2%（61）</td><td>1%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td><td>0%（99）</td></tr>
+</table>
+<h2>ステージごとの特徴と傾向・難しさ</h2>
+<p>難しさ＝1 回クリアするのに要る挑戦の回数（クリア率の逆数。少ないときは 30% を見込みに混ぜてならす）。傾きとの差＝全体の傾き（上の式。そのステージで遊んだときの転生の回数・性格で）から推論したクリア率との差。−10 ポイントより低ければ「急に難しい」、＋15 より高ければ「簡単」。</p>
+<table>
+<tr><th>ステージ</th><th>挑戦</th><th>クリア率</th><th>難しさ</th><th>傾きとの差</th><th>隠れていた割合</th><th>追われた</th><th>壊された壁</th><th>1 ラウンドの稼ぎ</th><th>お宝を取った割合</th><th>出てきた鬼</th><th>よく見つけた鬼</th><th>性格ごとのクリア率</th></tr>
+<tr><td>1</td><td>77</td><td>42%</td><td>2.4 回</td><td>+2</td><td>61%</td><td>68%</td><td>0.1</td><td>73</td><td>20%</td><td>標準鬼</td><td>標準鬼</td><td>s60%・n47%・g19%・b50%・w47%</td></tr>
+<tr><td>2</td><td>106</td><td>30%</td><td>3.3 回</td><td>+2</td><td>58%</td><td>80%</td><td>0.3</td><td>259</td><td>14%</td><td>標準鬼</td><td>標準鬼</td><td>s33%・n34%・g33%・b60%・w18%</td></tr>
+<tr><td>3</td><td>254</td><td>13%</td><td>7.9 回</td><td>-5</td><td>45%</td><td>94%</td><td>0.5</td><td>295</td><td>12%</td><td>宝物鬼・標準鬼</td><td>標準鬼</td><td>s50%・n11%・g11%・b26%・w6%</td></tr>
+<tr><td>4</td><td>187</td><td>17%</td><td>6.0 回</td><td>+3</td><td>50%</td><td>87%</td><td>0.5</td><td>3452</td><td>8%</td><td>スピード鬼・標準鬼</td><td>標準鬼</td><td>s75%・n19%・g21%・b35%・w6%</td></tr>
+<tr><td>5</td><td>212</td><td>12%</td><td>8.4 回</td><td>-0</td><td>50%</td><td>92%</td><td>2.2</td><td>625</td><td>9%</td><td>パワー鬼・標準鬼</td><td>標準鬼</td><td>s23%・n9%・g6%・b23%・w8%</td></tr>
+<tr><td>6</td><td>212</td><td>8%</td><td>12.2 回</td><td>+2</td><td>41%</td><td>93%</td><td>1.4</td><td>1005</td><td>13%</td><td>慎重鬼・標準鬼</td><td>慎重鬼</td><td>s37%・n4%・g2%・b46%・w0%</td></tr>
+<tr><td>7</td><td>95</td><td>14%</td><td>7.1 回</td><td>+5</td><td>51%</td><td>86%</td><td>1.7</td><td>492</td><td>11%</td><td>探知鬼・宝物鬼・標準鬼</td><td>標準鬼</td><td>s37%・n4%・g3%・b18%</td></tr>
+<tr><td>8</td><td>129</td><td>4%</td><td>23.4 回</td><td>-4</td><td>44%</td><td>96%</td><td>4.1</td><td>2.5万</td><td>5%</td><td>パワー鬼・スピード鬼・標準鬼・探知鬼</td><td>パワー鬼</td><td>s3%・n0%・g0%・b8%</td></tr>
+<tr><td>9</td><td>35</td><td>14%</td><td>6.6 回</td><td>+4</td><td>48%</td><td>86%</td><td>2.7</td><td>4184</td><td>15%</td><td>スピード鬼・慎重鬼・標準鬼</td><td>スピード鬼</td><td>s11%・b17%</td></tr>
+<tr><td>10</td><td>40</td><td>2%</td><td>26.2 回</td><td>-4</td><td>49%</td><td>98%</td><td>7.6</td><td>3.0万</td><td>4%</td><td>パワー鬼・宝物鬼・標準鬼・探知鬼</td><td>パワー鬼</td><td>s0%・b3%</td></tr>
+<tr><td>11</td><td>6</td><td>0%</td><td>13.3 回</td><td>-7</td><td>31%</td><td>100%</td><td>0.0</td><td>1.2万</td><td>17%</td><td>探知鬼・宝物鬼・慎重鬼・スピード鬼</td><td>宝物鬼</td><td>b0%</td></tr>
+</table>
+<p>性格の記号：s＝慎重型（動かない）・n＝慎重型（近くのお宝）・g＝強欲型・b＝建築大好き・w＝壁なし</p>
+<h2>転生による強化幅</h2>
+<ul>
+<li>全体の傾きでは、転生 1 回でクリアのしやすさ（対数オッズ）が +0.307。ステージが 1 進むと -0.424 なので、<b>転生 1 回 ≒ 0.72 ステージぶん楽になる</b>。</li>
+<li>同じ性格・同じステージで転生の回数が 1 違うラウンドをくらべると（78 組）：クリア率 +2.4 ポイント・隠れていた割合 +3.2 ポイント</li>
+</ul>
+<p>周ごとの進み方（その周で着いた一番先のステージ・ステージ 5 / 10 / 15 / 20 / 25 に着くまでのラウンド数）：</p>
+<table>
+<tr><th>性格</th><th>周（転生の回数）</th><th>一番先</th><th>5</th><th>10</th><th>15</th><th>20</th><th>25</th></tr>
+<tr><td>建築大好き</td><td>0 回</td><td>7</td><td>26</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>1 回</td><td>8</td><td>13</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>2 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>3 回</td><td>10</td><td>8</td><td>31</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>4 回</td><td>10</td><td>4</td><td>15</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>建築大好き</td><td>5 回</td><td>11</td><td>7</td><td>13</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>0 回</td><td>6</td><td>39</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>1 回</td><td>6</td><td>19</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>2 回</td><td>7</td><td>14</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>強欲型</td><td>3 回</td><td>8</td><td>15</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>0 回</td><td>6</td><td>20</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>1 回</td><td>8</td><td>13</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>2 回</td><td>6</td><td>41</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>3 回</td><td>5</td><td>11</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>4 回</td><td>5</td><td>18</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>5 回</td><td>5</td><td>21</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>6 回</td><td>7</td><td>15</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>7 回</td><td>7</td><td>9</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>0 回</td><td>6</td><td>41</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>1 回</td><td>5</td><td>54</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>2 回</td><td>5</td><td>9</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>3 回</td><td>6</td><td>44</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>4 回</td><td>6</td><td>69</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>5 回</td><td>5</td><td>39</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>6 回</td><td>6</td><td>16</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>壁なし</td><td>7 回</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>0 回</td><td>8</td><td>18</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>1 回</td><td>8</td><td>6</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>2 回</td><td>8</td><td>4</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>3 回</td><td>8</td><td>11</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>4 回</td><td>10</td><td>4</td><td>30</td><td>-</td><td>-</td><td>-</td></tr>
+<tr><td>慎重型（動かない）</td><td>5 回</td><td>10</td><td>5</td><td>12</td><td>-</td><td>-</td><td>-</td></tr>
+</table>
+<p>転生のお店で買った物：よじ登る 10、壁の硬さ 10、煙幕ダッシュ 8、壁の数 8、煙幕の数 6、お金アップ 4、お宝の宝石 3</p>
+<h2>置いた物とクリア率</h2>
+<ul>
+<li>慎重型（動かない）：設置パート 202 回のうち新しく壁を置かなかったのは 59 回（29%）・新しく置いた数の平均 12.5 個／立っている壁が 0 個だったのは 54 回（26%・記録のある 202 回のうち）・平均 7.0 個</li>
+<li>慎重型（近くのお宝）：設置パート 298 回のうち新しく壁を置かなかったのは 173 回（58%）・新しく置いた数の平均 3.5 個／立っている壁が 0 個だったのは 111 回（37%・記録のある 298 回のうち）・平均 3.4 個</li>
+<li>強欲型：設置パート 261 回のうち新しく壁を置かなかったのは 78 回（29%）・新しく置いた数の平均 7.9 個／立っている壁が 0 個だったのは 56 回（21%・記録のある 261 回のうち）・平均 5.6 個</li>
+<li>建築大好き：設置パート 214 回のうち新しく壁を置かなかったのは 73 回（34%）・新しく置いた数の平均 9.0 個／立っている壁が 0 個だったのは 53 回（24%・記録のある 214 回のうち）・平均 4.3 個</li>
+<li>壁なし：設置パート 377 回のうち新しく壁を置かなかったのは 377 回（100%）・新しく置いた数の平均 0.0 個／立っている壁が 0 個だったのは 377 回（100%・記録のある 377 回のうち）・平均 0.0 個</li>
+</ul>
+<p>（新しく置いた数は、前のラウンドの壁が残っていると 0 になる。壁を使っているかは「立っている壁」で見る）</p>
+<table>
+<tr><th>性格</th><th>囲い方</th><th>ラウンド</th><th>クリア率</th></tr>
+<tr><td>建築大好き</td><td>囲わず罠</td><td>27</td><td>4%</td></tr>
+<tr><td>建築大好き</td><td>囲んで出入り口 1 つ</td><td>58</td><td>19%</td></tr>
+<tr><td>建築大好き</td><td>二重の囲い</td><td>127</td><td>28%</td></tr>
+<tr><td>強欲型</td><td>囲わず罠</td><td>16</td><td>0%</td></tr>
+<tr><td>強欲型</td><td>囲んで出入り口 1 つ</td><td>73</td><td>5%</td></tr>
+<tr><td>強欲型</td><td>二重の囲い</td><td>152</td><td>11%</td></tr>
+<tr><td>強欲型</td><td>壁を置かない</td><td>19</td><td>11%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>囲わず罠</td><td>47</td><td>9%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>囲んで出入り口 1 つ</td><td>53</td><td>17%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>二重の囲い</td><td>167</td><td>14%</td></tr>
+<tr><td>慎重型（近くのお宝）</td><td>壁を置かない</td><td>31</td><td>10%</td></tr>
+<tr><td>壁なし</td><td>壁を置かない</td><td>376</td><td>9%</td></tr>
+<tr><td>慎重型（動かない）</td><td>囲わず罠</td><td>10</td><td>0%</td></tr>
+<tr><td>慎重型（動かない）</td><td>囲んで出入り口 1 つ</td><td>45</td><td>9%</td></tr>
+<tr><td>慎重型（動かない）</td><td>二重の囲い</td><td>117</td><td>34%</td></tr>
+<tr><td>慎重型（動かない）</td><td>壁を置かない</td><td>30</td><td>7%</td></tr>
+</table>
+<p>宝石のお店の道具：買った回数 一方通行ののれん 52、ゴールドラッシュ 73、身代わり人形 45、真っ暗ブロック 14、だるまさんがころんだ 21、迷い猫 11／使ったラウンドのクリア率 一方通行ののれん 10%（878）、ゴールドラッシュ 10%（317）、身代わり人形 12%（275）、真っ暗ブロック 7%（224）、だるまさんがころんだ 0%（19）、迷い猫 8%（158）</p>
+<h2>鬼の種類ごと</h2>
+<table>
+<tr><th>鬼</th><th>初めて出たステージ</th><th>出たラウンド</th><th>そのラウンドのクリア率</th><th>見つけた回数</th></tr>
+<tr><td>標準鬼</td><td>1</td><td>1347</td><td>14%</td><td>660</td></tr>
+<tr><td>宝物鬼</td><td>3</td><td>395</td><td>12%</td><td>76</td></tr>
+<tr><td>スピード鬼</td><td>4</td><td>357</td><td>11%</td><td>120</td></tr>
+<tr><td>パワー鬼</td><td>5</td><td>381</td><td>8%</td><td>161</td></tr>
+<tr><td>慎重鬼</td><td>6</td><td>253</td><td>9%</td><td>141</td></tr>
+<tr><td>探知鬼</td><td>7</td><td>270</td><td>7%</td><td>2</td></tr>
+</table></body></html>
