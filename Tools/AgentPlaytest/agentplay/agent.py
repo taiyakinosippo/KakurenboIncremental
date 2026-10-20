@@ -33,17 +33,17 @@ from .world import DIR_VEC, World
 PERSONAS = {
     "stay": {"ja": "慎重型（その場から動かない）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
              "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 8, "wall_lean": True,
-             "prestige": [["よじ登る", "登"], ["硬さ"], ["お金アップ"], ["壁の数"]]},
+             "prestige": [["よじ登る", "登"], ["壁の数"], ["硬さ"], ["お金アップ"]]},
     "near": {"ja": "慎重型（近くのお宝だけ取る）", "move": True, "fetch_radius": 8, "treasure_bonus": 1.0, "coin_weight": 1.0,
              "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 12, "wall_lean": True,
-             "prestige": [["煙幕ダッシュ", "煙幕"], ["よじ登る", "登"], ["お宝"], ["硬さ"]]},
+             "prestige": [["よじ登る", "登"], ["壁の数"], ["お宝"], ["硬さ"]]},
     "greedy": {"ja": "強欲型（お宝をほぼ全部取る）", "move": True, "fetch_radius": 999, "treasure_bonus": 3.0, "coin_weight": 0.5,
                "templates": ["open", "door_far", "double", "decoy_far"], "travel_treasure": 30, "wall_lean": True,
-               "prestige": [["煙幕ダッシュ", "煙幕"], ["お宝"], ["お金アップ"]]},
+               "prestige": [["煙幕ダッシュ", "煙幕"], ["お宝"], ["お金アップ"], ["壁の数"]]},
     # 建築大好き（ユーザーの指定）：壁や罠を優先して買い、鬼を足止めして稼ぐ。囲わない型は使わない。転生は壁登り・壁の硬さ・お金アップ
     "builder": {"ja": "建築大好き（壁と罠で足止め）", "move": False, "fetch_radius": 0, "treasure_bonus": 0.0, "coin_weight": 1.0,
                 "templates": ["door_far", "double", "decoy_far"], "travel_treasure": 6, "build": True,
-                "prestige": [["よじ登る", "登"], ["壁の数"], ["硬さ"], ["お金アップ"]]},
+                "prestige": [["壁の数"], ["硬さ"], ["よじ登る", "登"], ["お金アップ"]]},
     # 壁なし（ユーザーの指定）：壁を一切置かない（買わない・壁の補強も買わない）。罠と宝石の道具は使う。転生はダッシュ系（煙幕ダッシュ・煙幕の数）を先に
     "nowall": {"ja": "壁なし（ダッシュで逃げる）", "move": True, "fetch_radius": 8, "treasure_bonus": 1.0, "coin_weight": 1.0,
                "templates": ["open"], "travel_treasure": 12, "no_walls": True,
