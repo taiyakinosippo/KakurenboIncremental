@@ -6,6 +6,7 @@
 //   '.' は何もない床。'#' は部屋の壁。それ以外の文字は Data/Furniture.csv の行の名前（家具）。
 //   ';' で始まる行と空の行は読み飛ばす（メモ用）。
 //   同じ文字が長方形に並んでいる所は 1 つの家具になる（例: "BB" は横に 2 マスの本棚）。
+//   "[floor]" の行から後は床の種類（同じ大きさの文字の図。1 文字 = Data/FloorKinds.csv の行の名前）。無ければ全部 'w'（マップの床）
 
 #pragma once
 
@@ -18,6 +19,9 @@ namespace KakurenboMaps
 
 	/** 部屋の壁の文字（Furniture.csv に無くても使える） */
 	constexpr TCHAR WallChar = TEXT('#');
+
+	/** 床の種類の既定（マップの床。Maps.csv の FloorSurface） */
+	constexpr TCHAR DefaultFloorChar = TEXT('w');
 
 	/** 読んだ間取り（マスごとの文字） */
 	struct KAKURENBOINCREMENTAL_API FLayout
@@ -56,4 +60,27 @@ namespace KakurenboMaps
 	 * '.' は含めない
 	 */
 	KAKURENBOINCREMENTAL_API TArray<FPiece> FindPieces(const FLayout& Layout);
+
+	/**
+	 * 間取りのファイルの区切り "[Name]" の行から次の区切りまでの文（Name が空なら、最初の区切りより前＝間取り）
+	 */
+	KAKURENBOINCREMENTAL_API FString GetSection(const FString& Text, const FString& Name);
+
+	/**
+	 * 床の種類（"[floor]" の区切り）を SizeX × SizeY で読む。書いていないマスは DefaultFloorChar
+	 */
+	KAKURENBOINCREMENTAL_API FLayout ParseFloorLayer(const FString& Text, int32 SizeX, int32 SizeY);
+
+	/**
+	 * 家具のメッシュを上から見て空いている長方形（Furniture.csv の MeshCutout / AltMeshCutout）を読む。
+	 * "最小X 最小Y 最大X 最大Y" を、メッシュの外形（バウンディングボックス）に対する割合 0〜1 で書く（例: L 字の本棚の手前の角 "0.4 0.44 1 1"）。
+	 * @return 空・書き間違い・広さが無いときは false（抜かない）
+	 */
+	KAKURENBOINCREMENTAL_API bool ParseCutout(const FString& Text, FBox2D& OutCutout);
+
+	/**
+	 * 家具の当たり判定の形：外形 Bounds から Cutout（Bounds に対する割合）を抜いた残りを、重ならない長方形に分ける
+	 * （L 字なら 2 つ・コの字なら 3 つ・真ん中の穴なら 4 つ）。Cutout が無効なら Bounds そのもの 1 つ
+	 */
+	KAKURENBOINCREMENTAL_API TArray<FBox2D> SplitFootprint(const FBox2D& Bounds, const FBox2D& Cutout);
 }

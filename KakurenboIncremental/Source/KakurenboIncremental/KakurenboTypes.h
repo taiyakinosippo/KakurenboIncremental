@@ -4,13 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "InputCoreTypes.h"
 #include "KakurenboTypes.generated.h"
 
 class UMaterialInterface;
 class UTexture;
 class UStaticMesh;
 
-/** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する */
+/** ゲームのパート。購入 → 設置 → かくれんぼ → リザルト → 購入 … と循環する。起動直後はタイトル */
 UENUM(BlueprintType)
 enum class EKakurenboPhase : uint8
 {
@@ -18,6 +19,51 @@ enum class EKakurenboPhase : uint8
 	Build  UMETA(DisplayName = "Build"),
 	Hide   UMETA(DisplayName = "Hide"),
 	Result UMETA(DisplayName = "Result"),
+	Title  UMETA(DisplayName = "Title"), // タイトル画面（はじめから / つづきから）。数字の並びを変えないよう最後に足した
+};
+
+/**
+ * プレイヤーの操作（キー設定で好きなキーに変えられる）。
+ * セーブには名前で入れるので、並びを変えてもよい（名前は変えない）
+ */
+UENUM(BlueprintType)
+enum class EKakurenboAction : uint8
+{
+	MoveForward UMETA(DisplayName = "MoveForward"), // 前へ（設置パートではカメラを動かす）
+	MoveBack    UMETA(DisplayName = "MoveBack"),
+	MoveLeft    UMETA(DisplayName = "MoveLeft"),
+	MoveRight   UMETA(DisplayName = "MoveRight"),
+	Mash        UMETA(DisplayName = "Mash"),        // 連打（かくれんぼ）
+	Sneak       UMETA(DisplayName = "Sneak"),       // しゃがむ（設定で 1 回押して切り替え / 押している間）
+	Dash        UMETA(DisplayName = "Dash"),        // 煙幕ダッシュ
+	Climb       UMETA(DisplayName = "Climb"),       // よじ登る（前の壁・家具の上へ。M14 でジャンプから変えた）
+	CameraLeft  UMETA(DisplayName = "CameraLeft"),  // 俯瞰・真上のカメラを回す
+	CameraRight UMETA(DisplayName = "CameraRight"),
+	TiltDown    UMETA(DisplayName = "TiltDown"),    // 設置パートのカメラを斜めに傾ける
+	TiltUp      UMETA(DisplayName = "TiltUp"),      // 真上に戻す
+	Next        UMETA(DisplayName = "Next"),        // 次のパートへ
+	SetStart    UMETA(DisplayName = "SetStart"),    // 設置パート：スタート位置をカーソルのマスへ
+	BackToShop  UMETA(DisplayName = "BackToShop"),  // 設置パート → 購入パート
+	ClearAll    UMETA(DisplayName = "ClearAll"),    // 設置パート：全部回収（2 回押す）
+	SwitchShop  UMETA(DisplayName = "SwitchShop"),  // 購入パート：コインのお店 ↔ 転生のお店
+	Refill      UMETA(DisplayName = "Refill"),      // 購入パート：まとめて補充
+	Prestige    UMETA(DisplayName = "Prestige"),    // 購入パート：転生（2 回押す）
+	Help        UMETA(DisplayName = "Help"),        // 操作説明を開く
+	UseItem     UMETA(DisplayName = "UseItem"),     // かくれんぼ：だるまさんがころんだ（宝石のお店の道具）を使う
+	Count       UMETA(Hidden)
+};
+
+/** 1 つの操作に割り当てたキー（2 つまで。空でもよい） */
+USTRUCT(BlueprintType)
+struct FKakurenboKeyBinding
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	FKey Primary;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	FKey Secondary;
 };
 
 /** プレイヤーの視点 */
@@ -61,6 +107,7 @@ enum class EKakurenboNoise : uint8
 	Dash  UMETA(DisplayName = "Dash"),  // ダッシュ
 	Step  UMETA(DisplayName = "Step"),  // 足音・ジャンプ（足音として聞く）
 	Decoy UMETA(DisplayName = "Decoy"), // おとり
+	Cat   UMETA(DisplayName = "Cat"),   // 迷い猫の鳴き声（猫はかわいいので、音を気にしない鬼も寄ってくる。探知鬼は動かない）
 };
 
 /** 罠の種類（Data/Traps.csv の Kind 列） */
@@ -69,6 +116,13 @@ enum class ETrapKind : uint8
 {
 	Sticky UMETA(DisplayName = "Sticky"), // トリモチ：踏んだ鬼をしばらく動けなくする（1 回使うと消える）
 	Decoy  UMETA(DisplayName = "Decoy"),  // おとり：一定の間隔で音を出して鬼を呼び寄せる（鬼が触れると壊れる）
+	// ---- 宝石のお店（宝石で買う。Traps.csv の bGemItem = True の行） ----
+	FakeHider UMETA(DisplayName = "FakeHider"), // 身代わり人形（偽プレイヤー）：鬼に見つかると、鬼と反対の方へまっすぐ逃げる。捕まると消える
+	OneWay    UMETA(DisplayName = "OneWay"),    // 一方通行ののれん：鬼は矢印の向きにしか通れない（プレイヤーはどちらからも通れる）。Uses 回通られると壊れる
+	Darkness  UMETA(DisplayName = "Darkness"),  // 真っ暗ブロック：まわり（Radius）が真っ暗になり、鬼はすぐ近くしか見えない。自分も見えにくい
+	Cat       UMETA(DisplayName = "Cat"),       // 迷い猫：近くをうろうろして鳴く。寄ってきた鬼は猫をなでてしばらく動かない（どの鬼も猫には弱い）
+	Daruma    UMETA(DisplayName = "Daruma"),    // だるまさんがころんだ：かくれんぼ中に使う（置かない）。使った瞬間に自分の視界にいた鬼は、しばらく動けない。止まった鬼にタッチすると門へ帰る
+	GoldRush  UMETA(DisplayName = "GoldRush"),  // ゴールドラッシュ：真っ暗ブロックと同じく、置いておくとそのかくれんぼの間は連打のコインが 2 倍。1 ラウンドで壊れる
 };
 
 /** 転生のお店で買える永続強化（Data/PrestigeUpgrades.csv の行名と同じ名前） */
@@ -79,8 +133,11 @@ enum class EPrestigeUpgrade : uint8
 	Treasure     UMETA(DisplayName = "Treasure"),     // お宝の強化：お宝の価値の倍率
 	SmokeDuration UMETA(DisplayName = "SmokeDuration"), // 煙幕ダッシュ：Lv1 で使えるようになる。上げると煙が長く残る（1〜7 秒）
 	SmokeCount   UMETA(DisplayName = "SmokeCount"),   // 煙幕の数：1 ラウンドに煙幕ダッシュを使える回数（1 + Lv）。セーブの並びを変えないよう、元の「ダッシュの回復」の場所
-	Jump         UMETA(DisplayName = "Jump"),         // ジャンプ：Lv1 でジャンプできるようになる
+	Climb        UMETA(DisplayName = "Climb"),        // よじ登る：Lv1 で壁・家具によじ登れるようになる（元の「ジャンプ」の場所。セーブのレベルはそのまま）
 	QuietHP      UMETA(DisplayName = "QuietHP"),      // 消音壁の丈夫さ：音を消せる回数の倍率（セーブの並びを変えないよう最後に足した）
+	Income       UMETA(DisplayName = "Income"),       // お金アップ：稼ぐコイン（連打・時間・逃げ切りの報酬）の倍率。元の「連打のお金アップ」の場所
+	// 2026-10-19：「時間のお金アップ」はお金アップにまとめた（古いセーブのその分のポイントは読み込むときに返す）
+	WallCount    UMETA(DisplayName = "WallCount"),    // 壁の数：ステージごとに置ける壁の数の倍率（最大レベルで無制限）。セーブ版 8 から（版 7 までのこの場所は時間のお金アップ）
 	Count        UMETA(Hidden)
 };
 
@@ -108,23 +165,43 @@ enum class EKakurenboSfx : uint8
 	Dash          UMETA(DisplayName = "Dash"),          // ダッシュした（大きな音）
 	Prestige      UMETA(DisplayName = "Prestige"),      // 転生した
 	PlayerStep    UMETA(DisplayName = "PlayerStep"),    // プレイヤーの足音
-	PlayerJump    UMETA(DisplayName = "PlayerJump"),    // プレイヤーのジャンプ
+	PlayerClimb   UMETA(DisplayName = "PlayerClimb"),   // プレイヤーがよじ登った（ガサッ）
 	OniStep       UMETA(DisplayName = "OniStep"),       // 鬼の足音（どたどた。その場所から聞こえる）
 	TreasureSparkle UMETA(DisplayName = "TreasureSparkle"), // お宝のキラキラ（その場所から聞こえる）
 	Summon        UMETA(DisplayName = "Summon"),        // 探知鬼が仲間を呼んだ
 	Smoke         UMETA(DisplayName = "Smoke"),         // 煙幕を投げた（ボフッ）
 	Heartbeat     UMETA(DisplayName = "Heartbeat"),     // 鬼が近い・向かってくる（ドクン。近いほど速く大きく）
 	OniNotice     UMETA(DisplayName = "OniNotice"),     // 鬼が音に気づいた（「ン？」。その鬼の場所から聞こえる）
+	Meow          UMETA(DisplayName = "Meow"),          // 迷い猫の鳴き声（にゃーん）
+	Daruma        UMETA(DisplayName = "Daruma"),        // だるまさんがころんだ（かけ声のメロディ）
+	Poof          UMETA(DisplayName = "Poof"),          // 身代わり人形が捕まって消えた・のれんが壊れた・タッチで鬼が門へ帰った（ポン）
+	Gem           UMETA(DisplayName = "Gem"),           // 宝石を全部集めた（ボーナス）
+	// ここから下は専用の音（Data/Sounds/<名前>.wav）が無ければ、上の音の高さ違いで鳴る（KakurenboSynth::GetFallback）
+	UIClick       UMETA(DisplayName = "UIClick"),       // ボタンを押した（設定を変えた・図鑑のページをめくった）
+	UIMove        UMETA(DisplayName = "UIMove"),        // カーソル・選択の移動（コントローラー・キー）
+	MenuOpen      UMETA(DisplayName = "MenuOpen"),      // メニューを開いた
+	MenuClose     UMETA(DisplayName = "MenuClose"),     // メニューを閉じた
+	OniIntro      UMETA(DisplayName = "OniIntro"),      // 初めて出てくる鬼のチュートリアル
+	OniLeap       UMETA(DisplayName = "OniLeap"),       // 鬼が家具・壁に飛び乗った（その場所から聞こえる）
+	CurtainPass   UMETA(DisplayName = "CurtainPass"),   // 鬼がのれんをくぐった（その場所から聞こえる）
+	DollStep      UMETA(DisplayName = "DollStep"),      // 身代わり人形が逃げる足音（その場所から聞こえる）
+	OniStepScout  UMETA(DisplayName = "OniStepScout"),  // スピード鬼の足音
+	OniStepBreaker UMETA(DisplayName = "OniStepBreaker"), // パワー鬼の足音
+	OniStepCareful UMETA(DisplayName = "OniStepCareful"), // 慎重鬼の足音
+	OniStepTreasure UMETA(DisplayName = "OniStepTreasure"), // 宝物鬼の足音
 	Count         UMETA(Hidden)
 };
 
-/** BGM の曲（プログラムで作る。KakurenboSynth） */
+/** BGM の曲（Data/Sounds/Music_<名前>.wav があればそれ。無ければプログラムで作る。KakurenboSynth） */
 UENUM(BlueprintType)
 enum class EKakurenboMusic : uint8
 {
 	None UMETA(DisplayName = "None"),
-	Calm UMETA(DisplayName = "Calm"), // 購入・設置・リザルト：夜の館のおもちゃ箱のような、のんびりした曲
-	Hide UMETA(DisplayName = "Hide"), // かくれんぼ：速くて少し怖い曲
+	Calm UMETA(DisplayName = "Calm"),   // 購入・設置・リザルト：夜の館のおもちゃ箱のような、のんびりした曲
+	Hide UMETA(DisplayName = "Hide"),   // かくれんぼ：速くて少し怖い曲
+	Title UMETA(DisplayName = "Title"), // タイトル：少し不気味な夜の館への招待（プログラムの曲は Calm と同じ）
+	Chase UMETA(DisplayName = "Chase"), // かくれんぼ中に鬼に追われている間：どたばた（プログラムの曲は Hide と同じ）
+	HideDeep UMETA(DisplayName = "HideDeep"), // 大きな館のかくれんぼ（GameMode の DeepHideMusicStage から）：もっと深い夜。WAV が無ければ Hide の曲
 };
 
 /** 購入パートの商品 1 つ分の表示用データ */
@@ -162,6 +239,21 @@ struct FShopItemView
 	/** これ以上強化できない */
 	UPROPERTY(BlueprintReadOnly, Category = "Shop")
 	bool bMaxed = false;
+
+	/** まだ買えない（転生のお店で解放するもの。クライミング壁は「よじ登る」を解放してから） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bLocked = false;
+
+	/** 宝石のお店の商品か（価格の単位が宝石） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	bool bGemItem = false;
+
+	/** まとめ買い（×10・最大）のとき：買える数と合計の価格（1 個ずつのときは 1 と Cost） */
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	int32 BulkCount = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Shop")
+	double BulkCost = 0.0;
 };
 
 /**
@@ -208,6 +300,17 @@ struct FWallTypeDef : public FTableRowBase
 	/** 見た目（Data/Surfaces.csv の行。Fab の木・鉄など）。空・テクスチャが無ければ Color の箱 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
 	FName Surface;
+
+	/** よじ登るのにかかる秒数（通常壁 1 秒・クライミング壁は速い） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	float ClimbSeconds = 1.f;
+
+	/**
+	 * 登りやすい壁（クライミング壁）。4 つの面に足場の横木を付けて見分けられるようにする。
+	 * 転生のお店で「よじ登る」を解放するまでは買えない
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wall")
+	bool bLadder = false;
 };
 
 /**
@@ -264,9 +367,20 @@ struct FKakurenboPrestigeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
 	int32 MinStage = 5;
 
-	/** 転生ポイント = (今のステージ - MinStage + 1) × PointsPerStage */
+	/** 転生ポイント = 切り捨て(PointsBase × PointsGrowth ^ (今のステージ - MinStage))。深く進むほど大きく増える（指数） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
-	int32 PointsPerStage = 1;
+	double PointsBase = 4.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double PointsGrowth = 1.28;
+
+	/** 転生した後のはじめのコイン = 転生した回数 × これ（強化ではなく、転生するたびに自動で増える） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double StartCoinsPerPrestige = 500.0;
+
+	/** 転生するたびに、すべての壁の耐久が自動でこの倍率ずつ硬くなる（耐久 × これ ^ 転生した回数。転生のお店の「壁の硬さ」とは別に掛かる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prestige")
+	double WallHPPerPrestige = 1.4;
 };
 
 /**
@@ -361,6 +475,10 @@ struct FKakurenboStageRow : public FTableRowBase
 	/** 館のマップ（Maps.csv の行の名前）。空なら前のステージと同じ */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
 	FName Map;
+
+	/** 置ける壁の数（設計図の数。転生のお店の「壁の数」で増える）。0 なら制限なし */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stage")
+	int32 WallLimit = 0;
 };
 
 /** 鬼の種類ごとの数値。Data/OniTypes.csv の 1 行（行名は Balanced / Scout / Breaker / Careful） */
@@ -424,9 +542,42 @@ struct FKakurenboOniTypeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float AttackWindup = 0.8f;
 
+	/**
+	 * 前方の箱の攻撃（パワー鬼。M15）：目の前の壁から、横 AttackBoxWidth × 奥 AttackBoxDepth マス × 下から AttackBoxLevels 段の壁に当たる。
+	 * 0 なら使わない（AttackRadius の範囲攻撃・bSingleTargetAttack の 1 個だけ）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxWidth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxDepth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	int32 AttackBoxLevels = 0;
+
 	/** うろうろ中、壁に囲まれた空洞があればそこを調べに行く確率（0〜1） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	float PocketInspectChance = 0.5f;
+
+	/**
+	 * 勘（0〜1）：プレイヤーが見えず音も聞こえていないのに、近づいて来やすい。うろうろの次の行き先を決めるとき、この確率で
+	 * プレイヤーの本当の場所のそば（勘が高いほど近く）を行き先にする。スピード鬼は低め・慎重鬼は高め
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float Intuition = 0.3f;
+
+	/**
+	 * 曲がり角が苦手（スピード鬼）：進む向きが一度に CornerTurnAngle 度以上変わると、速さが CornerSlowScale 倍まで落ち、
+	 * CornerSlowDuration 秒かけて元に戻る。直線は速いが、角を曲がって逃げられると引き離される。0 なら無し
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerTurnAngle = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerSlowScale = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
+	float CornerSlowDuration = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OniType")
 	FLinearColor Color = FLinearColor(0.9f, 0.1f, 0.08f);
@@ -453,7 +604,7 @@ struct FKakurenboTrapRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	FText DisplayName;
 
-	/** 罠の働き（Sticky = トリモチ / Decoy = おとり） */
+	/** 罠の働き（Sticky = トリモチ / Decoy = おとり / 宝石のお店の道具: FakeHider・OneWay・Darkness・Cat・Daruma） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	ETrapKind Kind = ETrapKind::Sticky;
 
@@ -480,6 +631,26 @@ struct FKakurenboTrapRow : public FTableRowBase
 	/** 鬼の体の中心がこの距離（cm）まで来たら発動する */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	float TriggerRadius = 45.f;
+
+	/** 宝石で買う道具（宝石のお店に並ぶ。価格の単位が宝石）。False ならコインで買う罠（コインのお店） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	bool bGemItem = false;
+
+	/** 道具の働く範囲（cm）。真っ暗ブロック：暗くなる半径 / 迷い猫：うろうろする半径 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Radius = 0.f;
+
+	/** 道具の速さ（cm/秒）。身代わり人形：逃げる速さ（プレイヤーの歩きは 420）/ 迷い猫：歩く速さ */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Speed = 0.f;
+
+	/** 回数。一方通行ののれん：鬼が通れる回数（尽きると壊れる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	int32 Uses = 0;
+
+	/** 秒数。迷い猫：鬼が猫をなでて動かない時間 / だるまさんがころんだ：鬼が止まる時間 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
+	float Duration = 0.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trap")
 	FLinearColor Color = FLinearColor(1.f, 0.9f, 0.2f);
@@ -527,6 +698,42 @@ struct FKakurenboMapRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
 	FLinearColor WallTint = FLinearColor::White;
+
+	/** 腰壁（壁の下の方の板）の見た目（Data/Surfaces.csv の行）。空なら腰壁なし（壁と同じ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FName WainscotSurface;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map")
+	FLinearColor WainscotTint = FLinearColor::White;
+};
+
+/**
+ * 床の種類 1 つ。Data/FloorKinds.csv の 1 行（行の名前は間取りの [floor] で使う 1 文字）。
+ * 部屋ごとに床を変える（台所・浴室はタイル、玄関ホールは石、廊下は寄木…）
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboFloorKindRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Floor")
+	FText DisplayName;
+
+	/** 見た目（Data/Surfaces.csv の行）。空ならマップの床（Maps.csv の FloorSurface） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Floor")
+	FName Surface;
+
+	/** 模様に掛ける色（マップの床の色にさらに掛ける。白ならそのまま） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Floor")
+	FLinearColor Tint = FLinearColor::White;
+
+	/** 市松模様の暗い方のマスの明るさ（1 なら模様なし） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Floor")
+	float CheckerDarken = 0.85f;
+
+	/** テクスチャが無いときの色 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Floor")
+	FLinearColor Color = FLinearColor(0.2f, 0.12f, 0.08f);
 };
 
 /**
@@ -563,5 +770,68 @@ struct FKakurenboFurnitureRow : public FTableRowBase
 
 	/** 明かりの強さ（カンデラ。0 なら明かりなし。暖炉・ランプ） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	float LightIntensity = 0.f;
+
+	/** メッシュの正面の向きの補正（度）。家具は正面を部屋の空いている側へ向けて置く。後ろを向いてしまうメッシュは 180 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	float MeshYaw = 0.f;
+
+	/**
+	 * メッシュを上から見て空いている長方形（当たり判定の箱から抜く）。"最小X 最小Y 最大X 最大Y" をメッシュの外形に対する割合 0〜1 で。
+	 * 例: L 字の本棚の手前の角 "0.4 0.44 1 1"。空なら外形そのままの箱。AltMeshCutout は AltMesh の分
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FString MeshCutout;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Furniture")
+	FString AltMeshCutout;
+};
+
+/** 壁の飾りの種類（Data/Decor.csv の Kind 列） */
+UENUM(BlueprintType)
+enum class EKakurenboDecorKind : uint8
+{
+	Window        UMETA(DisplayName = "Window"),        // 窓（外周の壁だけ。月明かり）
+	Painting      UMETA(DisplayName = "Painting"),      // 絵・額（壁ならどこでも）
+	Sconce        UMETA(DisplayName = "Sconce"),        // 壁の明かり（たいまつ・燭台。明かりを付ける）
+	DoorFrame     UMETA(DisplayName = "DoorFrame"),     // 1 マスの出入り口の枠
+	DoorFrameWide UMETA(DisplayName = "DoorFrameWide"), // 2 マスの出入り口の枠
+};
+
+/**
+ * 壁の飾り 1 種類。Data/Decor.csv の 1 行。館の部屋の壁・外周の壁・出入り口に、決まった間隔で自動で飾る（当たり判定なし）
+ */
+USTRUCT(BlueprintType)
+struct FKakurenboDecorRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	EKakurenboDecorKind Kind = EKakurenboDecorKind::Painting;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	TSoftObjectPtr<UStaticMesh> Mesh;
+
+	/** 大きさ（cm。壁に沿った幅と高さ）。メッシュは縦横比を保ってこの中に収める */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	float Width = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	float Height = 100.f;
+
+	/** 下の端の高さ（cm。床から） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	float Bottom = 120.f;
+
+	/** 壁の面から部屋の側へ出す量（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	float Offset = 2.f;
+
+	/** メッシュの正面の向きの補正（度。壁を向いてしまうなら 180） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
+	float MeshYaw = 0.f;
+
+	/** 明かりの強さ（カンデラ。0 なら明かりなし） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Decor")
 	float LightIntensity = 0.f;
 };

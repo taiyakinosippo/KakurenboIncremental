@@ -1,0 +1,2 @@
+frantic comedic chase, slapstick panic, playful horror, haunted mansion, fast pizzicato and spiccato strings, brass stabs, tuba, snare drum, xylophone runs, music box sparkle, cartoon chase, spooky cute, energetic, instrumental, no vocals, game bgm, loopable
+seconds=60.0 bpm=150 key=D minor model=acestep-v15-turbo

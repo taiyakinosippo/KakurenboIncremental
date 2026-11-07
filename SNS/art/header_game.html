@@ -1,0 +1,30 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=block" rel="stylesheet"><link rel="stylesheet" href="common.css">
+<!-- ヘッダー（1500×500）。左下はアイコンが重なるので空けておく -->
+<!-- ヘッダー案 2（1500×500）：実際のタイトル画面（../media/title.png）の上にロゴ -->
+<style>
+  body { width: 1500px; height: 500px; position: relative; background: #0b0820; }
+  .shot { position: absolute; inset: 0; background: url(../media/title.png) no-repeat; background-size: 1640px auto; background-position: -140px -250px; }
+  .shade { position: absolute; inset: 0; background: linear-gradient(90deg, #0b0820 0%, #0b0820 24%, rgba(11,8,32,.75) 40%, rgba(11,8,32,.2) 58%, rgba(11,8,32,0) 72%),
+    linear-gradient(180deg, rgba(11,8,32,.85) 0%, rgba(11,8,32,0) 22%), linear-gradient(0deg, rgba(11,8,32,.6) 0%, rgba(11,8,32,0) 30%); }
+  .logo { position: absolute; left: -10px; top: 20px; width: 1000px; height: 284px; transform: scale(.78); transform-origin: 0 0; }
+  .logo .word { left: 40px; top: 52px; }
+  .tag { position: absolute; left: 260px; top: 250px;
+    font-family: "Dela Gothic One", sans-serif; font-size: 36px; letter-spacing: .08em; color: #f3edff;
+    -webkit-text-stroke: 10px #1a0a2c; paint-order: stroke fill; filter: drop-shadow(0 5px 0 #0b0414); }
+  .tag b { color: #ffd45a; font-weight: normal; } .tag i { color: #c9a8ff; font-style: normal; }
+</style></head><body>
+<div class="shot"></div><div class="shade"></div>
+<div class="logo">
+  <div class="spark" style="left: 36px; top: 40px; transform: scale(.8);"></div>
+  <div class="spark" style="left: 372px; top: 8px;"></div>
+  <div class="spark violet" style="left: 930px; top: 92px; transform: scale(.7);"></div>
+  <div class="word">
+    <div class="ch gold c1"><span class="ghost">か</span><span class="stroke">か</span><span class="fill">か</span></div>
+    <div class="ch gold c2"><span class="ghost">せ</span><span class="stroke">せ</span><span class="fill">せ</span></div>
+    <div class="ch gold c3"><span class="ghost">く</span><span class="stroke">く</span><span class="fill">く</span><div class="koban k2"></div><div class="koban k1"></div></div>
+    <div class="ch night c4"><span class="ghost">ん</span><span class="stroke">ん</span><span class="fill">ん</span></div>
+    <div class="ch night c5"><span class="ghost">ほ</span><span class="stroke">ほ</span><span class="fill">ほ</span><div class="eye e2"></div><div class="eye e1"></div></div>
+  </div>
+</div>
+<div class="tag"><b>連打で稼ぐ。</b><br><i>音で見つかる。</i></div>
+</body></html>

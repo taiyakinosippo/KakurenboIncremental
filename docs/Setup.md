@@ -78,3 +78,28 @@ setx UE_ROOT "D:\Epic Games\UE_5.8"
 git pull するだけでそろうので、エディタの Fab から追加し直す必要はない。
 
 - Claude との会話の履歴と、コマンドの許可の設定はパソコンごと。ルールと仕様は CLAUDE.md と docs/GameDesign.md に書いてあるので、別のパソコンの Claude もそこから続けられる
+
+## 音を作る AI（なくてもゲームは作れる）
+
+Stable Audio Open 1.0 で効果音・BGM の候補を作る道具（`Tools\SoundGen.ps1`）。NVIDIA の GPU（VRAM 8GB くらい）があると速い。
+Claude に「**音の AI の環境を作って音を作って**」と頼めば、下の 1〜3 を確認なしでやる（CLAUDE.md に手順がある）。
+
+1. `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1 -Setup`（Python の環境。PyTorch など約 3GB）
+2. **自分で**：Hugging Face のアカウントで https://huggingface.co/stabilityai/stable-audio-open-1.0 の規約に同意（アカウントに 1 回）し、
+   このパソコンで `Tools\SoundGen\.venv\Scripts\hf.exe auth login`（トークンを貼る。パソコンごとに 1 回）
+3. `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1 -Current`（今の音を WAV に。ビルド済みのこと）→
+   `powershell -ExecutionPolicy Bypass -File Tools\SoundGen.ps1`（全部の候補。初回はモデル約 5GB のダウンロード）
+
+できた音と一覧（`index.html`）は `KakurenboIncremental/SourceArt/SoundGen/`。作った候補は Git（LFS）に入れるので、**聞く・採用するだけなら上の 1〜3 は要らない**（`git pull` するだけ）。
+候補の一覧・聞くページ（スマホからも聞ける）・採用した音は [Sounds.md](Sounds.md)。
+
+## BGM を作る AI（なくてもゲームは作れる）
+
+ACE-Step 1.5（MIT。作った曲は商用で使える。最長 10 分）で BGM の候補を作る道具（`Tools\MusicGen.ps1`）。Stable Audio Open より曲作りに向いている。
+NVIDIA の GPU（VRAM 8GB 以上）。Hugging Face のログインは要らない。必要なのは git と uv（無ければスクリプトが入れる）。
+Claude に「**BGM の AI の環境を作って**」と頼めば、確認なしで下をやる（CLAUDE.md に手順がある）。
+
+1. `powershell -ExecutionPolicy Bypass -File Tools\MusicGen.ps1 -Setup`（ACE-Step を `Tools/MusicGen/ACE-Step-1.5` に取ってきて、Python の環境約 7GB とモデル約 10GB）
+2. `powershell -ExecutionPolicy Bypass -File Tools\MusicGen.ps1`（`Tools/MusicGen/Music.csv` の曲を 3 候補ずつ）
+
+できた曲と一覧（`index.html`）は `KakurenboIncremental/SourceArt/MusicGen/`。

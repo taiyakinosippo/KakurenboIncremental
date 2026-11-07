@@ -1,0 +1,2 @@
+s21-s24: Single quick light running footstep of a small cartoon monster on a wooden floor, soft patter, close mic
+seconds=1.0 steps=100

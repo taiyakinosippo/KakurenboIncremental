@@ -1,0 +1,2 @@
+s21-s24: Tiny soft tick, light plastic toy click, subtle game menu cursor move sound, very short, dry
+seconds=1.0 steps=100

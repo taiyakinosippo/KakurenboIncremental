@@ -98,6 +98,15 @@ private:
 	bool bBusy = false;
 };
 
+/** M16：出した輪 1 つ（テキストの窓口が「見えた輪」として AI に伝える） */
+struct FKakurenboShownRing
+{
+	FVector Location = FVector::ZeroVector;
+	float Radius = 0.f;     // 広がりきったときの半径（cm）
+	float Thickness = 6.f;  // 線の太さ（cm）
+	FLinearColor Color = FLinearColor::White;
+};
+
 /** 演出の窓口（ワールドに 1 つ） */
 UCLASS()
 class KAKURENBOINCREMENTAL_API UKakurenboFxSubsystem : public UWorldSubsystem
@@ -114,6 +123,10 @@ public:
 	/** 出した演出の数（テスト用） */
 	int32 GetBurstCount() const { return BurstCount; }
 	int32 GetRingCount() const { return RingCount; }
+
+	/** M16：出した輪を記録する（テキストの窓口が動いているときだけ）。読んだら空にする */
+	bool bRecordRings = false;
+	TArray<FKakurenboShownRing> ShownRings;
 
 private:
 	float GetFloorZ() const;

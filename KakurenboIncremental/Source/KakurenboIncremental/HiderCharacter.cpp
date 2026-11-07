@@ -5,14 +5,20 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/AnimationAsset.h"
 #include "Components/PoseableMeshComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Engine/World.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboLibrary.h"
+#include "PlaceableBlock.h"
 #include "UObject/ConstructorHelpers.h"
 
 AHiderCharacter::AHiderCharacter()
@@ -31,18 +37,38 @@ AHiderCharacter::AHiderCharacter()
 	Move->bOrientRotationToMovement = true;
 	Move->RotationRate = FRotator(0.f, 720.f, 0.f);
 	Move->MaxWalkSpeed = 420.f;
-	Move->JumpZVelocity = 650.f; // ブロック 1 段（160cm）に飛び乗れる高さ
-	Move->AirControl = 0.5f;
+	// 壁の上から歩いて下りると、ほぼ真下に落ちる（勢いで隙間の先の壁へ飛び移れないように。ジャンプも無い）。
+	// 空中では歩く入力を受けない（PlayerController）ので、横の勢いはすぐ止まる
+	Move->AirControl = 0.f;
+	Move->FallingLateralFriction = 4.f;
+	Move->BrakingDecelerationFalling = 1800.f;
 
 	// しのび足のときはしゃがむ（体が半分の高さになり、低い家具の陰に隠れられる）
 	Move->NavAgentProps.bCanCrouch = true;
 	Move->SetCrouchedHalfHeight(CrouchedHalfHeight);
 	Move->bCanWalkOffLedgesWhenCrouching = true;
 
-	// ジャンプは最初はできない（転生のお店で解放すると GameMode が 1 にする）
+	// ジャンプは無い（M14。代わりによじ登る：転生のお店で解放）
 	JumpMaxCount = 0;
 
 	// CreateDefaultSubobject: コンストラクタでコンポーネントを作る UE の決まった書き方
+	// 懐中電灯：頭の上から、カメラの向いている前を少し下向きに照らす（向きは Tick で合わせる。ふだんは消えている）
+	Flashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Flashlight"));
+	Flashlight->SetupAttachment(RootComponent);
+	Flashlight->SetRelativeLocation(FVector(0.f, 0.f, 75.f));
+	Flashlight->SetRelativeRotation(FRotator(-12.f, 0.f, 0.f));
+	Flashlight->SetMobility(EComponentMobility::Movable);
+	Flashlight->SetLightColor(FLinearColor(1.f, 0.92f, 0.75f));
+	Flashlight->SetCastShadows(true);
+	Flashlight->SetVisibility(false);
+
+	BodyGlow = CreateDefaultSubobject<UPointLightComponent>(TEXT("BodyGlow"));
+	BodyGlow->SetupAttachment(RootComponent);
+	BodyGlow->SetMobility(EComponentMobility::Movable);
+	BodyGlow->SetLightColor(FLinearColor(0.75f, 0.85f, 1.f));
+	BodyGlow->SetCastShadows(false);
+	BodyGlow->SetVisibility(false);
+
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->SetUsingAbsoluteRotation(true); // 向きはワールド固定（Tick で設定する）
@@ -106,6 +132,14 @@ void AHiderCharacter::SetViewMode(EHiderViewMode NewMode)
 		CameraBoom->SetRelativeLocation(FVector::ZeroVector);
 	}
 	SetActorHiddenInGame(bTopDown);
+	// 三人称のアームの長さは、入るたびに今の長さから測り直す
+	ZoomArmLength = -1.f;
+	CollisionArmLength = -1.f;
+}
+
+float AHiderCharacter::GetCameraArmLength() const
+{
+	return CameraBoom ? CameraBoom->TargetArmLength : 0.f;
 }
 
 float AHiderCharacter::GetViewYaw() const
@@ -132,6 +166,27 @@ void AHiderCharacter::AddTopDownTilt(float DeltaDegrees)
 	TopDownPitch = FMath::Clamp(TopDownPitch + DeltaDegrees, -90.f, TopDownMaxTiltPitch);
 }
 
+void AHiderCharacter::SetTitleCamera(bool bTitle)
+{
+	if (bTitle == bTitleCamera)
+	{
+		return;
+	}
+	bTitleCamera = bTitle;
+	if (bTitle)
+	{
+		SavedOverheadPitch = OverheadPitch;
+		SavedOverheadDistance = OverheadDistance;
+		OverheadPitch = TitlePitch;
+		OverheadDistance = TitleDistance;
+	}
+	else
+	{
+		OverheadPitch = SavedOverheadPitch;
+		OverheadDistance = SavedOverheadDistance;
+	}
+}
+
 void AHiderCharacter::AddZoom(float DeltaCm)
 {
 	if (ViewMode == EHiderViewMode::Overhead)
@@ -151,6 +206,38 @@ void AHiderCharacter::AddZoom(float DeltaCm)
 void AHiderCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+
+	if (bClimbing)
+	{
+		TickClimb(DeltaSeconds);
+	}
+
+	// 懐中電灯は画面の前（カメラの向いている方）を照らす。真っ暗でどっちが前か分からなくならないように（ユーザーの希望）。
+	// 見下ろしすぎ・見上げすぎのときも、少し先の床と壁が照らされる角度にしておく
+	if (Flashlight && Flashlight->IsVisible())
+	{
+		const FRotator View = Controller ? Controller->GetControlRotation() : GetActorRotation();
+		const float Pitch = FMath::Clamp(FRotator::NormalizeAxis(View.Pitch), -35.f, 5.f) - 10.f;
+		Flashlight->SetWorldRotation(FRotator(Pitch, View.Yaw, 0.f));
+		// 光は頭より上・少し前から出す（自分の頭や体の影で前が暗くならないように）
+		const FVector Forward = FRotator(0.f, View.Yaw, 0.f).Vector();
+		Flashlight->SetWorldLocation(GetActorLocation() + FVector(0.f, 0.f, GetSimpleCollisionHalfHeight() + 30.f) + Forward * 45.f);
+	}
+
+	// 体の光は、カメラの側から体を照らす（体の中に置くと、表面の裏から当たって光って見えない）
+	if (BodyGlow && BodyGlow->IsVisible())
+	{
+		const FVector Body = GetActorLocation() + FVector(0.f, 0.f, 20.f);
+		FVector ToCamera = FVector::ZeroVector;
+		if (const APlayerController* PC = Cast<APlayerController>(Controller))
+		{
+			if (PC->PlayerCameraManager)
+			{
+				ToCamera = (PC->PlayerCameraManager->GetCameraLocation() - Body).GetSafeNormal();
+			}
+		}
+		BodyGlow->SetWorldLocation(Body + (ToCamera.IsNearlyZero() ? -GetActorForwardVector() : ToCamera) * 70.f + FVector(0.f, 0.f, 40.f));
+	}
 
 	// ダッシュの時間とクールタイム
 	if (DashTimeRemaining > 0.f)
@@ -195,8 +282,28 @@ void AHiderCharacter::Tick(float DeltaSeconds)
 	{
 		// 三人称：マウスで動かした向き（コントローラーの向き）から見る
 		const FRotator ControlRot = Controller ? Controller->GetControlRotation() : GetActorRotation();
-		CameraBoom->SetWorldRotation(FRotator(ControlRot.Pitch, ControlRot.Yaw, 0.f));
-		CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, ThirdPersonDistance, DeltaSeconds, 8.f);
+		const FRotator ArmRot(ControlRot.Pitch, ControlRot.Yaw, 0.f);
+		CameraBoom->SetWorldRotation(ArmRot);
+		if (ZoomArmLength < 0.f)
+		{
+			ZoomArmLength = CameraBoom->TargetArmLength;
+		}
+		ZoomArmLength = FMath::FInterpTo(ZoomArmLength, ThirdPersonDistance, DeltaSeconds, 8.f);
+		// M14：壁（部屋の壁・外周の壁・出入り口の上の壁）に当たらない長さを自分で測る。当たったらすぐ寄せ、離れるときはゆっくり戻す。
+		// （アームの当たり判定だけに任せると、壁ぎわ・廊下では毎フレーム寄ったり離れたりして「グワングワン」揺れた。アームの当たり判定は念のため残す）
+		const FVector ArmOrigin = CameraBoom->GetComponentLocation() + CameraBoom->TargetOffset;
+		float FreeLength = ZoomArmLength;
+		FHitResult Hit;
+		const FCollisionQueryParams Params(SCENE_QUERY_STAT(HiderCameraArm), false, this);
+		if (GetWorld()->SweepSingleByChannel(Hit, ArmOrigin, ArmOrigin - ArmRot.Vector() * ZoomArmLength, FQuat::Identity, CameraBoom->ProbeChannel,
+			FCollisionShape::MakeSphere(CameraBoom->ProbeSize), Params))
+		{
+			FreeLength = FMath::Max(static_cast<float>(Hit.Distance), 0.f);
+		}
+		// フレームが引っかかって（シェーダーの準備など）1 フレームが長くても一気に戻らないよう、戻すときの時間は 1/20 秒までにする
+		CollisionArmLength = (CollisionArmLength < 0.f || FreeLength < CollisionArmLength) ? FreeLength
+			: FMath::FInterpTo(CollisionArmLength, FreeLength, FMath::Min(DeltaSeconds, 0.05f), CameraReturnSpeed);
+		CameraBoom->TargetArmLength = CollisionArmLength;
 	}
 
 	// 外周の壁際でカメラが体のすぐ後ろまで寄ったときは、自分の体で前が見えなくならないよう体を映さない
@@ -225,8 +332,8 @@ void AHiderCharacter::PlayMashFeedback()
 
 bool AHiderCharacter::TryStartDash()
 {
-	// 回数制（クールタイムは無い）。ダッシュ中にもう一度押しても使わない
-	if (!bDashUnlocked || DashUsesLeft <= 0 || IsDashing())
+	// 回数制（クールタイムは無い）。ダッシュ中・よじ登っている途中にもう一度押しても使わない
+	if (!bDashUnlocked || DashUsesLeft <= 0 || IsDashing() || bClimbing)
 	{
 		return false;
 	}
@@ -298,6 +405,10 @@ void AHiderCharacter::UpdateWalkSpeed()
 void AHiderCharacter::NotifyStep()
 {
 	++StepCount;
+	if (bIsDecoyDoll)
+	{
+		return; // 身代わり人形の音は人形が自分で出す
+	}
 	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
 	{
 		const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight());
@@ -305,13 +416,184 @@ void AHiderCharacter::NotifyStep()
 	}
 }
 
-void AHiderCharacter::OnJumped_Implementation()
+// ---------------------------------------------------------------- よじ登る
+
+bool AHiderCharacter::FindClimbTarget(const FVector& InDir, FVector& OutStandLocation, float& OutSeconds) const
 {
-	Super::OnJumped_Implementation();
+	const FVector Dir = InDir.GetSafeNormal2D();
+	const UWorld* World = GetWorld();
+	if (Dir.IsNearlyZero() || !World)
+	{
+		return false;
+	}
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	const float Radius = Capsule->GetScaledCapsuleRadius();
+	const float StandHalfHeight = GetDefaultHalfHeight(); // しゃがんでいても、上には立って乗る
+	const FVector Loc = GetActorLocation();
+	const float FeetZ = Loc.Z - Capsule->GetScaledCapsuleHalfHeight();
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HiderClimb), false, this);
+	FCollisionQueryParams SweepParams(SCENE_QUERY_STAT(HiderClimbSweep), false, this);
+	// 身代わり人形は無いものとして登る（そばに人形がいると登れなかった。ユーザーの指摘）
+	if (const AKakurenboGameMode* GM = World->GetAuthGameMode<AKakurenboGameMode>())
+	{
+		for (AHiderCharacter* Doll : GM->GetFakeHiders())
+		{
+			Params.AddIgnoredActor(Doll);
+			SweepParams.AddIgnoredActor(Doll);
+		}
+	}
+	// 1) 前に壁・家具の面があるか（ひざの高さで前へ）
+	FHitResult Face;
+	const FVector KneeStart(Loc.X, Loc.Y, FeetZ + 30.f);
+	if (!World->LineTraceSingleByChannel(Face, KneeStart, KneeStart + Dir * (Radius + ClimbReach), ECC_Visibility, Params)
+		|| Cast<ACharacter>(Face.GetActor()))
+	{
+		return false; // 何も無い・鬼
+	}
+	// 面に向かってまっすぐ登る（斜めから押しても、角の近くで体がはみ出さないように）
+	const FVector FaceNormal = Face.ImpactNormal.GetSafeNormal2D();
+	const FVector ClimbDir = FaceNormal.IsNearlyZero() ? Dir : -FaceNormal;
+	// 2) その上面の高さ（面の 30cm 奥を上から測る）。高すぎ（2 段以上・部屋の壁）・低すぎ（じゅうたん）は登れない。
+	//    2 段に積んだ壁の上面より上から測る（中から測ると下の段の上面が見えてしまう）
+	FHitResult Top;
+	const FVector Probe = Face.ImpactPoint + ClimbDir * 30.f;
+	const FVector TopStart(Probe.X, Probe.Y, FeetZ + ClimbMaxHeight + 300.f);
+	if (!World->LineTraceSingleByChannel(Top, TopStart, FVector(Probe.X, Probe.Y, FeetZ - 5.f), ECC_Visibility, Params)
+		|| Top.ImpactNormal.Z < 0.7f)
+	{
+		return false;
+	}
+	const float Rise = Top.ImpactPoint.Z - FeetZ;
+	if (Rise < ClimbMinHeight || Rise > ClimbMaxHeight)
+	{
+		return false;
+	}
+	// 3) 上に立つ場所（縁から体 1 つぶん奥）に体が入るか・上がる途中と前へ出る途中に何も無いか。
+	//    隣に高い壁があって体がはみ出すときは、横（壁と反対側）・少し奥へずらして探す（隣に壁があると登るのがシビアだった。ユーザーの指摘）
+	const FCollisionShape Shape = FCollisionShape::MakeCapsule(Radius - 2.f, StandHalfHeight - 2.f);
+	const FCollisionShape Thin = FCollisionShape::MakeCapsule(Radius - 4.f, FMath::Min(Capsule->GetScaledCapsuleHalfHeight(), StandHalfHeight) - 4.f);
+	const FVector Side(-ClimbDir.Y, ClimbDir.X, 0.f);
+	const float StandZ = Top.ImpactPoint.Z + StandHalfHeight + 2.f;
+	const FVector Raised(Loc.X, Loc.Y, StandZ);
+	if (World->SweepTestByChannel(Loc, Raised, FQuat::Identity, ECC_Pawn, Thin, SweepParams))
+	{
+		return false; // 真上に上がれない（頭の上に物がある）
+	}
+	bool bFound = false;
+	FVector Stand = FVector::ZeroVector;
+	for (const float Depth : { Radius + 12.f, Radius + 30.f })
+	{
+		for (const float Shift : { 0.f, 15.f, -15.f, 30.f, -30.f, 45.f, -45.f })
+		{
+			const FVector Candidate(Face.ImpactPoint.X + ClimbDir.X * Depth + Side.X * Shift, Face.ImpactPoint.Y + ClimbDir.Y * Depth + Side.Y * Shift, StandZ);
+			// ずらした先も同じ高さの上面の上か（縁の外・別の高さへずれない）
+			FHitResult Under;
+			if (Shift != 0.f && (!World->LineTraceSingleByChannel(Under, Candidate, Candidate - FVector(0.f, 0.f, StandHalfHeight + 20.f), ECC_Visibility, Params)
+				|| FMath::Abs(Under.ImpactPoint.Z - Top.ImpactPoint.Z) > 5.f))
+			{
+				continue;
+			}
+			if (!World->OverlapBlockingTestByChannel(Candidate, FQuat::Identity, ECC_Pawn, Shape, SweepParams)
+				&& !World->SweepTestByChannel(Raised, Candidate, FQuat::Identity, ECC_Pawn, Thin, SweepParams))
+			{
+				Stand = Candidate;
+				bFound = true;
+				break;
+			}
+		}
+		if (bFound)
+		{
+			break;
+		}
+	}
+	if (!bFound)
+	{
+		return false;
+	}
+	OutStandLocation = Stand;
+	// 登る秒数：置いた壁なら種類ごと（クライミング壁は速い）、家具はゆっくり
+	OutSeconds = 1.f;
+	if (const AKakurenboGameMode* Mode = World->GetAuthGameMode<AKakurenboGameMode>())
+	{
+		const APlaceableBlock* Block = Cast<APlaceableBlock>(Top.GetActor());
+		OutSeconds = Mode->GetClimbSeconds(Block ? Block->WallTypeIndex : INDEX_NONE);
+	}
+	return true;
+}
+
+bool AHiderCharacter::TryStartClimb(const FVector& Dir)
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (!bClimbUnlocked || bClimbing || IsDashing() || !Move->IsMovingOnGround())
+	{
+		return false;
+	}
+	FVector Stand;
+	float Seconds = 1.f;
+	// 斜めに押していると隣の壁の面に当たることがあるので、だめなら縦横（マスの並び）にそろえた向きでも試す
+	const FVector Flat = Dir.GetSafeNormal2D();
+	const FVector Snapped = FMath::Abs(Flat.X) >= FMath::Abs(Flat.Y) ? FVector(FMath::Sign(Flat.X), 0.f, 0.f) : FVector(0.f, FMath::Sign(Flat.Y), 0.f);
+	if (!FindClimbTarget(Dir, Stand, Seconds) && (Snapped.IsNearlyZero() || !FindClimbTarget(Snapped, Stand, Seconds)))
+	{
+		return false;
+	}
+	// しゃがんでいたら立ってから登る（頭の上に物があって立てなければ登らない）
+	if (bIsCrouched)
+	{
+		Move->bWantsToCrouch = false;
+		Move->UnCrouch(false);
+		if (bIsCrouched)
+		{
+			return false;
+		}
+	}
+	Move->bWantsToCrouch = false;
+	Move->StopMovementImmediately();
+	Move->SetMovementMode(MOVE_Flying); // 登っている間は重力で落ちない（位置はこちらで動かす）
+	bClimbing = true;
+	ClimbElapsed = 0.f;
+	ClimbDuration = FMath::Max(0.05f, Seconds);
+	ClimbFrom = GetActorLocation();
+	ClimbTo = Stand;
+	++ClimbCount;
+	SetActorRotation(FRotator(0.f, (Stand - ClimbFrom).GetSafeNormal2D().Rotation().Yaw, 0.f)); // 登る面の方を向く
 	if (AKakurenboGameMode* GM = GetWorld()->GetAuthGameMode<AKakurenboGameMode>())
 	{
-		GM->HandlePlayerJump(GetActorLocation() - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight()));
+		GM->HandlePlayerClimb(ClimbFrom - FVector(0.f, 0.f, GetSimpleCollisionHalfHeight()));
 	}
+	return true;
+}
+
+void AHiderCharacter::TickClimb(float DeltaSeconds)
+{
+	ClimbElapsed += DeltaSeconds;
+	const float T = FMath::Clamp(ClimbElapsed / ClimbDuration, 0.f, 1.f);
+	// 前半（7 割）で真上へ上がり（壁の面に沿うので何にもぶつからない）、後半で前へ出て上に立つ
+	constexpr float RiseShare = 0.7f;
+	const FVector Raised(ClimbFrom.X, ClimbFrom.Y, ClimbTo.Z);
+	const FVector Pos = T < RiseShare
+		? FMath::Lerp(ClimbFrom, Raised, FMath::InterpEaseInOut(0.f, 1.f, T / RiseShare, 2.f))
+		: FMath::Lerp(Raised, ClimbTo, (T - RiseShare) / (1.f - RiseShare));
+	SetActorLocation(Pos, false, nullptr, ETeleportType::TeleportPhysics);
+	if (T >= 1.f)
+	{
+		CancelClimb();
+	}
+}
+
+void AHiderCharacter::CancelClimb()
+{
+	if (!bClimbing)
+	{
+		return;
+	}
+	bClimbing = false;
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	StepDistance = 0.f;
+	LastStepLocation = GetActorLocation();
+	UpdateCrouch(); // しゃがむキーを押したままなら、上でしゃがむ
 }
 
 void AHiderCharacter::Landed(const FHitResult& Hit)
@@ -461,10 +743,12 @@ void AHiderCharacter::UpdateLookPose(float DeltaSeconds)
 			PlayingAnim = Wanted;
 			AnimDriver->PlayAnimation(Wanted, true);
 		}
+		// 速さはなめらかに変える（家具にぶつかって速さが 0 と少しの間を行き来しても、待機と歩きが毎フレーム入れ替わらないように）
+		SmoothedAnimSpeed = FMath::FInterpTo(SmoothedAnimSpeed, GetVelocity().Size2D(), DeltaSeconds, 8.f);
 		if (UAnimSingleNodeInstance* Single = AnimDriver->GetSingleNodeInstance(); Single && PlayingAnim == MoveAnim)
 		{
 			// 公式のブレンドスペースは 横軸 = 向き（体は進む方を向くので 0）、縦軸 = 速さ（0〜600）
-			Single->SetBlendSpacePosition(FVector(0.f, GetVelocity().Size2D(), 0.f));
+			Single->SetBlendSpacePosition(FVector(0.f, SmoothedAnimSpeed, 0.f));
 		}
 		CopyDriverPose();
 		ApplyCrouchPose(DeltaSeconds, 0.f);
@@ -553,27 +837,41 @@ void AHiderCharacter::ApplyCrouchPose(float DeltaSeconds, float Bob)
 		};
 		const FName LeftEnd = LeftFoot.IsNone() ? LeftCalf : LeftFoot;
 		const FName RightEnd = RightFoot.IsNone() ? RightCalf : RightFoot;
-		// 床に付いている方（低い方）の足。歩いて上がった方の足で測ると、体が上下にがくがく揺れる
-		auto FootZ = [&]() { return FMath::Min(LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z, LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z); };
-		const float Before = FootZ();
-		const float Knee = ForwardSign(LeftThigh, LeftCalf);
-		RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
-		RotateBone(RightThigh, About(Knee * CrouchThighDegrees * CrouchBlend));
-		if (!LeftEnd.IsNone() && LeftEnd != LeftCalf)
-		{
-			const float Shin = ForwardSign(LeftCalf, LeftEnd);
-			RotateBone(LeftCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
-			RotateBone(RightCalf, About(-Shin * CrouchCalfDegrees * CrouchBlend));
-		}
 		const FName Head = LookMesh->GetBoneIndex(TEXT("head")) != INDEX_NONE ? FName(TEXT("head")) : NAME_None;
-		if (!Spine.IsNone() && !Head.IsNone())
+		auto Bend = [&](float Blend)
 		{
-			RotateBone(Spine, About(ForwardSign(Spine, Head) * CrouchSpineDegrees * CrouchBlend));
+			const float Knee = ForwardSign(LeftThigh, LeftCalf);
+			RotateBone(LeftThigh, About(Knee * CrouchThighDegrees * Blend));
+			RotateBone(RightThigh, About(Knee * CrouchThighDegrees * Blend));
+			if (!LeftEnd.IsNone() && LeftEnd != LeftCalf)
+			{
+				const float Shin = ForwardSign(LeftCalf, LeftEnd);
+				RotateBone(LeftCalf, About(-Shin * CrouchCalfDegrees * Blend));
+				RotateBone(RightCalf, About(-Shin * CrouchCalfDegrees * Blend));
+			}
+			if (!Spine.IsNone() && !Head.IsNone())
+			{
+				RotateBone(Spine, About(ForwardSign(Spine, Head) * CrouchSpineDegrees * Blend));
+			}
+		};
+
+		// 足が浮く量は、元の姿勢（T ポーズ）でしゃがませて一度だけ測る。
+		// 歩いている姿勢で毎フレーム測ると、脚の振りで値が変わって体が上下にがくがく揺れる（家具に沿って歩くと目立った）
+		if (!bCrouchLiftMeasured)
+		{
+			bCrouchLiftMeasured = true;
+			const TArray<FTransform> Pose = LookMesh->BoneSpaceTransforms;
+			LookMesh->BoneSpaceTransforms = LookMesh->GetSkinnedAsset()->GetRefSkeleton().GetRefBonePose();
+			auto FootZ = [&]() { return FMath::Min(LookMesh->GetBoneLocationByName(LeftEnd, EBoneSpaces::ComponentSpace).Z, LookMesh->GetBoneLocationByName(RightEnd, EBoneSpaces::ComponentSpace).Z); };
+			const float Before = FootZ();
+			Bend(1.f);
+			FullCrouchLift = FMath::Max(0.f, (FootZ() - Before) * LookBaseScale.Z);
+			LookMesh->BoneSpaceTransforms = Pose;
 		}
-		Lift = (FootZ() - Before) * LookMesh->GetRelativeScale3D().Z;
+		Bend(CrouchBlend);
+		Lift = FullCrouchLift * CrouchBlend;
 	}
-	// 下げる量はなめらかに変える（歩く動きで毎フレーム少しずつ変わっても、体ががくがくしない）
-	SmoothedCrouchLift = FMath::FInterpTo(SmoothedCrouchLift, Lift, DeltaSeconds, 5.f);
+	SmoothedCrouchLift = Lift;
 	LookMesh->SetRelativeLocation(LookBaseLocation + FVector(0.f, 0.f, CrouchMeshOffset + Bob - SmoothedCrouchLift));
 }
 
@@ -656,4 +954,38 @@ void AHiderCharacter::CopyDriverPose()
 			LookMesh->SetBoneTransformByName(Ref.GetBoneName(i), ComponentSpace[i], EBoneSpaces::ComponentSpace);
 		}
 	}
+}
+
+void AHiderCharacter::SetFlashlightOn(bool bOn)
+{
+	if (!Flashlight)
+	{
+		return;
+	}
+	Flashlight->SetIntensity(FlashlightIntensity);
+	Flashlight->SetAttenuationRadius(FlashlightRange);
+	Flashlight->SetOuterConeAngle(FlashlightAngle);
+	Flashlight->SetInnerConeAngle(FlashlightAngle * 0.6f);
+	Flashlight->SetVisibility(bOn);
+}
+
+void AHiderCharacter::SetBodyGlowOn(bool bOn)
+{
+	if (!BodyGlow)
+	{
+		return;
+	}
+	BodyGlow->SetIntensity(BodyGlowIntensity);
+	BodyGlow->SetAttenuationRadius(BodyGlowRadius);
+	BodyGlow->SetVisibility(bOn);
+}
+
+bool AHiderCharacter::IsBodyGlowOn() const
+{
+	return BodyGlow && BodyGlow->IsVisible();
+}
+
+bool AHiderCharacter::IsFlashlightOn() const
+{
+	return Flashlight && Flashlight->IsVisible();
 }

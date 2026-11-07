@@ -19,6 +19,14 @@ class UPostProcessComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 
+/** 床の種類 1 つの見た目（市松模様の明るい方・暗い方のマテリアル。テクスチャが無いパソコンでは null で、Color の市松模様） */
+struct FKakurenboFloorLook
+{
+	UMaterialInterface* Material = nullptr;
+	UMaterialInterface* MaterialAlt = nullptr;
+	FLinearColor Color = FLinearColor(0.2f, 0.12f, 0.08f);
+};
+
 UCLASS()
 class KAKURENBOINCREMENTAL_API AKakurenboArena : public AActor
 {
@@ -26,6 +34,41 @@ class KAKURENBOINCREMENTAL_API AKakurenboArena : public AActor
 
 public:
 	AKakurenboArena();
+
+	/** M15：背の高い家具（この高さ cm 以上）の前のすき間は、体が入る幅（FurnitureWalkInGap）か無しにする。奥行きはこれより薄くしない */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float TallFurnitureHeight = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float FurnitureWalkInGap = 78.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float MinShelfDepth = 20.f;
+
+	/** 家具の当たり判定の箱に付けるタグ（箱は隠してあるが、見えている家具と同じ形。設置パートのレイはこれには当てる） */
+	static const FName FurnitureCollisionTag;
+
+	/** L 字の本棚の空いている角に体が入るか調べるとき、この高さ（cm）より下にある当たり判定だけを見る（出入り口の上の壁は除く） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Furniture")
+	float NotchBodyHeight = 150.f;
+
+	/** 今のマップの L 字の本棚の空いている角の数と、体が入らないので箱で埋めた数（テスト用） */
+	int32 GetFurnitureNotchCount() const { return FurnitureNotches.Num(); }
+	int32 GetFilledFurnitureNotchCount() const { return FilledFurnitureNotches; }
+
+	/** 体が入れる（埋めなかった）L 字の本棚の空いている角（上から見た形。テスト用） */
+	TArray<FBox2D> GetOpenFurnitureNotches() const
+	{
+		TArray<FBox2D> Out;
+		for (const FFurnitureNotch& Notch : FurnitureNotches)
+		{
+			if (!Notch.bFilled)
+			{
+				Out.Add(Notch.Area);
+			}
+		}
+		return Out;
+	}
 
 	/** グリッドのマス数（X 方向） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena")
@@ -147,15 +190,43 @@ public:
 	FVector GetOniGateLocation() const;
 
 	/**
-	 * マップの家具・部屋の壁を作り直す（前のマップの分は消す）。
+	 * マップの家具・部屋の壁・床を作り直す（前のマップの分は消す）。
 	 * @param Furniture 文字ごとの家具（'#' が無ければ部屋の壁として作る）
 	 * @param KeepClear 何も置かないマス（鬼の出入り口の前）
 	 * @param OutObstacles 通れないマス（グリッドに渡す）
-	 * @param FloorMaterial / FloorMaterialAlt / WallMaterial 床（市松模様の 2 色）と壁の見た目。null なら Map の色
+	 * @param FloorLayer マスごとの床の種類（間取りの [floor]。無ければ全部 'w'）
+	 * @param FloorLooks 床の種類ごとの見た目（無い種類は 'w' の見た目、それも無ければ Map の色）
+	 * @param WallMaterial 壁の見た目。null なら Map の色。WainscotMaterial は腰壁（壁の下の方。null なら壁と同じ）
 	 */
 	void ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps::FLayout& Layout, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
 		const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles,
-		UMaterialInterface* FloorMaterial = nullptr, UMaterialInterface* FloorMaterialAlt = nullptr, UMaterialInterface* WallMaterial = nullptr);
+		const KakurenboMaps::FLayout& FloorLayer, const TMap<TCHAR, FKakurenboFloorLook>& FloorLooks,
+		UMaterialInterface* WallMaterial = nullptr, UMaterialInterface* WainscotMaterial = nullptr,
+		const TArray<FKakurenboDecorRow>* Decor = nullptr);
+
+	/** 今のマップの壁の飾りの数（種類ごと。テスト用） */
+	int32 GetDecorCount(EKakurenboDecorKind Kind) const { return DecorCounts.FindRef(Kind); }
+
+	/** 出入り口の上の壁の下の端の高さ（cm。枠のメッシュがあれば枠のてっぺん） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Look")
+	float DoorHeaderHeight = 230.f;
+
+	/** 今のマップの出入り口の上の壁の数・家具の当たり判定の箱の数（テスト用） */
+	int32 GetDoorHeaderCount() const { return DoorHeaders; }
+	int32 GetFurnitureCollisionBoxCount() const { return FurnitureCollisionBoxes; }
+
+	/** 腰壁（壁の下の板）の高さ（cm） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Look")
+	float WainscotHeight = 95.f;
+
+	/** 今のマップの床の種類の数（テスト用） */
+	int32 GetFloorKindCount() const { return FloorKindCount; }
+
+	/** そのマスの床の種類（間取りの [floor] の文字。'w' 部屋・'p' 廊下・'m' 玄関ホール…） */
+	TCHAR GetFloorKind(const FIntPoint& Cell) const { return CurrentFloorLayer.IsInside(Cell) ? CurrentFloorLayer.Get(Cell) : KakurenboMaps::DefaultFloorChar; }
+
+	/** そのマスの間取りの文字（家具の文字・'#' 部屋の壁・'.' 何もない） */
+	TCHAR GetLayoutChar(const FIntPoint& Cell) const { return CurrentLayout.Get(Cell); }
 
 	/**
 	 * 床・外周の壁・見えない柵・鬼の出入り口を、SizeX × SizeY マスの大きさで作り直す（舞台の真ん中はこのアクターの位置のまま）。
@@ -182,6 +253,9 @@ public:
 
 	/** 家具のメッシュが自分のマスから一番はみ出している長さ（cm。テスト用） */
 	float GetMaxFurnitureOverhang() const { return MaxFurnitureOverhang; }
+
+	/** マスの境目にまたがって、どちらのマスも埋めていない家具のメッシュの数（テスト用。0 であるべき） */
+	int32 GetFurnitureStraddleCount() const { return FurnitureStraddleCount; }
 
 	/** 部屋の壁の高い部分の数（テスト用） */
 	int32 GetTallRoomWallCount() const { return TallRoomWalls.Num(); }
@@ -255,7 +329,32 @@ private:
 	TArray<TObjectPtr<UStaticMeshComponent>> TallRoomWalls;
 
 	float MaxFurnitureOverhang = 0.f;
+	int32 FurnitureStraddleCount = 0;
+	int32 FurnitureCollisionBoxes = 0;
+	int32 DoorHeaders = 0;
 	bool bFloorUsesMaterial = false;
+	int32 FloorKindCount = 0;
+	KakurenboMaps::FLayout CurrentFloorLayer;
+	KakurenboMaps::FLayout CurrentLayout;
+
+	/** 腰壁の板（壁の下の方） */
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> WainscotPanels;
+
+	/** 床の種類ごとのタイル（市松模様の 2 色）を作る */
+	void BuildFloorTiles(const KakurenboMaps::FLayout& FloorLayer, const TMap<TCHAR, FKakurenboFloorLook>& FloorLooks, const FKakurenboMapRow& Map);
+
+	/**
+	 * 壁の飾り：出入り口の枠・外周の壁の窓・壁の絵・壁の明かりを、決まった間隔で置く（当たり判定なし）。
+	 * 背の高い家具の後ろの壁と、鬼の出入り口のまわりには飾らない
+	 */
+	void BuildDecor(const KakurenboMaps::FLayout& Layout, const TArray<FKakurenboDecorRow>& Decor, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
+		const FKakurenboMapRow& Map, const TArray<FIntPoint>& KeepClear);
+
+	/** 飾りのメッシュを 1 つ置く（Center: 壁の面の真ん中・床の高さ、Normal: 部屋の側、Along: 壁に沿う向き） */
+	UStaticMeshComponent* PlaceDecor(const FKakurenboDecorRow& Row, UStaticMesh* Mesh, const FVector& Center, const FVector& Normal, float WidthOverride = -1.f);
+
+	TMap<EKakurenboDecorKind, int32> DecorCounts;
 
 	/** マップごとに作った部品（家具・部屋の壁・ランプ） */
 	UPROPERTY()
@@ -264,4 +363,22 @@ private:
 	int32 FurniturePieces = 0;
 	int32 FurnitureMeshes = 0;
 	float BorderThickness = 50.f;
+
+	/** マップの当たり判定の箱（上から見た形。NotchBodyHeight より下にある物だけ） */
+	TArray<FBox2D> MapBlockers;
+
+	/** L 字の本棚（Furniture.csv の MeshCutout）の空いている角。全部の家具を置いた後、体が入らなければ箱で埋める */
+	struct FFurnitureNotch
+	{
+		FBox2D Area;
+		float Height = 0.f;
+		FLinearColor Color;
+		float FloorZ = 0.f;
+		bool bFilled = false;
+	};
+	TArray<FFurnitureNotch> FurnitureNotches;
+	int32 FilledFurnitureNotches = 0;
+
+	/** 体（上から見て半径 Radius の円）の中心を Area の中のどこかに置けるか（MapBlockers と外周の壁に重ならない） */
+	bool CanBodyEnter(const FBox2D& Area, float Radius) const;
 };

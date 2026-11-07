@@ -1,20 +1,40 @@
-; 子ども部屋（18 x 18）。家具 24%。テーマ clutter。生成: scratchpad の genmaps.py（手で直してよい）
-; 右端の真ん中は鬼の出入り口の前なので空けておく
-.W.BB..R.U.BBB.K..
-.................S
-S....SS..BBB.S.U.S
-S.K..........S.U..
-.....SS.P.........
-...P......SS.BBBB.
-.W.....R..........
-...SS.....P..R....
-K.....K...........
-........R..W......
-P..W.........P....
-......K.SS........
-...U.......UU.B...
-K.....W....UU.B.R.
-....P...SS....B...
-.K....B....U....K.
-....S.B....U.R....
-.WW.S.B.K......K.R
+; 子ども部屋（18 x 18）。家具 22%（床のマスに対して）。部屋：玄関ホール・子ども部屋・物置・書斎・寝室・書斎・浴室
+; 生成: Tools/GenerateMansion.py（手で直してよい。作り直すと上書きされる）。右端の真ん中は鬼の出入り口の前なので空けておく
+.S......N.1.#2..BB
+............#....A
+....CCC.......EE.B
+DD..CCC.......H..B
+.....T......#G....
+...........N###.##
+A.........1O#32..3
+#####..######.....
+..................
+...........K......
+##..#####.###.....
+SU..SS#O....#.....
+S....W#....N#3K.23
+MU..1M#.CCC.###.##
+##..###.CCC.#S...Y
+B....B#.....#....Y
+B.EE.B#DD.........
+BAHG.B#DD.AN#...Z.
+[floor]
+; 床の種類（Data/FloorKinds.csv の行の名前。壁や家具の下のマスは使わない）
+wwwwwwwwwwwwwwwwww
+wwwwwwwwwwwwwwwwww
+wwwwwwwwwwwwpwwwww
+wwwwwwwwwwwwpwwwww
+wwwwwwwwwwwwwwwwww
+wwwwwwwwwwwwwwwpww
+wwwwwwwwwwwwwmmmmm
+wwwwwppwwwwwwmmmmm
+pppppppppppppmmmmm
+pppppppppppppmmmmm
+wwppwwwwwpwwwmmmmm
+sssssswwwwwwwmmmmm
+sssssswwwwwwwmmmmm
+sssssswwwwwwwwwpww
+wwppwwwwwwwwwbbbbb
+wwwwwwwwwwwwwbbbbb
+wwwwwwwwwwwwpbbbbb
+wwwwwwwwwwwwwbbbbb

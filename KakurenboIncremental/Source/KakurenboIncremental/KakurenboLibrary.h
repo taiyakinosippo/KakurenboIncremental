@@ -38,6 +38,12 @@ public:
 	 */
 	static UMaterialInstanceDynamic* CreateSurfaceMaterial(UObject* Outer, const FKakurenboSurfaceRow& Surface, const FLinearColor& Tint = FLinearColor::White);
 
+	/**
+	 * 自分で光る色の動的マテリアル（鬼の赤い目など）。共通のマテリアル（M_KakuSurface）の Emissive を使う。
+	 * 共通のマテリアルが無ければ BasicShapeMaterial の色だけ（光らない）
+	 */
+	static UMaterialInstanceDynamic* CreateGlowMaterial(UObject* Outer, const FLinearColor& Color, float Emissive);
+
 	/** メッシュの全部のマテリアルの枠に見た目を付ける。できなければ false（そのまま） */
 	static bool ApplySurface(UMeshComponent* Mesh, const FKakurenboSurfaceRow& Surface, const FLinearColor& Tint = FLinearColor::White);
 

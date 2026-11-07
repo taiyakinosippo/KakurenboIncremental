@@ -197,6 +197,12 @@ function Invoke-Package {
 
 function Invoke-AutoBuild([bool]$DoPull) {
     Say "==== 自動ビルド開始（$(Split-Path $Root -Leaf)）====" "White"
+    if ($DoPull -or $FromHook) {
+        # GitHub の履歴が書き換えられていたら（間違えて入れたファイルを履歴から消したときなど）、main を GitHub に合わせる。
+        # git pull がマージした直後（フック）でも、--ff-only の pull ができない（コミットが分かれている）ときでも直る
+        & (Join-Path $PSScriptRoot "RepairHistory.ps1") -Root $Root
+        if ($LASTEXITCODE -eq 1) { Say "GitHub の書き換え後の履歴に合わせました" "Cyan" }
+    }
     if ($DoPull) { [void](Invoke-Pull) }
 
     $Blocking = @(Get-BlockingEditors)

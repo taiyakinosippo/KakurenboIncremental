@@ -1,18 +1,36 @@
-; 居間（16 x 16）。家具 27%。テーマ scatter。生成: scratchpad の genmaps.py（手で直してよい）
-; 右端の真ん中は鬼の出入り口の前なので空けておく
-.SS.K..FFF.BBB.K
+; 居間（16 x 16）。家具 23%（床のマスに対して）。部屋：玄関ホール・居間・物置・書斎・浴室・書斎
+; 生成: Tools/GenerateMansion.py（手で直してよい。作り直すと上書きされる）。右端の真ん中は鬼の出入り口の前なので空けておく
+2......FFR#...SY
+A.........#....Y
+B...JJ....#.....
+B.........#.Z...
+..........###.##
+A........2#3K.23
+####..#####.....
 ................
-P..TTT.K......SS
-...TTT....SS....
-K......UU......S
-............TT.S
-.U..A.A.BB......
-...........P....
-.A..A.A.P.......
-...........K....
-....BB...A......
-A.S....B...TT...
-..S.A..B.A.TT.BB
-K...............
-...TT.S.SS..SS..
-K..TT.S........K
+................
+#.####..###.....
+S.U#2...A.#.....
+S.U#......#3..23
+S..#..EE.B###.##
+S..#G.H..B#B...G
+W..#.....B#BEE.B
+M.M#...BBB#....B
+[floor]
+; 床の種類（Data/FloorKinds.csv の行の名前。壁や家具の下のマスは使わない）
+wwwwwwwwwwwbbbbb
+wwwwwwwwwwwbbbbb
+wwwwwwwwwwwbbbbb
+wwwwwwwwwwwbbbbb
+wwwwwwwwwwwwwpww
+wwwwwwwwwwwmmmmm
+wwwwppwwwwwmmmmm
+pppppppppppmmmmm
+pppppppppppmmmmm
+wpwwwwppwwwmmmmm
+ssswwwwwwwwmmmmm
+ssswwwwwwwwmmmmm
+ssswwwwwwwwwwpww
+ssswwwwwwwwwwwww
+ssswwwwwwwwwwwww
+ssswwwwwwwwwwwww

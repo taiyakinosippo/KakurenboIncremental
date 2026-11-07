@@ -1,0 +1,2 @@
+s21-s24: Soft cute wooden button click, toy UI click, very short, clean, dry
+seconds=1.0 steps=100

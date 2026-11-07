@@ -263,4 +263,8 @@ void UKakurenboFxSubsystem::Ring(const FVector& FloorLocation, float StartRadius
 	Ring->SetActorLocation(FVector(FloorLocation.X, FloorLocation.Y, GetFloorZ() + 2.f));
 	Ring->Start(StartRadius, EndRadius, Duration, Color, Thickness);
 	++RingCount;
+	if (bRecordRings && ShownRings.Num() < 256)
+	{
+		ShownRings.Add({ FloorLocation, FMath::Max(StartRadius, EndRadius), Thickness, Color });
+	}
 }

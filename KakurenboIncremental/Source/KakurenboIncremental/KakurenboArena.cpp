@@ -17,6 +17,8 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogKakurenboArena, Log, All);
 
+const FName AKakurenboArena::FurnitureCollisionTag(TEXT("KakuFurnitureCollision"));
+
 AKakurenboArena::AKakurenboArena()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -362,8 +364,48 @@ UStaticMeshComponent* AKakurenboArena::AddMapCube(const FVector& Center, const F
 	{
 		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
+	else if (Center.Z - SizeCm.Z * 0.5f - GetActorLocation().Z < NotchBodyHeight)
+	{
+		// 体に当たる高さの物（出入り口の上の壁は除く）を、上から見た形で覚えておく（L 字の本棚の角に体が入るかを調べる）
+		MapBlockers.Add(FBox2D(FVector2D(Center.X - SizeCm.X * 0.5f, Center.Y - SizeCm.Y * 0.5f), FVector2D(Center.X + SizeCm.X * 0.5f, Center.Y + SizeCm.Y * 0.5f)));
+	}
 	MapComponents.Add(Mesh);
 	return Mesh;
+}
+
+bool AKakurenboArena::CanBodyEnter(const FBox2D& Area, float Radius) const
+{
+	// 体（上から見て半径 Radius の円）の中心を Area の中で 5cm おきに動かし、どの当たり判定の箱にも外周の壁にも重ならない所があるか
+	const FVector Origin = GetGridOrigin();
+	const FBox2D Inside(FVector2D(Origin.X + Radius, Origin.Y + Radius), FVector2D(Origin.X + GridSizeX * CellSize - Radius, Origin.Y + GridSizeY * CellSize - Radius));
+	const float Step = 5.f;
+	for (float X = Area.Min.X; X <= Area.Max.X + 0.1f; X += Step)
+	{
+		for (float Y = Area.Min.Y; Y <= Area.Max.Y + 0.1f; Y += Step)
+		{
+			if (X < Inside.Min.X || X > Inside.Max.X || Y < Inside.Min.Y || Y > Inside.Max.Y)
+			{
+				continue;
+			}
+			bool bHit = false;
+			for (const FBox2D& Box : MapBlockers)
+			{
+				// 円と長方形：長方形の中で円の中心に一番近い点までの距離
+				const double DX = FMath::Max3(Box.Min.X - X, 0.0, X - Box.Max.X); // FBox2D は double
+				const double DY = FMath::Max3(Box.Min.Y - Y, 0.0, Y - Box.Max.Y);
+				if (DX * DX + DY * DY < FMath::Square(Radius - 0.5f))
+				{
+					bHit = true;
+					break;
+				}
+			}
+			if (!bHit)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 void AKakurenboArena::AddMapLight(const FVector& Location, const FLinearColor& Color, float Intensity, float Radius)
@@ -391,38 +433,313 @@ void AKakurenboArena::ClearMap()
 		}
 	}
 	MapComponents.Reset();
+	MapBlockers.Reset();
+	FurnitureNotches.Reset();
+	FilledFurnitureNotches = 0;
 	WallPanels = nullptr;
 	TallWallPanels = nullptr;
+	WainscotPanels = nullptr;
+	FloorKindCount = 0;
+	DecorCounts.Reset();
 	TallRoomWalls.Reset();
 	MaxFurnitureOverhang = 0.f;
+	FurnitureStraddleCount = 0;
+	FurnitureCollisionBoxes = 0;
+	DoorHeaders = 0;
 	CurrentWallMaterial = nullptr;
 	bUseWallPanels = false;
 	FurniturePieces = 0;
 	FurnitureMeshes = 0;
 }
 
+void AKakurenboArena::BuildFloorTiles(const KakurenboMaps::FLayout& FloorLayer, const TMap<TCHAR, FKakurenboFloorLook>& FloorLooks, const FKakurenboMapRow& Map)
+{
+	// 床の種類ごと・市松模様の明るい方 / 暗い方ごとに、タイルの集まりを作る（部屋ごとに床が変わる）
+	TMap<TCHAR, TPair<UInstancedStaticMeshComponent*, UInstancedStaticMeshComponent*>> Sets;
+	bFloorUsesMaterial = false;
+	auto LookOf = [&](TCHAR Kind) -> FKakurenboFloorLook
+	{
+		if (const FKakurenboFloorLook* Found = FloorLooks.Find(Kind))
+		{
+			return *Found;
+		}
+		if (const FKakurenboFloorLook* Default = FloorLooks.Find(KakurenboMaps::DefaultFloorChar))
+		{
+			return *Default;
+		}
+		FKakurenboFloorLook Fallback;
+		Fallback.Color = Map.FloorColor;
+		return Fallback;
+	};
+	auto MakeTiles = [this](UMaterialInterface* Material, const FLinearColor& Color)
+	{
+		UInstancedStaticMeshComponent* Tiles = NewObject<UInstancedStaticMeshComponent>(this);
+		Tiles->SetStaticMesh(CubeMesh);
+		Tiles->SetupAttachment(RootComponent);
+		Tiles->SetMobility(EComponentMobility::Movable);
+		Tiles->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Tiles->RegisterComponent();
+		if (Material)
+		{
+			Tiles->SetMaterial(0, Material);
+		}
+		else
+		{
+			UKakurenboLibrary::ApplyColor(Tiles, Color);
+		}
+		MapComponents.Add(Tiles);
+		return Tiles;
+	};
+	for (int32 Y = 0; Y < GridSizeY; ++Y)
+	{
+		for (int32 X = 0; X < GridSizeX; ++X)
+		{
+			const TCHAR Kind = FloorLayer.IsInside(FIntPoint(X, Y)) ? FloorLayer.Get(FIntPoint(X, Y)) : KakurenboMaps::DefaultFloorChar;
+			TPair<UInstancedStaticMeshComponent*, UInstancedStaticMeshComponent*>* Set = Sets.Find(Kind);
+			if (!Set)
+			{
+				const FKakurenboFloorLook Look = LookOf(Kind);
+				bFloorUsesMaterial |= Look.Material != nullptr;
+				Set = &Sets.Add(Kind, TPair<UInstancedStaticMeshComponent*, UInstancedStaticMeshComponent*>(
+					MakeTiles(Look.Material, Look.Color), MakeTiles(Look.MaterialAlt ? Look.MaterialAlt : Look.Material, Look.Color * 0.72f)));
+			}
+			// 上面が床の少し上（0.3cm）に来る薄い板
+			const FTransform Tile(FRotator::ZeroRotator, CellCenter(FIntPoint(X, Y), -0.2f), FVector(CellSize * 0.995f / 100.f, CellSize * 0.995f / 100.f, 0.01f));
+			((X + Y) % 2 == 0 ? Set->Key : Set->Value)->AddInstance(Tile, true);
+		}
+	}
+	FloorKindCount = Sets.Num();
+	// 大きさを変えたときの床（色の市松模様）は隠す（種類ごとのタイルが上に乗る）
+	for (UInstancedStaticMeshComponent* Shell : { FloorTilesA.Get(), FloorTilesB.Get() })
+	{
+		if (Shell)
+		{
+			Shell->SetHiddenInGame(true);
+		}
+	}
+}
+
+UStaticMeshComponent* AKakurenboArena::PlaceDecor(const FKakurenboDecorRow& Row, UStaticMesh* Mesh, const FVector& Center, const FVector& Normal, float WidthOverride)
+{
+	// メッシュの薄い向きを奥行き（壁から部屋の側）とみなし、その向きを部屋へ向ける（逆なら Decor.csv の MeshYaw = 180）
+	const FBox Bounds = Mesh->GetBoundingBox();
+	const FVector Ext = Bounds.GetSize();
+	const bool bThinX = Ext.X <= Ext.Y;
+	const float MeshWidth = FMath::Max(static_cast<float>(bThinX ? Ext.Y : Ext.X), 1.f);
+	const float MeshDepth = FMath::Max(static_cast<float>(bThinX ? Ext.X : Ext.Y), 1.f);
+	const float MeshHeight = FMath::Max(static_cast<float>(Ext.Z), 1.f);
+	const float Width = WidthOverride > 0.f ? WidthOverride : Row.Width;
+	const float Scale = FMath::Min(Width / MeshWidth, Row.Height / MeshHeight);
+	const FRotator Rot(0.f, Normal.Rotation().Yaw + (bThinX ? 0.f : -90.f) + Row.MeshYaw, 0.f);
+	UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
+	Comp->SetMobility(EComponentMobility::Movable);
+	Comp->SetStaticMesh(Mesh);
+	Comp->SetupAttachment(RootComponent);
+	Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Comp->SetWorldScale3D(FVector(Scale));
+	Comp->SetWorldRotation(Rot);
+	// メッシュの中心（原点がずれているアセットもある）を、壁から奥行きの半分だけ出した所に。下の端を Bottom の高さに
+	const FVector Pivot = Rot.RotateVector(Bounds.GetCenter() * Scale);
+	const FVector Wanted = Center + Normal * (Row.Offset + MeshDepth * Scale * 0.5f);
+	Comp->SetWorldLocation(FVector(Wanted.X - Pivot.X, Wanted.Y - Pivot.Y, Center.Z + Row.Bottom - Bounds.Min.Z * Scale));
+	Comp->RegisterComponent();
+	MapComponents.Add(Comp);
+	DecorCounts.FindOrAdd(Row.Kind)++;
+	return Comp;
+}
+
+void AKakurenboArena::BuildDecor(const KakurenboMaps::FLayout& Layout, const TArray<FKakurenboDecorRow>& Decor, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
+	const FKakurenboMapRow& Map, const TArray<FIntPoint>& KeepClear)
+{
+	// 種類ごとの飾り（このパソコンにメッシュがあるものだけ）
+	TMap<EKakurenboDecorKind, TArray<TPair<const FKakurenboDecorRow*, UStaticMesh*>>> ByKind;
+	for (const FKakurenboDecorRow& Row : Decor)
+	{
+		if (Row.Mesh.IsNull() || !FPackageName::DoesPackageExist(Row.Mesh.ToSoftObjectPath().GetLongPackageName()))
+		{
+			continue;
+		}
+		if (UStaticMesh* Mesh = Row.Mesh.LoadSynchronous())
+		{
+			ByKind.FindOrAdd(Row.Kind).Add(TPair<const FKakurenboDecorRow*, UStaticMesh*>(&Row, Mesh));
+		}
+	}
+	// メッシュが 1 つも無くても（Fab のアセットが無いパソコン）、出入り口の上の壁は作る（Pick が null を返すので飾りは置かれない）
+	auto Pick = [&ByKind](EKakurenboDecorKind Kind, uint32 Hash) -> const TPair<const FKakurenboDecorRow*, UStaticMesh*>*
+	{
+		const TArray<TPair<const FKakurenboDecorRow*, UStaticMesh*>>* List = ByKind.Find(Kind);
+		return (List && List->Num() > 0) ? &(*List)[Hash % List->Num()] : nullptr;
+	};
+	auto IsWall = [&Layout](const FIntPoint& P) { return Layout.IsInside(P) && Layout.Get(P) == KakurenboMaps::WallChar; };
+	auto IsOpen = [&Layout](const FIntPoint& P) { return Layout.IsInside(P) && Layout.Get(P) != KakurenboMaps::WallChar; };
+	auto HeightAt = [&](const FIntPoint& P) -> float
+	{
+		const TCHAR C = Layout.Get(P);
+		const FKakurenboFurnitureRow* Row = C == KakurenboMaps::EmptyChar ? nullptr : Furniture.Find(C);
+		return (Row && !Row->bWalkable) ? Row->Height : 0.f;
+	};
+	const FVector Origin = GetGridOrigin();
+
+	// 1) 出入り口の枠：壁の並びの中の、1〜2 マスの通り道（両側が壁で、前後が部屋か廊下）
+	TSet<FIntPoint> DoorCells;
+	for (int32 Axis = 0; Axis < 2; ++Axis)
+	{
+		const FIntPoint Along = Axis == 0 ? FIntPoint(1, 0) : FIntPoint(0, 1); // 壁の並びの向き
+		const FIntPoint Across = Axis == 0 ? FIntPoint(0, 1) : FIntPoint(1, 0); // 通り抜ける向き
+		for (int32 Y = 0; Y < Layout.SizeY; ++Y)
+		{
+			for (int32 X = 0; X < Layout.SizeX; ++X)
+			{
+				const FIntPoint Start(X, Y);
+				if (!IsWall(Start - Along) || !IsOpen(Start) || IsWall(Start + Across) || IsWall(Start - Across))
+				{
+					continue;
+				}
+				// 壁の並びの切れ目の長さ（前後が開いているマスが続く数）。1〜2 マスで、その先がまた壁なら出入り口
+				int32 Length = 1;
+				while (Length < 3 && IsOpen(Start + Along * Length) && IsOpen(Start + Along * Length + Across) && IsOpen(Start + Along * Length - Across))
+				{
+					++Length;
+				}
+				if (Length > 2 || !IsWall(Start + Along * Length))
+				{
+					continue;
+				}
+				// 壁の並びになっているか（通り道の両隣の壁が、通り抜ける向きにも続いていない＝壁の線）
+				if (IsWall(Start - Along + Across) || IsWall(Start - Along - Across))
+				{
+					continue;
+				}
+				for (int32 i = 0; i < Length; ++i)
+				{
+					DoorCells.Add(Start + Along * i);
+				}
+				const TPair<const FKakurenboDecorRow*, UStaticMesh*>* Frame = Pick(Length == 2 ? EKakurenboDecorKind::DoorFrameWide : EKakurenboDecorKind::DoorFrame, X * 31 + Y * 17);
+				const FVector Mid = (CellCenter(Start) + CellCenter(Start + Along * (Length - 1))) * 0.5f;
+				const FVector Normal(Across.X, Across.Y, 0.f);
+				float HeaderBottom = DoorHeaderHeight;
+				if (Frame)
+				{
+					// 枠は通り道の真ん中（壁の厚みの真ん中）に、通り抜ける向きを正面にして置く（PlaceDecor は奥行きの半分だけ前へ出すので、その分戻す）
+					const FBox FrameBox = Frame->Value->GetBoundingBox();
+					const FVector FrameSize = FrameBox.GetSize();
+					const float Depth = static_cast<float>(FMath::Min(FrameSize.X, FrameSize.Y));
+					const float Scale = static_cast<float>(FMath::Min(Length * CellSize / FMath::Max(FMath::Max(FrameSize.X, FrameSize.Y), 1.0), Frame->Key->Height / FMath::Max(FrameSize.Z, 1.0)));
+					if (const UStaticMeshComponent* FrameComp = PlaceDecor(*Frame->Key, Frame->Value, FVector(Mid.X, Mid.Y, Origin.Z) - Normal * (Frame->Key->Offset + Depth * Scale * 0.5f), Normal, Length * CellSize))
+					{
+						// 上の壁は枠のてっぺんから（枠が壁を支えているように少し重ねる）
+						HeaderBottom = FMath::Clamp(static_cast<float>(FrameComp->Bounds.GetBox().Max.Z - Origin.Z) - 6.f, 170.f, DoorHeaderHeight + 40.f);
+					}
+				}
+				// M14：出入り口の上の壁（かくれんぼ中だけ見える高い部分と一緒に出す）。無いと枠だけが天井まで抜けた隙間に立って見えた。
+				// 当たり判定はカメラだけ（出入り口に置いた壁・よじ登り・鬼の飛び乗りの邪魔をしない）
+				const float HeaderHeight = OuterWallHeight - HeaderBottom;
+				UStaticMeshComponent* Header = AddMapCube(FVector(Mid.X, Mid.Y, Origin.Z + HeaderBottom + HeaderHeight * 0.5f),
+					FVector(Along.X != 0 ? Length * CellSize : CellSize, Along.Y != 0 ? Length * CellSize : CellSize, HeaderHeight), Map.WallColor, false);
+				Header->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+				Header->SetCollisionResponseToAllChannels(ECR_Ignore);
+				Header->SetCollisionResponseToChannel(ECC_Camera, ECR_Block);
+				Header->SetCastShadow(false);
+				TallRoomWalls.Add(Header);
+				++DoorHeaders;
+				if (TallWallPanels)
+				{
+					// 両側の面に壁と同じ板（壁紙）を貼る
+					const FVector AlongV(Along.X, Along.Y, 0.f);
+					const FVector FaceStart = FVector(Mid.X, Mid.Y, Origin.Z) - AlongV * (Length * CellSize * 0.5f);
+					AddFacePanels(TallWallPanels, FaceStart + Normal * (CellSize * 0.5f), AlongV, Normal, Length * CellSize, HeaderBottom, OuterWallHeight);
+					AddFacePanels(TallWallPanels, FaceStart - Normal * (CellSize * 0.5f), AlongV, -Normal, Length * CellSize, HeaderBottom, OuterWallHeight);
+				}
+			}
+		}
+	}
+
+	// 2) 壁の面：外周の壁には窓、どの壁にも絵と明かり（決まった間隔で。背の高い家具の後ろ・出入り口の横・鬼の門のまわりは除く）
+	static const FIntPoint Dirs[4] = { FIntPoint(0, -1), FIntPoint(0, 1), FIntPoint(-1, 0), FIntPoint(1, 0) };
+	int32 Lights = 0;
+	for (int32 Y = 0; Y < Layout.SizeY; ++Y)
+	{
+		for (int32 X = 0; X < Layout.SizeX; ++X)
+		{
+			const FIntPoint P(X, Y);
+			if (!IsOpen(P) || DoorCells.Contains(P) || KeepClear.Contains(P) || HeightAt(P) >= 140.f)
+			{
+				continue;
+			}
+			for (int32 d = 0; d < 4; ++d)
+			{
+				const FIntPoint N = P + Dirs[d];
+				const bool bOuter = !Layout.IsInside(N);
+				if (!bOuter && !IsWall(N))
+				{
+					continue;
+				}
+				// 出入り口のすぐ横の壁には飾らない（枠と重なる）
+				const FIntPoint Side = d < 2 ? FIntPoint(1, 0) : FIntPoint(0, 1);
+				if (DoorCells.Contains(P + Side) || DoorCells.Contains(P - Side) || DoorCells.Contains(N + Side) || DoorCells.Contains(N - Side))
+				{
+					continue;
+				}
+				const int32 AlongIndex = d < 2 ? X : Y;
+				const uint32 Hash = static_cast<uint32>(X * 73856093) ^ static_cast<uint32>(Y * 19349663) ^ static_cast<uint32>(d * 83492791);
+				const FVector Normal(-Dirs[d].X, -Dirs[d].Y, 0.f);
+				const FVector FaceCenter = CellCenter(P) + FVector(Dirs[d].X, Dirs[d].Y, 0.f) * (CellSize * 0.5f);
+				EKakurenboDecorKind Kind = EKakurenboDecorKind::Painting;
+				bool bPlace = false;
+				if (AlongIndex % 6 == 4)
+				{
+					Kind = EKakurenboDecorKind::Sconce;
+					bPlace = Lights < 64; // 影を落とさない明かりなので、大きな館でも 64 個まで
+				}
+				else if (bOuter && AlongIndex % 4 == 1)
+				{
+					Kind = EKakurenboDecorKind::Window;
+					bPlace = true;
+				}
+				else if (AlongIndex % 3 == 2 && Hash % 3 != 0)
+				{
+					Kind = EKakurenboDecorKind::Painting;
+					bPlace = true;
+				}
+				const TPair<const FKakurenboDecorRow*, UStaticMesh*>* Chosen = bPlace ? Pick(Kind, Hash) : nullptr;
+				if (!Chosen)
+				{
+					continue;
+				}
+				UStaticMeshComponent* Comp = PlaceDecor(*Chosen->Key, Chosen->Value, FVector(FaceCenter.X, FaceCenter.Y, Origin.Z), Normal);
+				if (Kind == EKakurenboDecorKind::Sconce && Chosen->Key->LightIntensity > 0.f && Comp)
+				{
+					++Lights;
+					// 壁の明かりは館の明かりの色を少し白っぽく（真っ橙にならないように）
+					AddMapLight(Comp->Bounds.Origin + Normal * 30.f + FVector(0.f, 0.f, Comp->Bounds.BoxExtent.Z * 0.6f), FMath::Lerp(Map.LightColor, FLinearColor::White, 0.5f),
+						Chosen->Key->LightIntensity, 650.f);
+				}
+				else if (Kind == EKakurenboDecorKind::Window && Comp)
+				{
+					// 窓の向こう（夜空）：枠の中に見える暗い青の板。枠は壁に半分埋めてある（Decor.csv の Offset が負）
+					const FKakurenboDecorRow& Row = *Chosen->Key;
+					AddMapCube(FVector(FaceCenter.X, FaceCenter.Y, Origin.Z + Row.Bottom + Row.Height * 0.5f) + Normal * 3.f,
+						FVector(Normal.X != 0.f ? 2.f : Row.Width * 0.8f, Normal.Y != 0.f ? 2.f : Row.Width * 0.8f, Row.Height * 0.82f), FLinearColor(0.015f, 0.03f, 0.08f), false);
+				}
+			}
+		}
+	}
+}
+
 void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps::FLayout& Layout, const TMap<TCHAR, FKakurenboFurnitureRow>& Furniture,
 	const TArray<FIntPoint>& KeepClear, TArray<FIntPoint>& OutObstacles,
-	UMaterialInterface* FloorMaterial, UMaterialInterface* FloorMaterialAlt, UMaterialInterface* WallMaterial)
+	const KakurenboMaps::FLayout& FloorLayer, const TMap<TCHAR, FKakurenboFloorLook>& FloorLooks,
+	UMaterialInterface* WallMaterial, UMaterialInterface* WainscotMaterial, const TArray<FKakurenboDecorRow>* Decor)
 {
 	ClearMap();
 	OutObstacles.Reset();
 
-	// 床（市松模様）：マテリアル（木の床など）があればそれを、無ければ色
-	if (FloorMaterial)
-	{
-		FloorTilesA->SetMaterial(0, FloorMaterial);
-		FloorTilesB->SetMaterial(0, FloorMaterialAlt ? FloorMaterialAlt : FloorMaterial);
-		bFloorUsesMaterial = true;
-	}
-	else
-	{
-		UKakurenboLibrary::ApplyColor(FloorTilesA, Map.FloorColor);
-		UKakurenboLibrary::ApplyColor(FloorTilesB, Map.FloorColor * 0.72f);
-		bFloorUsesMaterial = false;
-	}
+	// 床：部屋ごとの種類（木の床・寄木・タイル・石…）。テクスチャが無ければ色の市松模様
+	CurrentFloorLayer = FloorLayer;
+	CurrentLayout = Layout;
+	BuildFloorTiles(FloorLayer, FloorLooks, Map);
 
-	// 外周の壁：マテリアル（木の板の壁など）があれば内側の面に板を貼る。無ければ壁紙の色
+	// 外周の壁：マテリアル（木の板の壁など）があれば内側の面に板を貼る。下の方は腰壁（あれば）。無ければ壁紙の色
 	CurrentWallMaterial = WallMaterial;
 	bUseWallPanels = CurrentWallMaterial != nullptr;
 	for (UStaticMeshComponent* Wall : BorderWalls)
@@ -437,6 +754,7 @@ void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps:
 		WallPanels = MakePanelSet(CurrentWallMaterial);
 		TallWallPanels = MakePanelSet(CurrentWallMaterial);
 		TallWallPanels->SetCastShadow(false);
+		WainscotPanels = WainscotMaterial ? MakePanelSet(WainscotMaterial) : nullptr;
 		const FVector Origin = GetGridOrigin();
 		struct FFace { FVector Start; FVector Along; FVector Normal; float Length; };
 		const FFace Faces[4] = {
@@ -447,7 +765,12 @@ void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps:
 		};
 		for (const FFace& Face : Faces)
 		{
-			AddFacePanels(WallPanels, Face.Start, Face.Along, Face.Normal, Face.Length, 0.f, BorderHeight);
+			const float LowTop = WainscotPanels ? WainscotHeight : 0.f;
+			if (WainscotPanels)
+			{
+				AddFacePanels(WainscotPanels, Face.Start, Face.Along, Face.Normal, Face.Length, 0.f, LowTop);
+			}
+			AddFacePanels(WallPanels, Face.Start, Face.Along, Face.Normal, Face.Length, LowTop, BorderHeight);
 			AddFacePanels(TallWallPanels, Face.Start, Face.Along, Face.Normal, Face.Length, BorderHeight, OuterWallHeight);
 		}
 	}
@@ -508,10 +831,46 @@ void AKakurenboArena::ApplyMap(const FKakurenboMapRow& Map, const KakurenboMaps:
 		}
 	}
 
-	BuildWallLamps(Map, Layout);
+	// L 字の本棚の空いている角：体が入らない（壁や家具の正面を向いて細い溝になった・隣にふさがれた）なら、今まで通り箱で埋める。
+	// （背の高い家具のすき間は「体が入る」か「無い」かのどちらか。床が見えているのに入れない細いすき間を作らない）
+	// （埋めた角のせいで、隣の角に入れなくなることもあるので、変わらなくなるまで繰り返す）
+	for (bool bChanged = true; bChanged; )
+	{
+		bChanged = false;
+		for (FFurnitureNotch& Notch : FurnitureNotches)
+		{
+			if (Notch.bFilled || CanBodyEnter(Notch.Area, FurnitureWalkInGap * 0.5f))
+			{
+				continue;
+			}
+			const FVector2D NotchCenter = Notch.Area.GetCenter();
+			const FVector2D NotchSize = Notch.Area.GetSize();
+			UStaticMeshComponent* Box = AddMapCube(FVector(NotchCenter.X, NotchCenter.Y, Notch.FloorZ + Notch.Height * 0.5f), FVector(NotchSize.X, NotchSize.Y, Notch.Height), Notch.Color, true);
+			Box->SetHiddenInGame(true);
+			Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+			Box->ComponentTags.Add(FurnitureCollisionTag);
+			++FurnitureCollisionBoxes;
+			++FilledFurnitureNotches;
+			Notch.bFilled = true;
+			bChanged = true;
+		}
+	}
+
+	// 壁の飾り（窓・絵・明かり・出入り口の枠）。壁の明かりのメッシュが無ければ、今まで通りのランプ（光る玉）
+	DecorCounts.Reset();
+	if (Decor)
+	{
+		BuildDecor(Layout, *Decor, Furniture, Map, KeepClear);
+	}
+	if (GetDecorCount(EKakurenboDecorKind::Sconce) == 0)
+	{
+		BuildWallLamps(Map, Layout);
+	}
 	SetTallWallsVisible(bTallWallsVisible);
-	UE_LOG(LogKakurenboArena, Log, TEXT("Map '%s': %d pieces (%d with meshes), %d blocked cells"),
-		*Map.DisplayName.ToString(), FurniturePieces, FurnitureMeshes, OutObstacles.Num());
+	UE_LOG(LogKakurenboArena, Log, TEXT("Map '%s': %d pieces (%d with meshes), %d blocked cells, decor: %d windows %d paintings %d lights %d door frames, %d open corners (%d filled)"),
+		*Map.DisplayName.ToString(), FurniturePieces, FurnitureMeshes, OutObstacles.Num(), GetDecorCount(EKakurenboDecorKind::Window), GetDecorCount(EKakurenboDecorKind::Painting),
+		GetDecorCount(EKakurenboDecorKind::Sconce), GetDecorCount(EKakurenboDecorKind::DoorFrame) + GetDecorCount(EKakurenboDecorKind::DoorFrameWide),
+		FurnitureNotches.Num(), FilledFurnitureNotches);
 }
 
 void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const KakurenboMaps::FLayout& Layout, const FKakurenboFurnitureRow& Row, const FKakurenboMapRow& Map)
@@ -533,16 +892,22 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		return Soft.LoadSynchronous();
 	};
 	UStaticMesh* Mesh = LoadMesh(Row.Mesh);
+	const FString* MeshCutout = &Row.MeshCutout; // 上から見て空いている所（L 字の本棚など）
 	if (UStaticMesh* Alt = LoadMesh(Row.AltMesh); Alt && (!Mesh || ((Piece.Min.X * 7 + Piece.Min.Y * 13) % 2 == 1)))
 	{
 		Mesh = Alt;
+		MeshCutout = &Row.AltMeshCutout;
 	}
+	FBox2D Cutout(ForceInit);
+	const bool bHasCutout = KakurenboMaps::ParseCutout(*MeshCutout, Cutout);
 
-	// 当たり判定（家具の大きさの箱）。メッシュがあるときは見えない箱にする
-	if (!Row.bWalkable)
+	// 当たり判定（家具の大きさの箱）。メッシュがあるときは見えない箱にする。
+	// M14：メッシュのある家具は、メッシュ 1 個ずつの大きさの箱にする（下の並べる所）。見えている床（本棚のすき間・浅い家具の前）には入れる
+	if (!Row.bWalkable && (bIsWall || !Mesh))
 	{
 		UStaticMeshComponent* Box = AddMapCube(Center + FVector(0.f, 0.f, Height * 0.5f), FVector(RectW, RectD, Height), Row.Color, true);
 		Box->SetHiddenInGame(Mesh != nullptr);
+		Box->ComponentTags.Add(FurnitureCollisionTag);
 		if (!bIsWall)
 		{
 			// 三人称カメラは家具をすり抜ける（家具の陰にしゃがんでも自分が見え、カメラが家具に当たってがくがくしない）
@@ -558,18 +923,23 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 			UStaticMeshComponent* Tall = AddMapCube(Center + FVector(0.f, 0.f, Height + TallHeight * 0.5f), FVector(RectW, RectD, TallHeight), Row.Color, true);
 			Tall->SetCastShadow(false);
 			TallRoomWalls.Add(Tall);
-			// 外周の壁と同じ板を 4 つの面に貼る
+			// 外周の壁と同じ板を 4 つの面に貼る（下の方は腰壁）
 			if (bUseWallPanels && WallPanels)
 			{
 				const FVector Min(Center.X - RectW * 0.5f, Center.Y - RectD * 0.5f, 0.f);
-				for (UInstancedStaticMeshComponent* Panels : { WallPanels.Get(), TallWallPanels.Get() })
+				const float LowTop = WainscotPanels ? WainscotHeight : 0.f;
+				struct FBand { UInstancedStaticMeshComponent* Panels; float ZFrom; float ZTo; };
+				const FBand Bands[] = { { WainscotPanels.Get(), 0.f, LowTop }, { WallPanels.Get(), LowTop, Height }, { TallWallPanels.Get(), Height, OuterWallHeight } };
+				for (const FBand& Band : Bands)
 				{
-					const float ZFrom = Panels == WallPanels ? 0.f : Height;
-					const float ZTo = Panels == WallPanels ? Height : OuterWallHeight;
-					AddFacePanels(Panels, Min, FVector(0, 1, 0), FVector(-1, 0, 0), RectD, ZFrom, ZTo);
-					AddFacePanels(Panels, Min + FVector(RectW, 0.f, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), RectD, ZFrom, ZTo);
-					AddFacePanels(Panels, Min, FVector(1, 0, 0), FVector(0, -1, 0), RectW, ZFrom, ZTo);
-					AddFacePanels(Panels, Min + FVector(0.f, RectD, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), RectW, ZFrom, ZTo);
+					if (!Band.Panels || Band.ZTo - Band.ZFrom <= 1.f)
+					{
+						continue;
+					}
+					AddFacePanels(Band.Panels, Min, FVector(0, 1, 0), FVector(-1, 0, 0), RectD, Band.ZFrom, Band.ZTo);
+					AddFacePanels(Band.Panels, Min + FVector(RectW, 0.f, 0.f), FVector(0, 1, 0), FVector(1, 0, 0), RectD, Band.ZFrom, Band.ZTo);
+					AddFacePanels(Band.Panels, Min, FVector(1, 0, 0), FVector(0, -1, 0), RectW, Band.ZFrom, Band.ZTo);
+					AddFacePanels(Band.Panels, Min + FVector(0.f, RectD, 0.f), FVector(1, 0, 0), FVector(0, 1, 0), RectW, Band.ZFrom, Band.ZTo);
 				}
 			}
 		}
@@ -622,7 +992,7 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		const FVector Ext = Bounds.GetSize();
 		const bool bMeshLongX = Ext.X >= Ext.Y;
 		const float FrontLocalYaw = bMeshLongX ? 90.f : 0.f;
-		const float Yaw = Best.Dir.Rotation().Yaw - FrontLocalYaw + FurnitureFrontYaw;
+		const float Yaw = Best.Dir.Rotation().Yaw - FrontLocalYaw + FurnitureFrontYaw + Row.MeshYaw;
 		const FRotator Rot(0.f, Yaw, 0.f);
 		const float MeshLong = FMath::Max(bMeshLongX ? Ext.X : Ext.Y, 1.f);
 		const float MeshShort = FMath::Max(bMeshLongX ? Ext.Y : Ext.X, 1.f);
@@ -632,58 +1002,321 @@ void AKakurenboArena::BuildPiece(const KakurenboMaps::FPiece& Piece, const Kakur
 		// メッシュの長い辺が向く方向（ワールド）
 		const FVector LongAxis = Rot.RotateVector(bMeshLongX ? FVector::ForwardVector : FVector::RightVector).GetSafeNormal2D();
 
-		FVector Scale3D;
-		int32 Copies = 1;
-		if (Row.bWalkable)
+		// 長い辺・短い辺の方向に並べる数と、1 個ずつの場所の長さ（マスの数。どれも整数なので、メッシュがマスの境目の途中で切れない）
+		TArray<int32> LongSlots = { FMath::Max(1, FMath::RoundToInt(RectLong / CellSize)) };
+		TArray<int32> ShortSlots = { FMath::Max(1, FMath::RoundToInt(RectShort / CellSize)) };
+		float Scale = 1.f;
+		// 長い辺だけは伸ばす・縮める（0.6〜1.5 倍）。幅 2 m の本棚を 1 マスに置いても、背の高さ（当たり判定の高さ）のまま見えるように
+		const float MinLongStretch = 0.6f;
+		const float MaxLongStretch = 1.5f;
+		// 短い辺（奥行き）も少しだけ（0.6〜1.3 倍）。1 マスの奥行きに正方形のテーブルを置いても小さくなりすぎない・2 マスのベッドが 2 つに分かれない
+		const float MinShortStretch = 0.6f;
+		const float MaxShortStretch = 1.3f;
+		float ShortSlot = RectShort;
+		// Cells マスを Count 個に分ける（割り切れなければ真ん中の方を 1 マス長く）
+		auto Split = [](int32 Cells, int32 Count)
 		{
-			// じゅうたん：長方形いっぱいに広げる（縦横比は変えてよい）
-			Scale3D = FVector(RectLong * 0.96f / MeshLong, RectShort * 0.96f / MeshShort, 1.f);
-			if (!bMeshLongX)
+			TArray<int32> Sizes;
+			for (int32 i = 0; i < Count; ++i)
 			{
-				Swap(Scale3D.X, Scale3D.Y);
+				Sizes.Add(Cells / Count);
 			}
-			Scale3D.Z = FMath::Min(Scale3D.X, Scale3D.Y);
-		}
-		else
+			for (int32 i = 0; i < Cells % Count; ++i)
+			{
+				++Sizes[(Count - Cells % Count) / 2 + i];
+			}
+			return Sizes;
+		};
+		if (!Row.bWalkable)
 		{
-			// 縦横比を保ったまま、奥行きと高さに収まる大きさにする。長い家具（本棚の列）は同じメッシュを何個か並べる。
-			// 1 個のメッシュは必ずマスちょうど（1 マス・2 マス…）に収め、マスの境目にまたがらないようにする
-			// （またがると、空いて見えるマスに壁が置けない）。長い辺は少しだけ伸ばしてマスを埋める
-			float Scale = FMath::Min(RectShort * 0.96f / MeshShort, Height / FMath::Max(Ext.Z, 1.f));
-			const int32 LongCells = FMath::Max(1, FMath::RoundToInt(RectLong / CellSize));
-			int32 CellsPerCopy = FMath::Clamp(FMath::RoundToInt(MeshLong * Scale / CellSize), 1, LongCells);
-			while (LongCells % CellsPerCopy != 0)
+			// 縦横比を保ったまま、奥行きと高さに収まる大きさにする。長い家具（本棚の列・食卓）は同じメッシュを何個か並べる。
+			// 1 個のメッシュは必ず整数のマス（1 マス・2 マス…）を埋め、真ん中にぽつんと置いてマスの境目にまたがらないようにする
+			// （またがると、空いて見えるマスに壁が置けない）。
+			// 長い辺：伸ばして（最大 1.5 倍）埋められ、縮めて（0.6 倍まで）収まる一番少ない数。割り切れる数を先に探す
+			Scale = FMath::Min(RectShort * 0.96f / (MeshShort * MinShortStretch), Height / FMath::Max(Ext.Z, 1.f));
+			const int32 LongCells = LongSlots[0];
+			auto Fits = [&](int32 Count, bool bEvenOnly)
 			{
-				--CellsPerCopy; // 割り切れる幅にする（1 マスなら必ず割り切れる）
+				const float Slot = RectLong / Count;
+				return (!bEvenOnly || LongCells % Count == 0) && MeshLong * Scale * MaxLongStretch >= Slot * 0.92f && MeshLong * Scale * MinLongStretch <= Slot * 0.97f;
+			};
+			int32 Copies = 0;
+			for (int32 Pass = 0; Pass < 2 && Copies == 0; ++Pass)
+			{
+				for (int32 Count = 1; Count <= LongCells && Copies == 0; ++Count)
+				{
+					Copies = Fits(Count, Pass == 0) ? Count : 0;
+				}
 			}
-			Copies = LongCells / CellsPerCopy;
-			const float SlotLength = CellsPerCopy * CellSize;
-			Scale = FMath::Min(Scale, SlotLength * 0.97f / MeshLong);
-			const float LongStretch = FMath::Clamp(SlotLength * 0.92f / (MeshLong * Scale), 1.f, 1.5f);
-			Scale3D = FVector(Scale);
-			(bMeshLongX ? Scale3D.X : Scale3D.Y) *= LongStretch;
+			if (Copies == 0)
+			{
+				Copies = FMath::Clamp(FMath::CeilToInt(RectLong * 0.92f / (MeshLong * Scale * MaxLongStretch)), 1, LongCells);
+			}
+			LongSlots = Split(LongCells, Copies);
+			// 短い辺：伸ばしても場所の 6 割に届かないほど細いときは、横にも並べる（真ん中にぽつんと置かない）
+			const int32 ShortCells = ShortSlots[0];
+			int32 CopiesShort = ShortCells;
+			for (int32 Count = 1; Count < ShortCells; ++Count)
+			{
+				if (ShortCells % Count == 0 && MeshShort * Scale * MaxShortStretch >= ShortCells * CellSize / Count * 0.62f)
+				{
+					CopiesShort = Count;
+					break;
+				}
+			}
+			ShortSlots = Split(ShortCells, CopiesShort);
+			ShortSlot = ShortCells / CopiesShort * CellSize;
+			Scale = FMath::Min(Scale, ShortSlot * 0.96f / (MeshShort * MinShortStretch));
 		}
 
-		for (int32 k = 0; k < Copies; ++k)
+		const FVector ShortAxis = FVector::CrossProduct(FVector::UpVector, LongAxis).GetSafeNormal2D();
+		// M14：後ろが壁・家具（空いていない）なら、奥行きの余りを前に寄せず、後ろの壁にぴったり付ける（浅い家具の前にすき間ができ、入れる）
+		bool bBackBlocked = false;
+		for (const FSide& Side : Sides)
 		{
-			const FVector Slot = Center + LongAxis * ((k - (Copies - 1) * 0.5f) * RectLong / Copies);
-			UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
-			Comp->SetMobility(EComponentMobility::Movable);
-			Comp->SetStaticMesh(Mesh);
-			Comp->SetupAttachment(RootComponent);
-			Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 当たり判定は上の箱
-			Comp->SetWorldScale3D(Scale3D);
-			Comp->SetWorldRotation(Rot);
-			// メッシュの中心（原点がずれているアセットもある）をその位置に、底を床に合わせる
-			const FVector Pivot = Rot.RotateVector(Bounds.GetCenter() * Scale3D);
-			Comp->SetWorldLocation(FVector(Slot.X - Pivot.X, Slot.Y - Pivot.Y, Center.Z - Bounds.Min.Z * Scale3D.Z + (Row.bWalkable ? 0.5f : 0.f)));
-			Comp->RegisterComponent();
-			MapComponents.Add(Comp);
-			// マスからはみ出していないか（テスト用に一番大きなはみ出しを覚えておく）
-			const FBox World = Comp->Bounds.GetBox();
-			const float Overhang = FMath::Max(FMath::Max(Center.X - RectW * 0.5f - World.Min.X, World.Max.X - (Center.X + RectW * 0.5f)),
-				FMath::Max(Center.Y - RectD * 0.5f - World.Min.Y, World.Max.Y - (Center.Y + RectD * 0.5f)));
-			MaxFurnitureOverhang = FMath::Max(MaxFurnitureOverhang, Overhang);
+			if (Side.Dir.Equals(-Best.Dir))
+			{
+				bBackBlocked = Side.Free == 0;
+			}
+		}
+		const bool bPushBack = !Row.bWalkable && bBackBlocked && ShortSlots.Num() == 1 && FMath::Abs(FVector::DotProduct(Best.Dir, ShortAxis)) > 0.9f;
+
+		// 背の高い家具（本棚など）を長い辺に何個か並べたとき、間のすき間は「体が入る（WalkInGap 以上）」か「無い」かのどちらかにする。
+		// （ユーザーの指摘：「この本棚の隙間に入れるように」。伸ばしきれない本棚の間に 34〜37cm の、体が入らないすき間があった）
+		// 入れるなら：両端の本棚を端に寄せ、間を WalkInGap 空ける（本棚は少し細くなる）。細くなりすぎるなら、すき間を無くす
+		const int32 NumLong = LongSlots.Num();
+		float EvenCopyLength = 0.f; // 0 なら今まで通り（自分の場所の真ん中に置く）
+		float EvenCopyGap = 0.f;
+		constexpr float EndGap = 2.f;
+		if (!Row.bWalkable && Height >= TallFurnitureHeight && NumLong >= 2)
+		{
+			float NaturalTotal = 0.f;
+			for (const int32 LongSize : LongSlots)
+			{
+				const float SlotLength = LongSize * CellSize;
+				const float CopyScale = FMath::Min(Scale, SlotLength * 0.97f / (MeshLong * MinLongStretch));
+				NaturalTotal += MeshLong * CopyScale * FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
+			}
+			const float NaturalGap = (RectLong - NaturalTotal) / NumLong; // 隣どうしの間のすき間（両側の余りの半分ずつ）
+			if (NaturalGap > 20.f && NaturalGap < FurnitureWalkInGap)
+			{
+				const float SpreadLength = (RectLong - (NumLong - 1) * FurnitureWalkInGap - 2.f * EndGap) / NumLong;
+				if (SpreadLength >= FMath::Max(NaturalTotal / NumLong * 0.75f, 50.f))
+				{
+					EvenCopyLength = SpreadLength;
+					EvenCopyGap = FurnitureWalkInGap;
+				}
+				else
+				{
+					EvenCopyLength = (RectLong - 2.f * EndGap - (NumLong - 1) * 2.f) / NumLong;
+					EvenCopyGap = 2.f;
+				}
+			}
+		}
+
+		// L 字の本棚（上から見て角が空いている：MeshCutout）を長い辺に並べるとき、空いている角が隣の本棚でふさがれて
+		// 体の入らない細いくぼみ（50cm 前後）にならないよう、2 個ずつ向かい合わせ（片方を左右反転）にして角どうしを合わせる（幅 1m を超えるくぼみ）。
+		// 余った 1 個（1 個だけのときも）は、長方形の端の外が空いている方へ角を向ける
+		TArray<bool> MirrorCopy;
+		MirrorCopy.Init(false, NumLong);
+		if (bHasCutout && !Row.bWalkable)
+		{
+			// 空いている角が、メッシュの長い辺のどちらの端にあるか（+1 / -1。0 なら端に無い）
+			const double CutMin = bMeshLongX ? Cutout.Min.X : Cutout.Min.Y;
+			const double CutMax = bMeshLongX ? Cutout.Max.X : Cutout.Max.Y;
+			const int32 CutSide = (CutMax >= 0.99 && CutMin > 0.01) ? 1 : ((CutMin <= 0.01 && CutMax < 0.99) ? -1 : 0);
+			if (CutSide != 0)
+			{
+				// 長方形の LongAxis の向き（+1 / -1）の端の外のマスが空いているか
+				auto EndFree = [&](int32 Sign)
+				{
+					const FVector Dir = LongAxis * Sign;
+					if (FMath::Abs(Dir.X) > 0.5f)
+					{
+						const int32 X = Dir.X > 0.f ? Piece.Min.X + Piece.Size.X : Piece.Min.X - 1;
+						return FreeCount(FIntPoint(X, Piece.Min.Y), FIntPoint(0, 1), Piece.Size.Y) > 0;
+					}
+					const int32 Y = Dir.Y > 0.f ? Piece.Min.Y + Piece.Size.Y : Piece.Min.Y - 1;
+					return FreeCount(FIntPoint(Piece.Min.X, Y), FIntPoint(1, 0), Piece.Size.X) > 0;
+				};
+				// 角を向ける向き（+1 = 番号の大きい隣・LongAxis の向き / -1 = 番号の小さい隣）
+				TArray<int32> Facing;
+				Facing.Init(1, NumLong);
+				int32 PairStart = 0;
+				if (NumLong % 2 == 1 && EndFree(-1) && !EndFree(1))
+				{
+					Facing[0] = -1; // 余る 1 個を始めの端（空いている方）に
+					PairStart = 1;
+				}
+				for (int32 i = PairStart; i + 1 < NumLong; i += 2)
+				{
+					Facing[i] = 1;
+					Facing[i + 1] = -1;
+				}
+				for (int32 i = 0; i < NumLong; ++i)
+				{
+					MirrorCopy[i] = Facing[i] != CutSide;
+				}
+			}
+		}
+
+		int32 ShortStart = 0;
+		for (const int32 ShortSize : ShortSlots)
+		{
+			int32 LongStart = 0;
+			int32 LongIndex = 0;
+			for (const int32 LongSize : LongSlots)
+			{
+				FVector Scale3D;
+				if (Row.bWalkable)
+				{
+					// じゅうたん：長方形いっぱいに広げる（縦横比は変えてよい）
+					Scale3D = FVector(RectLong * 0.96f / MeshLong, RectShort * 0.96f / MeshShort, 1.f);
+					if (!bMeshLongX)
+					{
+						Swap(Scale3D.X, Scale3D.Y);
+					}
+					Scale3D.Z = FMath::Min(Scale3D.X, Scale3D.Y);
+				}
+				else
+				{
+					// 自分の場所に合わせて長い辺を伸ばす・縮める（縮めきれないときだけ全体を小さく）
+					const float SlotLength = LongSize * CellSize;
+					const float CopyScale = FMath::Min(Scale, SlotLength * 0.97f / (MeshLong * MinLongStretch));
+					Scale3D = FVector(CopyScale);
+					(bMeshLongX ? Scale3D.X : Scale3D.Y) *= EvenCopyLength > 0.f
+						? EvenCopyLength / (MeshLong * CopyScale) // 間のすき間をそろえる（上で決めた長さ）
+						: FMath::Clamp(SlotLength * 0.92f / (MeshLong * CopyScale), MinLongStretch, MaxLongStretch);
+					(bMeshLongX ? Scale3D.Y : Scale3D.X) *= FMath::Clamp(ShortSlot * 0.9f / (MeshShort * CopyScale), MinShortStretch, MaxShortStretch);
+
+					// M15：背の高い家具（本棚・たんす・食器棚）の前のすき間は「体が入る（WalkInGap 以上）」か「無い」かのどちらかにする。
+					// （ユーザーの指摘：「本棚の隙間が入れない」。床が見えているのに、しゃがんでも体が入らない 30〜50cm のすき間があった）
+					// 後ろが壁なら奥行きを薄くして前に WalkInGap を空ける（薄くしすぎるなら、すき間を無くす）。真ん中に立っているなら、すき間を無くす
+					if (Height >= TallFurnitureHeight)
+					{
+						double& ShortScale = bMeshLongX ? Scale3D.Y : Scale3D.X; // FVector の成分は double
+						const float Depth = MeshShort * ShortScale;
+						const float Gap = ShortSlot - Depth;
+						// （すき間が 20cm より狭い家具は、床がほとんど見えないので今まで通り）
+						if (bPushBack && Gap > 20.f && Gap < FurnitureWalkInGap)
+						{
+							const float WalkInDepth = ShortSlot - FurnitureWalkInGap;
+							ShortScale *= (WalkInDepth >= MinShelfDepth ? WalkInDepth : ShortSlot * 0.96f) / FMath::Max(Depth, 1.f);
+						}
+						else if (!bPushBack && Gap > 20.f && Gap < FurnitureWalkInGap * 2.f)
+						{
+							ShortScale *= ShortSlot * 0.96f / FMath::Max(Depth, 1.f);
+						}
+					}
+					// L 字の本棚を向かい合わせにする（長い辺の向きに左右反転。マイナスの拡大率でも UE は裏返さずに描く）
+					if (MirrorCopy[LongIndex])
+					{
+						(bMeshLongX ? Scale3D.X : Scale3D.Y) *= -1.0;
+					}
+				}
+				// 長い辺の方向の位置：ふつうは自分の場所の真ん中。すき間をそろえるときは、端から「長さ＋すき間」ずつ
+				const float LongPos = EvenCopyLength > 0.f
+					? EndGap + EvenCopyLength * 0.5f + LongIndex * (EvenCopyLength + EvenCopyGap)
+					: (LongStart + LongSize * 0.5f) * CellSize;
+				++LongIndex;
+				FVector Slot = Center + LongAxis * (LongPos - RectLong * 0.5f)
+					+ ShortAxis * ((ShortStart + ShortSize * 0.5f) * CellSize - RectShort * 0.5f);
+				if (bPushBack)
+				{
+					const float Depth = MeshShort * (bMeshLongX ? Scale3D.Y : Scale3D.X);
+					Slot -= Best.Dir * FMath::Max(0.f, (ShortSize * CellSize - Depth) * 0.5f - 2.f);
+				}
+				LongStart += LongSize;
+				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
+				Comp->SetMobility(EComponentMobility::Movable);
+				Comp->SetStaticMesh(Mesh);
+				Comp->SetupAttachment(RootComponent);
+				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 当たり判定は上の箱
+				Comp->SetWorldScale3D(Scale3D);
+				Comp->SetWorldRotation(Rot);
+				// メッシュの中心（原点がずれているアセットもある）をその位置に、底を床に合わせる
+				const FVector Pivot = Rot.RotateVector(Bounds.GetCenter() * Scale3D);
+				Comp->SetWorldLocation(FVector(Slot.X - Pivot.X, Slot.Y - Pivot.Y, Center.Z - Bounds.Min.Z * Scale3D.Z + (Row.bWalkable ? 0.5f : 0.f)));
+				Comp->RegisterComponent();
+				MapComponents.Add(Comp);
+				// マスからはみ出していないか（テスト用に一番大きなはみ出しを覚えておく）
+				const FBox World = Comp->Bounds.GetBox();
+				const float Overhang = FMath::Max(FMath::Max(Center.X - RectW * 0.5f - World.Min.X, World.Max.X - (Center.X + RectW * 0.5f)),
+					FMath::Max(Center.Y - RectD * 0.5f - World.Min.Y, World.Max.Y - (Center.Y + RectD * 0.5f)));
+				MaxFurnitureOverhang = FMath::Max(MaxFurnitureOverhang, Overhang);
+				if (!Row.bWalkable)
+				{
+					// 当たり判定はこのメッシュの大きさ（上から見た外形 × 家具の高さ）。カメラは通す
+					// L 字の本棚のように上から見て空いている所（MeshCutout）があれば、そこを抜いた形（長方形をいくつか）にする
+					// （ユーザーの依頼：「この本棚の当たり判定を L 字に」。外形の箱だと、見えている手前の角の床に入れなかった）
+					TArray<FBox> Parts;
+					if (bHasCutout)
+					{
+						// メッシュの中の長方形の 4 つの角をワールドへ（向きは 90 度ずつなので、角を囲む箱がそのままの形）
+						auto ToWorld = [Comp](const FBox2D& Local)
+						{
+							FBox Out(ForceInit);
+							for (const FVector2D& Corner : { Local.Min, Local.Max, FVector2D(Local.Min.X, Local.Max.Y), FVector2D(Local.Max.X, Local.Min.Y) })
+							{
+								Out += Comp->GetComponentTransform().TransformPosition(FVector(Corner.X, Corner.Y, 0.f));
+							}
+							return Out;
+						};
+						const FBox2D LocalFootprint(FVector2D(Bounds.Min.X, Bounds.Min.Y), FVector2D(Bounds.Max.X, Bounds.Max.Y));
+						for (const FBox2D& Part : KakurenboMaps::SplitFootprint(LocalFootprint, Cutout))
+						{
+							Parts.Add(ToWorld(Part));
+						}
+						// 空いている角（全部の家具を置いた後、体が入るか調べる）
+						const FVector2D LocalSize = LocalFootprint.GetSize();
+						const FBox NotchWorld = ToWorld(FBox2D(LocalFootprint.Min + LocalSize * Cutout.Min, LocalFootprint.Min + LocalSize * Cutout.Max));
+						FurnitureNotches.Add({ FBox2D(FVector2D(NotchWorld.Min.X, NotchWorld.Min.Y), FVector2D(NotchWorld.Max.X, NotchWorld.Max.Y)), Height, Row.Color, static_cast<float>(Center.Z) });
+					}
+					else
+					{
+						Parts.Add(World);
+					}
+					for (const FBox& Part : Parts)
+					{
+						const FVector BoxCenter = Part.GetCenter();
+						const FVector BoxSize = Part.GetSize();
+						UStaticMeshComponent* Box = AddMapCube(FVector(BoxCenter.X, BoxCenter.Y, Center.Z + Height * 0.5f), FVector(BoxSize.X, BoxSize.Y, Height), Row.Color, true);
+						Box->SetHiddenInGame(true);
+						Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+						Box->ComponentTags.Add(FurnitureCollisionTag);
+						++FurnitureCollisionBoxes;
+					}
+				}
+				// マスの境目にまたがって、どちらのマスも埋めていないメッシュ（真ん中にぽつんと置かれて 2 マスぶんの場所を取って見える）を数える
+				// （本棚の間に体が入るすき間を空けたときは、わざとマスの途中で切れるので数えない）
+				if (!Row.bWalkable && EvenCopyGap < FurnitureWalkInGap)
+				{
+					const FVector Extent = World.GetExtent();
+					for (int32 Axis = 0; Axis < 2; ++Axis)
+					{
+						const float SlotMin = (Axis == 0 ? Center.X - RectW * 0.5f : Center.Y - RectD * 0.5f);
+						const float MeshMin = Axis == 0 ? World.Min.X : World.Min.Y;
+						const float MeshMax = Axis == 0 ? World.Max.X : World.Max.Y;
+						const float MeshSize = (Axis == 0 ? Extent.X : Extent.Y) * 2.f;
+						// メッシュがかかっているマス（端から端まで）と、メッシュの中を通るマスの境目
+						const int32 FirstCell = FMath::FloorToInt((MeshMin - SlotMin) / CellSize);
+						const int32 LastCell = FMath::FloorToInt((MeshMax - 0.01f - SlotMin) / CellSize);
+						bool bCrossesLine = false;
+						for (int32 Line = FirstCell + 1; Line <= LastCell; ++Line)
+						{
+							const float LineAt = SlotMin + Line * CellSize;
+							bCrossesLine |= LineAt > MeshMin + 10.f && LineAt < MeshMax - 10.f;
+						}
+						if (bCrossesLine && MeshSize < (LastCell - FirstCell + 1) * CellSize * 0.6f)
+						{
+							++FurnitureStraddleCount;
+							UE_LOG(LogKakurenboArena, Warning, TEXT("Map: %s straddles a cell line (rect %.0fx%.0f, mesh %.0fx%.0f)"), *Row.DisplayName.ToString(), RectW, RectD, Extent.X * 2.f, Extent.Y * 2.f);
+							break;
+						}
+					}
+				}
+			}
+			ShortStart += ShortSize;
 		}
 	}
 

@@ -37,7 +37,21 @@ namespace KakurenboSynth
 		float LowPass = 1.f;      // ノイズのこもり具合（0〜1。小さいほどこもった低い音）
 	};
 
-	/** 効果音の設計図（音の並び） */
+	/** 専用の WAV（Data/Sounds）もプログラムの設計図も無い新しい音の代わり：今までの音をこの高さ・大きさで鳴らす */
+	struct FSfxFallback
+	{
+		EKakurenboSfx Sfx = EKakurenboSfx::Mash;
+		float Pitch = 1.f;
+		float Volume = 1.f;
+	};
+
+	/** 代わりの音（自分の設計図がある音は自分自身・1・1） */
+	FSfxFallback GetFallback(EKakurenboSfx Sfx);
+
+	/** 鬼・人形の足音のなかま（距離・重なり・大きさの余裕を鬼の足音と同じにする） */
+	bool IsOniStepSfx(EKakurenboSfx Sfx);
+
+	/** 効果音の設計図（音の並び）。代わりの音を使う音は、その設計図の高さ・大きさを変えたもの */
 	TArray<FNote> GetRecipe(EKakurenboSfx Sfx);
 
 	/** 音の並びを 16bit・モノラルの波形にする。PitchScale で全体の高さを変える（長さは変わらない） */

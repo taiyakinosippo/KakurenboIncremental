@@ -1,0 +1,367 @@
+{
+ "meshes": {
+  "SM_Bookshelf": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Bookshelf",
+   "slots": [
+    {
+     "name": "MI_BookShelf",
+     "base": "T_BookShelf_B",
+     "normal": "T_BookShelf_N",
+     "orm": "T_BookShelf_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    145.59999084472656,
+    52.98744201660156,
+    265.0362243652344
+   ]
+  },
+  "SM_Desk02": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Desk02",
+   "slots": [
+    {
+     "name": "MM_Base_Mat",
+     "base": "T_Furniture_B",
+     "normal": "T_Furniture_N",
+     "orm": "T_Furniture_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    235.2366943359375,
+    101.70782470703125,
+    106.08270263671875
+   ]
+  },
+  "SM_Desk": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Desk",
+   "slots": [
+    {
+     "name": "MM_Base_Mat",
+     "base": "T_Furniture_B",
+     "normal": "T_Furniture_N",
+     "orm": "T_Furniture_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    156.72096252441406,
+    108.85914611816406,
+    101.92926025390625
+   ]
+  },
+  "SM_LeatherCouch": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_LeatherCouch",
+   "slots": [
+    {
+     "name": "TT_checker_2048x2048_UV_GRID",
+     "base": "T_LeatherCouch_BC",
+     "normal": "T_LeatherCouch_N",
+     "orm": "T_LeatherCouch_ORM",
+     "packing": "orm",
+     "color": [
+      0.5874999761581421,
+      0.5874999761581421,
+      0.5874999761581421
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    91.50543975830078,
+    136.306640625,
+    139.19407653808594
+   ]
+  },
+  "SM_Bathtub": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Bathtub",
+   "slots": [
+    {
+     "name": "lambert1",
+     "base": "",
+     "normal": "",
+     "orm": "",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    308.5543212890625,
+    183.91925048828125,
+    137.1481475830078
+   ]
+  },
+  "SM_Bathroom_Sink": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Bathroom_Sink",
+   "slots": [
+    {
+     "name": "WorldGridMaterial",
+     "base": "T_ToiletParts_B",
+     "normal": "T_ToiletParts_N",
+     "orm": "T_ToiletParts_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    129.02560424804688,
+    101.31200408935547,
+    149.76309204101562
+   ]
+  },
+  "SM_TableBasse_01": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_TableBasse_01",
+   "slots": [
+    {
+     "name": "WorldGridMaterial",
+     "base": "T_TableBasse_01_BC",
+     "normal": "T_TableBasse_01_N",
+     "orm": "T_TableBasse_01_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    74.82891845703125,
+    59.233055114746094,
+    84.23577880859375
+   ]
+  },
+  "SM_SmallTable_01": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_SmallTable_01",
+   "slots": [
+    {
+     "name": "MI_SmallTable_01",
+     "base": "T_SmallTable_01_BC",
+     "normal": "T_SmallTable_01_N",
+     "orm": "T_SmallTable_01_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    90.0771484375,
+    163.0509033203125,
+    45.474666595458984
+   ]
+  },
+  "SM_Picture_01": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Picture_01",
+   "slots": [
+    {
+     "name": "lambert1",
+     "base": "T_Frame_D",
+     "normal": "T_Frame_N",
+     "orm": "T_Frame_mre",
+     "packing": "mre",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    },
+    {
+     "name": "Glass",
+     "base": "",
+     "normal": "",
+     "orm": "",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": true
+    },
+    {
+     "name": "Rooster_Pics",
+     "base": "T_Rooster_Pictures_D",
+     "normal": "T_Molding_Trim_N",
+     "orm": "T_Molding_Trim_mre",
+     "packing": "mre",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    39.49127960205078,
+    3.6892659664154053,
+    32.198272705078125
+   ]
+  },
+  "SM_Picture_03": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Picture_03",
+   "slots": [
+    {
+     "name": "lambert1",
+     "base": "T_Frame_D",
+     "normal": "T_Frame_N",
+     "orm": "T_Frame_mre",
+     "packing": "mre",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    },
+    {
+     "name": "Glass",
+     "base": "",
+     "normal": "",
+     "orm": "",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": true
+    },
+    {
+     "name": "Rooster_Pics",
+     "base": "T_Rooster_Pictures_D",
+     "normal": "T_Molding_Trim_N",
+     "orm": "T_Molding_Trim_mre",
+     "packing": "mre",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    32.198272705078125,
+    3.6892659664154053,
+    39.49127960205078
+   ]
+  },
+  "SM_Frames_01": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Frames_01",
+   "slots": [
+    {
+     "name": "MI_Frames",
+     "base": "T_Frames_BC",
+     "normal": "T_Frames_N",
+     "orm": "T_Frames_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    2.001107931137085,
+    71.342529296875,
+    43.58375930786133
+   ]
+  },
+  "SM_Door_Frame": {
+   "source": "/Game/StylizedKitchen/Meshes/SM_Door_Frame",
+   "slots": [
+    {
+     "name": "MM_Base_Mat",
+     "base": "T_Doors_B",
+     "normal": "T_Doors_N",
+     "orm": "T_Doors_ORM",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    4.2835693359375,
+    135.40585327148438,
+    270.5281982421875
+   ]
+  },
+  "SM_Pot_Flower_1": {
+   "source": "/Game/Isometric-Interiors/Meshes/SM_Pot_Flower_1",
+   "slots": [
+    {
+     "name": "Texture_Atlas",
+     "base": "Texture_Atlas",
+     "normal": "",
+     "orm": "",
+     "packing": "orm",
+     "color": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "glass": false
+    }
+   ],
+   "size": [
+    93.62579345703125,
+    92.23609924316406,
+    152.59449768066406
+   ]
+  }
+ },
+ "surfaces": {
+  "T_Bathroom_Floor_Tile_D": "base",
+  "T_Bathroom_Floor_Tile_N": "normal",
+  "T_Wallpaper_A_D": "base",
+  "T_Wallpaper_A_N": "normal",
+  "T_Wallpaper_B_D": "base",
+  "T_Wallpaper_B_N": "normal",
+  "T_Plaster_Wall_01_D": "base",
+  "T_Plaster_Wall_02_N": "normal",
+  "T_Stucco_Wall_01_D": "base",
+  "T_Stucco_Wall_01_N": "normal"
+ }
+}

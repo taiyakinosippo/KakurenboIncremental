@@ -44,11 +44,21 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Block")
 	double MaxSoundHP = 0.0;
 
-	/** Surface があれば（そのパソコンにテクスチャがあれば）その見た目、無ければ InColor の箱 */
-	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP = 0.0, const struct FKakurenboSurfaceRow* Surface = nullptr);
+	/** クライミング壁（足場の横木）。プレイヤーはすばやく登れるが、鬼はこの上には飛び乗れない（細い足場） */
+	UPROPERTY(BlueprintReadOnly, Category = "Block")
+	bool bLadder = false;
+
+	/**
+	 * Surface があれば（そのパソコンにテクスチャがあれば）その見た目、無ければ InColor の箱。
+	 * bLadder ならクライミング壁：4 つの面に足場の横木を付ける（見た目だけ。当たり判定なし）
+	 */
+	void InitBlock(int32 InWallTypeIndex, double InMaxHP, const FLinearColor& InColor, double InSoundHP = 0.0, const struct FKakurenboSurfaceRow* Surface = nullptr, bool bInLadder = false);
 
 	/** テクスチャの見た目になっているか（テスト用） */
 	bool IsTextured() const { return bTextured; }
+
+	/** 足場の横木の数（クライミング壁。テスト用） */
+	int32 GetRungCount() const { return Rungs.Num(); }
 
 	/** ダメージを与える。壊れたら true（アクターの破棄はグリッド側が行う） */
 	bool ApplyBlockDamage(double Damage);
@@ -71,6 +81,11 @@ public:
 
 private:
 	void UpdateColor();
+	void AddLadderRungs();
+
+	/** クライミング壁の足場の横木 */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> Rungs;
 
 	FLinearColor BaseColor = FLinearColor::White;
 

@@ -1,0 +1,2 @@
+s21-s24: Soft quick reverse paper swish with a low wooden tick, cute game menu close sound, short
+seconds=1.0 steps=100

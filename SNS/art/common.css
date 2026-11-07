@@ -1,0 +1,61 @@
+/* SNS 用の絵の共通部品。ロゴ（KakurenboIncremental/SourceArt/Logo/TitleLogo.html）と同じ色と形 */
+html, body { margin: 0; padding: 0; }
+body { overflow: hidden; }
+* { box-sizing: border-box; }
+
+/* 夜空 */
+.sky { position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 78% 18%, #4a3a8c 0%, #2a1f5c 28%, #160f36 60%, #0b0820 100%); }
+.star { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px #cdbcff; opacity: .85; }
+.moon { position: absolute; border-radius: 50%;
+  background: radial-gradient(circle at 40% 38%, #fffdf0 0%, #fff4c8 45%, #ffe39a 75%, #f2c46a 100%);
+  box-shadow: 0 0 40px 10px rgba(255, 230, 150, .35), 0 0 120px 40px rgba(180, 150, 255, .18); }
+.moon::before, .moon::after { content: ""; position: absolute; border-radius: 50%; background: rgba(220, 180, 100, .25); }
+.moon::before { width: 18%; height: 18%; left: 22%; top: 50%; }
+.moon::after { width: 12%; height: 12%; left: 58%; top: 28%; }
+
+/* キラキラ・小判 */
+.spark { position: absolute; width: 30px; height: 30px; background: #fff3b8;
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  filter: drop-shadow(0 0 4px #ffd860); }
+.spark.violet { background: #e8dcff; filter: drop-shadow(0 0 4px #b48cff); }
+.coin { position: absolute; width: 40px; height: 40px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff8d0, #ffc63a 55%, #c8720e);
+  border: 5px solid #1a0a2c; box-shadow: 0 5px 0 #0b0414; }
+.coin::after { content: ""; position: absolute; left: 50%; top: 50%; width: 28%; height: 28%; transform: translate(-50%, -50%); background: #1a0a2c; border-radius: 2px; }
+.koban { position: absolute; width: 38px; height: 56px; border-radius: 50%;
+  background: radial-gradient(ellipse at 38% 30%, #fffbe2 0%, #ffd95a 38%, #f0a020 75%, #b8640e 100%);
+  border: 6px solid #1a0a2c; box-shadow: inset 0 0 0 3px #fff2b0, 0 6px 0 #0b0414; }
+.koban::after { content: ""; position: absolute; left: 50%; top: 18%; width: 4px; height: 64%; margin-left: -2px; border-radius: 2px; background: rgba(150, 80, 10, .55); }
+
+/* のぞく目 */
+.eye { position: absolute; width: 36px; height: 44px; border-radius: 50%; background: #fffdf2;
+  border: 6px solid #1a0a2c; box-shadow: 0 6px 0 #0b0414; overflow: hidden; }
+.eye::after { content: ""; position: absolute; left: 11%; top: 30%; width: 48%; height: 48%; border-radius: 50%; background: #1a0a2c; box-shadow: inset 4px 4px 0 -1px #fff; }
+
+/* ロゴの文字 */
+.word { position: absolute; display: flex; align-items: flex-end; }
+.ch { position: relative; font-family: "Dela Gothic One", "HGSoeiKakugothicUB", sans-serif; font-size: 190px; line-height: 1; width: 176px; text-align: center; }
+.ch .stroke, .ch .fill { position: absolute; left: -60px; top: 0; width: calc(100% + 120px); }
+.ch .ghost { visibility: hidden; }
+.ch .stroke { color: #1a0a2c; -webkit-text-stroke: 26px #1a0a2c; filter: drop-shadow(0 10px 0 #0b0414); }
+.ch .fill { background-clip: text; -webkit-background-clip: text; color: transparent; }
+.ch.gold .fill { background-image: linear-gradient(180deg, #fffbe0 0%, #ffe27a 34%, #ffb22e 64%, #e5761a 100%); -webkit-text-stroke: 3px #fff6c8; }
+.ch.night .fill { background-image: linear-gradient(180deg, #ffffff 0%, #e6dcff 30%, #b996ff 66%, #7b4fd0 100%); -webkit-text-stroke: 3px #f3edff; }
+.c1 { transform: rotate(-7deg) translateY(-14px); }
+.c2 { transform: rotate(5deg) translateY(-30px); }
+.c3 { transform: rotate(-4deg) translateY(-18px); }
+.c4 { transform: rotate(3deg) translateY(14px) scale(.92); margin-left: -6px; }
+.c5 { transform: rotate(-3deg) translateY(10px) scale(.98); margin-left: -12px; }
+.c3 .k1 { right: -6px; top: 6px; transform: rotate(18deg); }
+.c3 .k2 { right: 30px; top: -10px; transform: rotate(10deg); }
+.c5 .e1 { right: 6px; top: 2px; transform: rotate(8deg); }
+.c5 .e2 { right: 42px; top: -14px; transform: rotate(-4deg); }
+
+/* 館のかげ（窓に明かり） */
+.house { position: absolute; background: #0a0618; }
+.win { position: absolute; width: 22px; height: 30px; border-radius: 11px 11px 2px 2px;
+  background: linear-gradient(180deg, #ffe7a0, #ffb84a); box-shadow: 0 0 14px 3px rgba(255, 190, 80, .45); }
+.win.dark { background: #1d1440; box-shadow: none; }
+.gate { position: absolute; border-radius: 40px 40px 0 0; background: linear-gradient(180deg, #ff6a5a, #c4202a);
+  box-shadow: 0 0 30px 8px rgba(255, 60, 60, .45); }

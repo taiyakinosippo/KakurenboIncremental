@@ -53,6 +53,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 TimeIncomeLevel = 0;
 
+	/** 壁の補強のレベル（コインのお店。すべての壁の耐久が元の耐久の +50% ずつ増える。転生すると 0 に戻る） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 WallReinforceLevel = 0;
+
 	// ---- 転生（転生しても残る） ----
 	/** 使える転生ポイント（転生のお店で永続強化に使う） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
@@ -96,6 +100,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 StepsThisRound = 0;
 
+	/** このラウンドでよじ登った回数 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 ClimbsThisRound = 0;
+
 	/** このラウンドで探知鬼が仲間を呼んだ回数 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	int32 SummonsThisRound = 0;
@@ -110,6 +118,26 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
 	double TreasureCoinsThisRound = 0.0;
+
+	// ---- 宝石（M15：お宝を取るともらえる。宝石のお店で、ふしぎな道具と交換する。転生するとなくなる。宝石で買った道具も） ----
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 Gems = 0;
+
+	/** このラン（転生するまで）にゴールドラッシュを買った数（値段がこれで上がる） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 GoldRushBoughtThisRun = 0;
+
+	/** このラウンドでもらった宝石（コンプリートのボーナスを含む） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	int32 GemsThisRound = 0;
+
+	/** このラウンドでお宝を全部取った（コンプリートのボーナスをもらった） */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	bool bAllTreasuresThisRound = false;
+
+	/** コンプリートのボーナスのコイン */
+	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")
+	double TreasureBonusCoinsThisRound = 0.0;
 
 	/** このラウンドの時間収入・連打収入（リザルトの内訳） */
 	UPROPERTY(BlueprintReadOnly, Category = "Kakurenbo")

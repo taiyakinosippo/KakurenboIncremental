@@ -6,13 +6,19 @@
 // 疑似入力（SimulateKey / SimulateMouse）の結果は、次のフレームの入力処理で反映されるので NextTick で確かめる。
 
 #include "Camera/CameraComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Misc/FileHelper.h"
+#include "Components/PointLightComponent.h"
+#include "Engine/PointLight.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PoseableMeshComponent.h"
 #include "Animation/AnimSequence.h"
 #include "Components/StaticMeshComponent.h"
+#include "Containers/Ticker.h"
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/OverlapResult.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerInput.h"
@@ -22,17 +28,22 @@
 #include "KakurenboGameMode.h"
 #include "KakurenboGameState.h"
 #include "KakurenboArena.h"
+#include "KakurenboBalance.h"
 #include "KakurenboGridSubsystem.h"
 #include "KakurenboHUD.h"
 #include "KakurenboLibrary.h"
 #include "KakurenboOniBlackboard.h"
+#include "KakurenboOniStudio.h"
 #include "KakurenboPlayerController.h"
 #include "KakurenboSaveGame.h"
+#include "KakurenboSettings.h"
 #include "KakurenboSoundSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "OniCharacter.h"
+#include "FakeHiderCharacter.h"
+#include "GridPathfinder.h"
 #include "PlaceableBlock.h"
 #include "SmokeCloud.h"
 #include "TimerManager.h"
@@ -61,16 +72,43 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	bIgnoreRealInputForAutoTest = true;
 	ApplyAutoTestInputIsolation();
 
+	// タイトルを抜けて始める（セーブがあればつづきから、無ければはじめから）。タイトルそのものを確かめるシナリオだけはタイトルのまま
+	const bool bTitleScenario = Scenario.Equals(TEXT("Title"), ESearchCase::IgnoreCase);
+	if (!bTitleScenario)
+	{
+		CloseAllMenus();
+		GM->LeaveTitleForTest();
+	}
+
 	// 館の家具があると、テストで壁を置くマスや鬼の通り道が塞がることがあるので、家具の無い舞台で行う。
 	// マップそのものを確かめるシナリオ（と再起動をまたぐセーブ）だけは本物のマップを使う
 	const bool bUsesMaps = Scenario.Equals(TEXT("Maps"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Mood"), ESearchCase::IgnoreCase)
-		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase);
+		|| Scenario.Equals(TEXT("SaveRun1"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SaveRun2"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("WalkGrid"), ESearchCase::IgnoreCase)
+		|| Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase) || Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase) || bTitleScenario;
 	if (!bUsesMaps)
 	{
 		GM->bMapOverride = true;
 		GM->MapOverride = NAME_None;
 		GM->SwitchToMap(NAME_None);
 	}
+
+	// 鬼の勘（見えなくてもプレイヤーのそばへ向かう）は、うろうろの行き先をプレイヤーに寄せて他のテストの結果を変えるので切る。Intuition シナリオだけ使う
+	GM->bOniIntuition = Scenario.Equals(TEXT("Intuition"), ESearchCase::IgnoreCase);
+	for (AOniCharacter* Oni : GM->GetOnis())
+	{
+		if (Oni && !GM->bOniIntuition)
+		{
+			Oni->Intuition = 0.f;
+		}
+	}
+
+	// ステージごとの置ける壁の数は、たくさん壁を置くテストがあるので WallLimit シナリオだけ使う。
+	// 壁が弱すぎると鬼の攻撃範囲が広がるのは、壁を壊す数を確かめるテストの結果を変えるので Overkill シナリオだけ使う
+	GM->bWallLimit = Scenario.Equals(TEXT("WallLimit"), ESearchCase::IgnoreCase);
+	GM->bOniOverkillRange = Scenario.Equals(TEXT("Overkill"), ESearchCase::IgnoreCase);
 
 	// ---------------------------------------------------------------- 共通の道具
 
@@ -94,6 +132,21 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 	{
 		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda(MoveTemp(Fn)));
 	};
+	// 実時間で待ってから実行する（一時停止中はワールドのタイマーが止まるので、メニューのテストはこちらで進める）
+	auto RealDelay = [](float Seconds, TFunction<void()> Fn)
+	{
+		TSharedRef<float> Left = MakeShared<float>(Seconds);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Left, Fn = MoveTemp(Fn)](float Dt) mutable -> bool
+		{
+			*Left -= Dt;
+			if (*Left > 0.f)
+			{
+				return true;
+			}
+			Fn();
+			return false;
+		}));
+	};
 	auto Check = [](const FString& What, bool bOk)
 	{
 		if (bOk)
@@ -104,6 +157,26 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			UE_LOG(LogTemp, Error, TEXT("[AutoTest] CHECK FAILED: %s"), *What);
 		}
+	};
+	// 置きたいマスが家具・壁・場外なら、まわりの歩けるマス（近い順）にする（鬼を置く場所がたまたま家具の上にならないように）
+	auto NearestWalkable = [Grid](const FIntPoint& Want) -> FIntPoint
+	{
+		const UKakurenboGridSubsystem* G = Grid();
+		for (int32 R = 0; G && R <= 4; ++R)
+		{
+			for (int32 DX = -R; DX <= R; ++DX)
+			{
+				for (int32 DY = -R; DY <= R; ++DY)
+				{
+					const FIntPoint C = Want + FIntPoint(DX, DY);
+					if (FMath::Max(FMath::Abs(DX), FMath::Abs(DY)) == R && G->IsWalkable(C))
+					{
+						return C;
+					}
+				}
+			}
+		}
+		return Want;
 	};
 	auto Log = [this, GM, GS, Grid](const FString& Label)
 	{
@@ -227,7 +300,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		const FWallTypeDef& Def = GM->WallTypes[0];
 		Grid()->PlaceBlock(Cell, 0, Def.MaxHP, Def.Color);
 	};
-	// テスト用：出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ。どのステージでも同じにする）
+	// テスト用：出てくる鬼の種類を変える（鬼が出てくる前に呼ぶ。どのステージでも同じにする）。
+	// 鬼の種類を確かめるテストなので、ステージ 1 の易しさ（ルールを覚えるステージ：鬼が遅い・耳が遠い・時間が短い。2026-10-18）は外して、
+	// その前のステージ 1 の値（速さの足し算 0・耳 1200・30 秒）で動かす（種類を決めないテストは本当のステージ 1 のまま）
 	auto SetStageOniTypes = [GM](const TArray<EOniType>& Types)
 	{
 		if (GM->StageRows.Num() == 0)
@@ -237,6 +312,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		for (FKakurenboStageRow& Row : GM->StageRows)
 		{
 			Row.OniTypes = Types;
+			Row.OniSpeedBonus = FMath::Max(Row.OniSpeedBonus, 0.f);
+			Row.OniHearingRadius = FMath::Max(Row.OniHearingRadius, 1200.f);
+			Row.HideDuration = FMath::Max(Row.HideDuration, 30.f);
 		}
 	};
 	// 商品を番号キーと同じ経路（KakuBuy）で買う。商品の番号は並びが変わってもよいように GameMode に聞く
@@ -539,7 +617,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("breaker ignores the mash noise (intent=%s)"), *UEnum::GetValueAsString(Oni->GetIntent())), Oni->GetIntent() != EOniState::Investigate);
 			});
 		} });
-		for (int32 i = 0; i < 15; ++i)
+		// 2 個目の壁は 15 秒前後で壊れることが多いので、少し余裕を持って待つ（制限時間 30 秒の中で）
+		for (int32 i = 0; i < 20; ++i)
 		{
 			Steps.Add({ 1.f, [=] { Log(TEXT("waiting")); } });
 		}
@@ -643,29 +722,32 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			// ジャンプは最初はできない（転生のお店で解放する）
+			// ジャンプは無い。よじ登るのは最初はできない（転生のお店で解放する）
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
+			GS()->HideStartCountdown = 0.f; // 準備の「もういいかい」の間は連打できないので、数え終わったことにする
 			const int32 MashBefore = GS()->MashCountThisRound;
 			SimulateKey(EKeys::LeftMouseButton, IE_Pressed);
 			SimulateKey(EKeys::LeftMouseButton, IE_Released);
 			NextTick([=, this]
 			{
 				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
-				Check(FString::Printf(TEXT("Space does not jump before it is unlocked (vz=%.0f)"), VelZ), VelZ < 50.f && !GM->IsJumpUnlocked());
+				Check(FString::Printf(TEXT("Space does not jump or climb before climbing is unlocked (vz=%.0f, climbing %d)"), VelZ, GetHider()->IsClimbing()),
+					VelZ < 50.f && !GetHider()->IsClimbing() && !GM->IsClimbUnlocked());
 				Check(FString::Printf(TEXT("left click mashes (count %d -> %d)"), MashBefore, GS()->MashCountThisRound), GS()->MashCountThisRound == MashBefore + 1);
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1; // 転生のお店で買ったことにする
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1; // 転生のお店で買ったことにする
 			GM->ApplyPrestigeToPlayer();
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 			SimulateKey(EKeys::SpaceBar, IE_Released);
 			NextTick([=, this]
 			{
 				const float VelZ = GetHider()->GetCharacterMovement()->Velocity.Z;
-				Check(FString::Printf(TEXT("after unlocking, Space jumps in hide phase (vz=%.0f)"), VelZ), VelZ > 100.f);
+				Check(FString::Printf(TEXT("after unlocking, Space still does not jump in the open (vz=%.0f, climbing %d)"), VelZ, GetHider()->IsClimbing()),
+					VelZ < 50.f && !GetHider()->IsClimbing());
 			});
 		} });
 
@@ -832,8 +914,11 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 3.5f, [=, this]
 		{
 			Check(FString::Printf(TEXT("onis spawned as the stage table says (%d / %d)"), GM->GetOnis().Num(), GM->GetNumOnis()), GM->GetOnis().Num() == GM->GetNumOnis() && GM->GetNumOnis() >= 1);
-			Check(FString::Printf(TEXT("oni chase speed is about twice the player's (%.0f / %.0f)"), OniA()->ChaseSpeed, GetHider()->GetCharacterMovement()->MaxWalkSpeed),
-				OniA()->ChaseSpeed >= GetHider()->GetCharacterMovement()->MaxWalkSpeed * 1.9f);
+			// 追いかける速さ＝基本（プレイヤーの 2 倍）＋ステージの足し算（ステージ 1 は覚えるためのステージなので遅め。2026-10-18）
+			Check(FString::Printf(TEXT("oni chase speed follows the stage (%.0f = %.0f + %.0f) and is faster than the player (%.0f)"), OniA()->ChaseSpeed,
+				GM->OniChaseSpeedBase * GM->GetOniTypeRow(OniA()->OniType).SpeedScale, GM->GetStageSettings().OniSpeedBonus, GetHider()->GetCharacterMovement()->MaxWalkSpeed),
+				FMath::IsNearlyEqual(OniA()->ChaseSpeed, GM->OniChaseSpeedBase * GM->GetOniTypeRow(OniA()->OniType).SpeedScale + GM->GetStageSettings().OniSpeedBonus, 1.f)
+				&& OniA()->ChaseSpeed >= GetHider()->GetCharacterMovement()->MaxWalkSpeed * 1.5f);
 			AOniCharacter* A = OniA();
 			if (GM->GetOnis().Num() > 1)
 			{
@@ -966,8 +1051,38 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Check(FString::Printf(TEXT("treasure at free cell (%d,%d), %.1f cells from player"), Cell.X, Cell.Y, DistCells),
 					Grid()->GetColumnHeight(Cell) == 0 && DistCells >= GM->TreasureMinDistanceCells - 0.01f);
 			}
+			int32 Leaky = 0;
+			for (const ATreasureActor* T : Treasures)
+			{
+				Leaky += (!T->Glow->CastShadows || T->Mesh->CastShadow) ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("treasure light is blocked by walls (casts shadows, the gem itself does not; %d wrong)"), Leaky), Leaky == 0);
 			ShotLater(TEXT("treasure_01_spawned"));
 		} });
+		// 見た目：お宝のまわりを 1 段の壁で囲み（宝石は壁より低い）、壁の外の床に光がもれていないか撮る
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const FIntPoint Cell = Grid()->WorldToCell(GM->GetTreasures()[0]->GetActorLocation());
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					const FIntPoint C(Cell.X + DX, Cell.Y + DY);
+					if ((DX != 0 || DY != 0) && Grid()->CanPlaceBlock(C))
+					{
+						PlaceTestWall(C);
+					}
+				}
+			}
+			Log(FString::Printf(TEXT("walled treasure at (%d,%d): wall height %.0f, gem height %.0f"), Cell.X, Cell.Y, Grid()->GetBlockHeight(),
+				GM->GetTreasures()[0]->Spin->GetComponentLocation().Z - GM->GetTreasures()[0]->GetActorLocation().Z));
+			// 少し離れた所から、上から見下ろすように囲いを見る（壁の外の床が暗ければ光はもれていない）
+			const FIntPoint Stand = Cell + FIntPoint(Cell.X < Grid()->GetSizeX() / 2 ? 4 : -4, 0);
+			TeleportPlayer(Grid()->CellFloorCenter(Stand));
+			SetControlRotation(FRotator(-70.f, (Grid()->CellFloorCenter(Cell) - Grid()->CellFloorCenter(Stand)).Rotation().Yaw, 0.f));
+		} });
+		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("treasure_01b_walled")); } });
+		Steps.Add({ 0.2f, [=, this] { Grid()->ClearAllBlocks(); } });
 		// お宝に 1 個ずつ触れていく。「触れる → 確認 → 次へ」の順番を守るため、確認が終わってから次へ進む
 		TSharedRef<TFunction<void(int32)>> CollectNext = MakeShared<TFunction<void(int32)>>();
 		*CollectNext = [=, this](int32 Remaining)
@@ -1020,7 +1135,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 			Check(FString::Printf(TEXT("new treasures appear at new random places (%d spawned, %d same as last round)"), Cells.Num(), SameCount),
 				Cells.Num() == GM->GetNumTreasures() && SameCount < Cells.Num());
-			Check(FString::Printf(TEXT("treasure value grows with stage (%.1f)"), GM->GetTreasureValue()), GM->GetTreasureValue() > GM->GetStageSettingsFor(1).ClearReward * GM->TreasureRewardRatio);
+			Check(FString::Printf(TEXT("a treasure gives gems, not coins (%d gems)"), GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() >= 1);
 		} });
 	}
 	// ================================================================ Build
@@ -1057,6 +1172,35 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			GetHider()->SetOverheadYaw(30.f);
 		} });
 		Steps.Add({ 0.6f, [=] { Shot(TEXT("build_01_placed")); } });
+		// 下の欄（壁などのボタン）をクリックしても、その後ろの置けるマスに壁を置かない（ユーザーの指摘）
+		TSharedRef<int32> BlocksBeforeUI = MakeShared<int32>(0);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			int32 SlotIndex = INDEX_NONE;
+			for (const FKakurenboUIButton& Button : HUD ? HUD->GetButtons() : TArray<FKakurenboUIButton>())
+			{
+				if (Button.Action == EKakurenboUIAction::BuildSlot)
+				{
+					UpdateBuildTargetAt(Button.Rect.GetCenter());
+					if (bCanPlaceAtTarget)
+					{
+						SlotIndex = Button.Index;
+						break;
+					}
+				}
+			}
+			Check(TEXT("a build slot button lies over a placeable cell"), SlotIndex != INDEX_NONE);
+			*BlocksBeforeUI = Grid()->GetBlockCount();
+			SelectedBuildSlot = 0;
+			ClickUI(EKakurenboUIAction::BuildSlot, SlotIndex);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("clicking a build slot selects it and places nothing behind it (slot %d, blocks %d -> %d)"), SelectedBuildSlot, *BlocksBeforeUI, Grid()->GetBlockCount()),
+					SelectedBuildSlot == SlotIndex && Grid()->GetBlockCount() == *BlocksBeforeUI);
+				bUseTestCursor = false;
+			});
+		} });
 		Steps.Add({ 0.5f, [=, this] { KakuNext(); Log(TEXT("hide start")); } }); // → かくれんぼ
 		Steps.Add({ 3.5f, [=] { EnableOniDebug(); Log(TEXT("onis spawned")); } });
 
@@ -1261,9 +1405,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			KakuAddCoins(100000.0);
 			const TArray<FShopItemView> Items = GM->GetShopItems();
 			Check(FString::Printf(TEXT("shop lists upgrades, walls and traps within the number keys (%d items)"), Items.Num()),
-				Items.Num() == 2 + GM->WallTypes.Num() + GM->TrapTypes.Num() && Items.Num() <= 9);
-			Check(TEXT("no wall reinforcement: item 3 is the first wall, then walls, then traps"),
-				GM->GetShopIndexOfWall(0) == 2
+				Items.Num() == 3 + GM->WallTypes.Num() + GM->GetTrapTypesInShop(false).Num() && Items.Num() <= 9);
+			Check(TEXT("item 3 is the wall reinforcement, then walls, then traps"),
+				GM->GetShopIndexOfWall(0) == 3 && Items[2].DisplayName.EqualTo(GM->WallReinforceName)
 				&& Items[GM->GetShopIndexOfWall(0)].DisplayName.EqualTo(GM->WallTypes[0].DisplayName)
 				&& Items[GM->GetShopIndexOfTrap(0)].DisplayName.EqualTo(GM->TrapTypes[0].DisplayName));
 			const int32 BuyBefore = Sound()->GetPlayCount(EKakurenboSfx::Buy);
@@ -1275,8 +1419,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("wall price grows with the number owned (%.2f -> %.2f, expected %.2f)"), WoodPrice, GM->GetWallCost(0), Expected),
 				GM->WallTypes[0].CostGrowth > 1.0 && FMath::IsNearlyEqual(GM->GetWallCost(0), Expected, 0.001));
 			const int32 Quiet = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.NoiseDamping > 0.f; });
-			Check(FString::Printf(TEXT("soundproof wall prices grow like traps (x%.2f, sticky x%.2f)"), GM->WallTypes[Quiet].CostGrowth, GM->TrapTypes[0].CostGrowth),
-				Quiet != INDEX_NONE && GM->WallTypes[Quiet].CostGrowth >= GM->TrapTypes[0].CostGrowth && GM->WallTypes[0].CostGrowth < GM->TrapTypes[0].CostGrowth);
+			Check(FString::Printf(TEXT("soundproof wall prices grow much faster than normal walls, traps faster still (wall x%.2f, quiet x%.2f, sticky x%.2f)"),
+				GM->WallTypes[0].CostGrowth, Quiet != INDEX_NONE ? GM->WallTypes[Quiet].CostGrowth : 0.0, GM->TrapTypes[0].CostGrowth),
+				Quiet != INDEX_NONE && GM->WallTypes[Quiet].CostGrowth >= 1.4 && GM->WallTypes[0].CostGrowth < GM->WallTypes[Quiet].CostGrowth
+				&& GM->TrapTypes[0].CostGrowth >= GM->WallTypes[Quiet].CostGrowth);
 			Shot(TEXT("shop_01_items"));
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -1650,11 +1796,59 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("gatewalled_01_after"));
 		} });
 	}
+	// ================================================================ DecoyFast（ゲームを速くしてコマ数が少なくても、鬼はおとりに触れて壊す）
+	else if (Scenario.Equals(TEXT("DecoyFast"), ESearchCase::IgnoreCase))
+	{
+		// テストプレイ AI と同じく時間を速め（×2）、コマ数を絞る（20）。前は「着いた」とみなす距離が 1 マス以上に広がり、
+		// 鬼がおとりの 1 マス手前で止まって触れず、2.5 秒ごとの音で調べ直して動かなくなっていた（oni-stuck）。
+		// いちばん速くおとりを聞く慎重鬼で確かめる。調べる時間（InvestigateMaxDuration）は変えない
+		constexpr int32 Decoy = 1;
+		const FIntPoint DecoyCell(6, 6);
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Careful }); } });
+		Steps.Add({ 3.f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(TEXT("a careful oni came out"), Oni && Oni->OniType == EOniType::Careful);
+			if (!Oni)
+			{
+				return;
+			}
+			Oni->SightRadius = 0.f; // プレイヤーには反応させない（おとりの音は聞く）
+			Oni->CloseSenseRadius = 0.f;
+			Oni->HearingRadius = 0.f;
+			Oni->PocketInspectChance = 0.f;
+			Oni->NoiseInaccuracyCells = 0.f;
+			Oni->bDrawDebug = true;
+			UGameplayStatics::SetGlobalTimeDilation(this, 2.f);
+			ConsoleCommand(TEXT("t.MaxFPS 20"));
+			Grid()->PlaceTrap(DecoyCell, Decoy, GM->TrapTypes[Decoy]);
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 22)));
+			Oni->SetActorLocation(Grid()->CellFloorCenter(DecoyCell + FIntPoint(6, 3)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Log(TEXT("decoy placed, game x2 at 20 fps"));
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("careful oni goes to the decoy (intent %s)"), *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				TheOni()->GetIntent() == EOniState::Investigate || !Grid()->GetTrap(DecoyCell));
+		} });
+		// 調べる時間（8 秒）より長く待つ（前は時間切れにもならず、おとりの手前で Investigate のまま止まっていた）
+		Steps.Add({ 12.f, [=, this]
+		{
+			const float Dist = FVector::Dist2D(TheOni()->GetActorLocation(), Grid()->CellFloorCenter(DecoyCell));
+			Check(FString::Printf(TEXT("careful oni touched and broke the decoy at low fps (live=%d, triggered=%d, oni %.0f cm from it, intent %s)"),
+				Grid()->GetTrap(DecoyCell) ? 1 : 0, GS()->TrapsTriggeredThisRound, Dist, *UEnum::GetValueAsString(TheOni()->GetIntent())),
+				!Grid()->GetTrap(DecoyCell) && GS()->TrapsTriggeredThisRound == 1);
+			Shot(TEXT("decoyfast_01"));
+			UGameplayStatics::SetGlobalTimeDilation(this, 1.f);
+			ConsoleCommand(TEXT("t.MaxFPS 0"));
+		} });
+	}
 	// ================================================================ Matchup（鬼の種類と罠の相性）
 	else if (Scenario.Equals(TEXT("Matchup"), ESearchCase::IgnoreCase))
 	{
-		// スピード鬼：おとりにだまされない・トリモチで長く止まる
-		// パワー鬼：おとりに遠くから寄っていく・トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す
+		// スピード鬼：おとりに遠くから寄っていく・トリモチで長く止まる（2026-10-18 におとりの相性を入れ替え）
+		// パワー鬼：おとりは近くでしか聞こえない（0.6 倍）・トリモチはすぐ抜け出し、直後に踏んだトリモチは壊す
 		constexpr int32 Sticky = 0;
 		constexpr int32 Decoy = 1;
 		const FIntPoint DecoyCell(6, 6), StickyA(14, 4), StickyB(14, 8), StickyC(14, 16);
@@ -1677,21 +1871,27 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->InvestigateMaxDuration = 100.f;
 				Oni->NoiseInaccuracyCells = 0.f;
 			}
-			Check(FString::Printf(TEXT("speed oni is not fooled by decoys, power oni hears them from far (decoy hearing %.0f / %.0f)"), Scout()->DecoyHearingRadius, Breaker()->DecoyHearingRadius),
-				Scout()->DecoyHearingRadius == 0.f && Breaker()->DecoyHearingRadius > GM->GetOniHearingRadius());
+			Check(FString::Printf(TEXT("speed oni hears decoys from far, power oni only from near (decoy hearing %.0f / %.0f)"), Scout()->DecoyHearingRadius, Breaker()->DecoyHearingRadius),
+				Scout()->DecoyHearingRadius > GM->GetOniHearingRadius() && Breaker()->DecoyHearingRadius > 0.f && Breaker()->DecoyHearingRadius < GM->GetOniHearingRadius());
 			Grid()->PlaceTrap(DecoyCell, Decoy, GM->TrapTypes[Decoy]);
 			Grid()->PlaceTrap(StickyA, Sticky, GM->TrapTypes[Sticky]);
 			Grid()->PlaceTrap(StickyB, Sticky, GM->TrapTypes[Sticky]);
 			Grid()->PlaceTrap(StickyC, Sticky, GM->TrapTypes[Sticky]);
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 22)));
 			Put(Scout(), DecoyCell + FIntPoint(7, 0));
-			Put(Breaker(), DecoyCell + FIntPoint(0, 7));
+			Put(Breaker(), DecoyCell + FIntPoint(0, 9)); // スピード鬼より遠く：パワー鬼には届かない（1000 × 0.6 × 1.2 = 7.2m）
+			// 出てきてからの 3 秒でプレイヤーを見つけて追いかけていたら、うろうろに戻す（追いかけ中はおとりを聞かない）
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->GetCharacterMovement()->StopMovementImmediately();
+				Oni->Activate(GetHider());
+			}
 		} });
 		Steps.Add({ 1.2f, [=, this]
 		{
-			Check(FString::Printf(TEXT("decoy: the power oni goes to it, the speed oni ignores it (power %s, speed %s)"),
-				*UEnum::GetValueAsString(Breaker()->GetIntent()), *UEnum::GetValueAsString(Scout()->GetIntent())),
-				Breaker()->GetIntent() == EOniState::Investigate && Scout()->GetIntent() != EOniState::Investigate);
+			Check(FString::Printf(TEXT("decoy: the speed oni goes to it from 7 cells, the power oni does not hear it from 9 (speed %s, power %s)"),
+				*UEnum::GetValueAsString(Scout()->GetIntent()), *UEnum::GetValueAsString(Breaker()->GetIntent())),
+				Scout()->GetIntent() == EOniState::Investigate && Breaker()->GetIntent() != EOniState::Investigate);
 			// トリモチ：スピード鬼を乗せる
 			Put(Scout(), StickyA);
 		} });
@@ -1848,6 +2048,51 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GM->GetOnis()[0]->GetPlayingAnimation() ? *GM->GetOnis()[0]->GetPlayingAnimation()->GetName() : TEXT("none")),
 				!Oni->UsesSkeletalMesh() || Oni->GetPlayingAnimation() != GM->GetOnis()[0]->GetPlayingAnimation());
 			Shot(TEXT("look_02_running"));
+			// 追いかけてくる鬼は、どの種類でも目が赤く光る：全員をその場で追いかけさせる（動けないようにして、捕まらないように）
+			for (int32 i = 0; i < GM->GetOnis().Num(); ++i)
+			{
+				AOniCharacter* Each = GM->GetOnis()[i];
+				Each->SetActorLocation(Grid()->CellFloorCenter(Grid()->WorldToCell(GetPawn()->GetActorLocation()) + FIntPoint(4, i * 2 - 5)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Each->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+				Each->Activate(GetHider());
+				Each->SightRadius = 3000.f;
+				Each->SightHalfAngle = 180.f;
+				Each->HearingRadius = 0.f;
+				Each->WanderSpeed = Each->InvestigateSpeed = Each->ChaseSpeed = 1.f;
+			}
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			int32 Chasing = 0, Glowing = 0, Eyes = 0;
+			for (const AOniCharacter* Oni : GM->GetOnis())
+			{
+				Chasing += Oni->GetIntent() == EOniState::Chase ? 1 : 0;
+				Glowing += Oni->GetEyeGlowAmount() > 0.6f ? 1 : 0;
+				Eyes += Oni->HasGlowingEyes() ? 1 : 0;
+			}
+			// 探知鬼は追いかけない（見つけたら仲間を呼ぶ）が、見つけている間は同じように目が光る
+			Check(FString::Printf(TEXT("every oni that found the player glows red eyes (chasing %d, glowing %d, with eyes %d of %d)"), Chasing, Glowing, Eyes, GM->GetOnis().Num()),
+				Chasing == GM->GetOnis().Num() - 1 && Glowing == GM->GetOnis().Num() && Eyes == GM->GetOnis().Num());
+			GetHider()->ThirdPersonDistance = 300.f;
+			SetControlRotation(FRotator(-8.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 0.8f, [=, this] { Shot(TEXT("look_03_red_eyes")); } });
+		Steps.Add({ 0.1f, [=, this]
+		{
+			// 見失って（追いかけるのをやめて）しばらくすると、元の目に戻る
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->Deactivate();
+			}
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			int32 Glowing = 0;
+			for (const AOniCharacter* Oni : GM->GetOnis())
+			{
+				Glowing += Oni->GetEyeGlowAmount() > 0.2f ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("eyes go back to normal when they stop chasing (%d still glowing)"), Glowing), Glowing == 0);
 		} });
 	}
 	// ================================================================ Crowd（鬼どうしのすれ違い）
@@ -1898,6 +2143,108 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("the onis passed each other in the corridor (west oni at (%d,%d), east oni at (%d,%d))"), A.X, A.Y, B.X, B.Y),
 				FMath::Abs(A.X - EastEnd.X) <= 1 && FMath::Abs(B.X - WestEnd.X) <= 1);
 			Check(FString::Printf(TEXT("no walls were broken to get past (%d)"), GS()->LastRoundWallsDestroyed), GS()->LastRoundWallsDestroyed == 0);
+		} });
+	}
+	// ================================================================ ScoutCorner（スピード鬼は曲がり角が苦手）
+	else if (Scenario.Equals(TEXT("ScoutCorner"), ESearchCase::IgnoreCase))
+	{
+		// 2 体のスピード鬼：1 体はまっすぐの通路、もう 1 体は L 字の通路（東へ 5 マス → 北へ 5 マス）を同じ長さだけ走る。
+		// まっすぐの鬼は減速しない・角を曲がった鬼は減速して遅れる
+		const FIntPoint StraightStart(4, 6), StraightEnd(14, 6);
+		const FIntPoint CornerStart(4, 12), CornerTurn(9, 12), CornerEnd(9, 17);
+		TSharedRef<FTimerHandle> SampleHandle = MakeShared<FTimerHandle>();
+		TSharedRef<TArray<int32>> StartCount = MakeShared<TArray<int32>>(TArray<int32>{ 0, 0 });
+		TSharedRef<TArray<float>> MinFactor = MakeShared<TArray<float>>(TArray<float>{ 1.f, 1.f });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Scout, EOniType::Scout });
+			// まっすぐの通路（y=6）
+			for (int32 X = 3; X <= 15; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 5));
+				PlaceTestWall(FIntPoint(X, 7));
+			}
+			// L 字の通路（y=12 を東へ → x=9 を北へ）。角は斜めに抜けられない（壁の角をすり抜けない）
+			for (int32 X = 3; X <= 10; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 11));
+			}
+			for (int32 X = 3; X <= 8; ++X)
+			{
+				PlaceTestWall(FIntPoint(X, 13));
+			}
+			for (int32 Y = 12; Y <= 18; ++Y)
+			{
+				PlaceTestWall(FIntPoint(10, Y));
+			}
+			for (int32 Y = 14; Y <= 18; ++Y)
+			{
+				PlaceTestWall(FIntPoint(8, Y));
+			}
+			PlaceTestWall(FIntPoint(9, 18));
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(18, 20)));
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(TEXT("two speed onis"), GM->GetOnis().Num() == 2 && GM->GetOnis()[0]->OniType == EOniType::Scout && GM->GetOnis()[1]->OniType == EOniType::Scout);
+			Check(FString::Printf(TEXT("the speed oni is bad at corners (turn %.0f deg -> x%.2f for %.1f s), the standard oni is not (%.0f)"),
+				GM->GetOnis()[0]->CornerTurnAngle, GM->GetOnis()[0]->CornerSlowScale, GM->GetOnis()[0]->CornerSlowDuration, GM->GetOniTypeRow(EOniType::Balanced).CornerTurnAngle),
+				GM->GetOnis()[0]->CornerTurnAngle > 0.f && GM->GetOnis()[0]->CornerSlowScale < 1.f && GM->GetOniTypeRow(EOniType::Balanced).CornerTurnAngle <= 0.f);
+			const FIntPoint Starts[2] = { StraightStart, CornerStart };
+			for (int32 i = 0; i < 2; ++i)
+			{
+				AOniCharacter* Oni = GM->GetOnis()[i];
+				Oni->SightRadius = 0.f; // プレイヤーには反応させない
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+				Oni->InvestigateMaxDuration = 100.f;
+				Oni->SearchDuration = 10.f; // 着いたらその場で見回し続ける
+				Oni->bDrawDebug = true;
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Starts[i]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				// いったん止めて、スタートのマスで見回させる（テレポート前の向きで減速しないように）
+				Oni->GetCharacterMovement()->StopMovementImmediately();
+				Oni->DebugGoTo(Starts[i]);
+			}
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			for (int32 i = 0; i < 2; ++i)
+			{
+				(*StartCount)[i] = GM->GetOnis()[i]->GetCornerSlowCount();
+			}
+			GM->GetOnis()[0]->DebugGoTo(StraightEnd);
+			GM->GetOnis()[1]->DebugGoTo(CornerEnd);
+			SetControlRotation(FRotator(-60.f, (Grid()->CellFloorCenter(FIntPoint(9, 10)) - GetPawn()->GetActorLocation()).Rotation().Yaw, 0.f));
+			// 減速の深さを毎フレーム記録する
+			GetWorldTimerManager().SetTimer(*SampleHandle, FTimerDelegate::CreateWeakLambda(this, [this, GM, MinFactor]
+			{
+				for (int32 i = 0; i < 2 && i < GM->GetOnis().Num(); ++i)
+				{
+					(*MinFactor)[i] = FMath::Min((*MinFactor)[i], GM->GetOnis()[i]->GetCornerSpeedFactor());
+				}
+			}), 0.02f, true);
+		} });
+		// 走っている間はスクリーンショットを撮らない（撮るときのコマ落ちで角を行き過ぎて壁にぶつかる）
+		Steps.Add({ 3.9f, [=, this]
+		{
+			GetWorldTimerManager().ClearTimer(*SampleHandle);
+			const AOniCharacter* Straight = GM->GetOnis()[0];
+			const AOniCharacter* Corner = GM->GetOnis()[1];
+			const FIntPoint A = Grid()->WorldToCell(Straight->GetActorLocation());
+			const FIntPoint B = Grid()->WorldToCell(Corner->GetActorLocation());
+			Log(TEXT("after"));
+			Check(FString::Printf(TEXT("both onis reached the end (straight (%d,%d), corner (%d,%d))"), A.X, A.Y, B.X, B.Y),
+				FMath::Abs(A.X - StraightEnd.X) <= 1 && A.Y == StraightEnd.Y && B.X == CornerEnd.X && FMath::Abs(B.Y - CornerEnd.Y) <= 1);
+			const int32 StraightSlows = Straight->GetCornerSlowCount() - (*StartCount)[0];
+			const int32 CornerSlows = Corner->GetCornerSlowCount() - (*StartCount)[1];
+			Check(FString::Printf(TEXT("the straight run never slowed down (%d times, min x%.2f)"), StraightSlows, (*MinFactor)[0]),
+				StraightSlows == 0 && (*MinFactor)[0] > 0.99f);
+			Check(FString::Printf(TEXT("the corner slowed the oni down once (%d times, min x%.2f)"), CornerSlows, (*MinFactor)[1]),
+				CornerSlows == 1 && (*MinFactor)[1] < 0.45f);
+			Check(FString::Printf(TEXT("the speed is back after the corner (max walk %.0f, investigate %.0f)"), Corner->GetCharacterMovement()->MaxWalkSpeed, Corner->InvestigateSpeed),
+				FMath::IsNearlyEqual(Corner->GetCharacterMovement()->MaxWalkSpeed, Corner->InvestigateSpeed, 1.f) || Corner->GetCharacterMovement()->MaxWalkSpeed <= 0.f);
+			Shot(TEXT("scoutcorner_01_after"));
 		} });
 	}
 	// ================================================================ Quiet（消音壁）
@@ -2101,6 +2448,17 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			const float Speed = GetHider()->GetVelocity().Size2D();
 			Check(FString::Printf(TEXT("running faster while dashing (%.0f cm/s)"), Speed), Speed > 520.f);
+			// 前へ走ると煙はカメラとプレイヤーの間に残る。それでも見える（以前は隠していたので、煙が出ていないように見えた）
+			int32 Visible = 0;
+			bool bTranslucent = false;
+			for (TActorIterator<ASmokeCloud> It(GetWorld()); It; ++It)
+			{
+				Visible += It->GetVisiblePuffCount();
+				bTranslucent |= It->IsTranslucent();
+			}
+			const bool bHasSmokeMaterial = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Materials/M_KakuSmoke"));
+			Check(FString::Printf(TEXT("the smoke stays visible behind the running player (%d puffs visible, translucent %d)"), Visible, bTranslucent ? 1 : 0),
+				Visible >= 6 && (!bHasSmokeMaterial || bTranslucent));
 			Shot(TEXT("dash_01_dashing"));
 		} });
 		Steps.Add({ 1.2f, [=, this]
@@ -2194,12 +2552,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("cannot prestige before stage %d"), GM->PrestigeSettings.MinStage), !GM->CanPrestige() && !IsPrestigeConfirmPending());
-				GS()->Stage = GM->PrestigeSettings.MinStage + 1; // 転生ポイント 2
+				GS()->Stage = GM->PrestigeSettings.MinStage + 1;
 			});
 		} });
 		Steps.Add({ 0.3f, [=, this]
 		{
-			Check(FString::Printf(TEXT("can prestige for %d points"), GM->GetPrestigePointsOnReset()), GM->CanPrestige() && GM->GetPrestigePointsOnReset() == 2);
+			Check(FString::Printf(TEXT("can prestige for %d points"), GM->GetPrestigePointsOnReset()),
+				GM->CanPrestige() && GM->GetPrestigePointsOnReset() == KakurenboBalance::GetPrestigePoints(GM->PrestigeSettings.MinStage + 1, GM->PrestigeSettings));
 			SimulateKey(EKeys::P, IE_Pressed);
 			SimulateKey(EKeys::P, IE_Released);
 			NextTick([=, this]
@@ -2210,18 +2569,29 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		} });
 		Steps.Add({ 0.6f, [=, this]
 		{
+			// 宝石と宝石の道具を持っておく（転生でどちらもなくなる）
+			GS()->Gems = 7;
+			const int32 GoldType = GM->FindTrapTypeOfKind(ETrapKind::GoldRush);
+			GS()->TrapStock[GoldType] = 2;
 			SimulateKey(EKeys::P, IE_Pressed);
 			SimulateKey(EKeys::P, IE_Released);
 			NextTick([=, this]
 			{
 				const AKakurenboGameState* S = GS();
+				Check(FString::Printf(TEXT("neither gems nor gem items are carried over (gems %d, gold rush %d)"), S->Gems, S->TrapStock[GoldType]), S->Gems == 0 && S->TrapStock[GoldType] == 0);
+				const int32 Expected = KakurenboBalance::GetPrestigePoints(GM->PrestigeSettings.MinStage + 1, GM->PrestigeSettings);
 				Check(FString::Printf(TEXT("the second P prestiges and gives points to spend (count %d, points %d, total %d)"), S->PrestigeCount, S->PrestigePoints, S->TotalPrestigePoints),
-					S->PrestigeCount == 1 && S->PrestigePoints == 2 && S->TotalPrestigePoints == 2);
-				Check(FString::Printf(TEXT("prestige alone does not make walls harder (x%.2f)"), GM->GetWallHPMultiplier()), FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), 1.0));
-				Check(FString::Printf(TEXT("everything else starts over (stage %d, coins %.1f, mash Lv%d, wood stock %d)"), S->Stage, S->Coins, S->MashIncomeLevel, S->WallStock[0]),
-					S->Stage == 1 && S->Coins < 0.01 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0);
-				Check(FString::Printf(TEXT("after prestige, the prestige shop opens first (phase %s, prestige tab %d)"), *UEnum::GetValueAsString(S->Phase), bPrestigeShopTab ? 1 : 0),
-					S->Phase == EKakurenboPhase::Shop && bPrestigeShopTab);
+					S->PrestigeCount == 1 && S->PrestigePoints == Expected && S->TotalPrestigePoints == Expected);
+				// 2026-10-19：転生するだけで壁が少し硬くなる（転生した回数で自動）
+				Check(FString::Printf(TEXT("prestige alone makes walls a bit harder (x%.2f)"), GM->GetWallHPMultiplier()),
+					GM->GetWallHPMultiplier() > 1.0 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->PrestigeSettings.WallHPPerPrestige));
+				Check(FString::Printf(TEXT("everything else starts over (stage %d, mash Lv%d, wood stock %d)"), S->Stage, S->MashIncomeLevel, S->WallStock[0]),
+					S->Stage == 1 && S->MashIncomeLevel == 0 && S->WallStock[0] == 0);
+				// はじめのコインは転生した回数ぶん増える（強化ではなく自動）
+				Check(FString::Printf(TEXT("after the 1st prestige you start with %.0f coins (expected %.0f = 1 x %.0f)"), S->Coins, GM->GetPrestigeStartCoins(1), GM->PrestigeSettings.StartCoinsPerPrestige),
+					S->Coins > 0.0 && FMath::IsNearlyEqual(S->Coins, GM->GetPrestigeStartCoins(1)) && FMath::IsNearlyEqual(GM->GetPrestigeStartCoins(3), GM->GetPrestigeStartCoins(1) * 3.0));
+				Check(FString::Printf(TEXT("after prestige, the prestige shop opens first (phase %s, prestige tab %d)"), *UEnum::GetValueAsString(S->Phase), IsPrestigeShopTab() ? 1 : 0),
+					S->Phase == EKakurenboPhase::Shop && IsPrestigeShopTab());
 				Check(FString::Printf(TEXT("placed walls are gone but the layout is kept (blocks %d, missing %d)"), Grid()->GetBlockCount(), Grid()->GetTotalMissing()),
 					Grid()->GetBlockCount() == 0 && Grid()->GetTotalMissing() == 3);
 				Check(TEXT("prestige sound"), Sound()->GetPlayCount(EKakurenboSfx::Prestige) == 1);
@@ -2236,49 +2606,54 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(TEXT("the coin tab is clickable"), Click(EKakurenboUIAction::ShopTab, 0));
 			NextTick([=, this]
 			{
-				Check(TEXT("clicking the coin tab opens the coin shop"), !bPrestigeShopTab);
+				Check(TEXT("clicking the coin tab opens the coin shop"), !IsPrestigeShopTab());
 				Click(EKakurenboUIAction::ShopTab, 1);
-				NextTick([=, this] { Check(TEXT("clicking the prestige tab opens the prestige shop"), bPrestigeShopTab); });
+				NextTick([=, this] { Check(TEXT("clicking the prestige tab opens the prestige shop"), IsPrestigeShopTab()); });
 			});
 		} });
 		Steps.Add({ 0.4f, [=, this]
 		{
 			const TArray<FShopItemView> Items = GM->GetPrestigeShopItems();
 			Check(FString::Printf(TEXT("the prestige shop lists every permanent upgrade (%d)"), Items.Num()), Items.Num() == static_cast<int32>(EPrestigeUpgrade::Count) && Items[0].bPrestigeItem);
-			Check(TEXT("dash and jump are locked at first"), !GM->IsDashUnlocked() && !GM->IsJumpUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked);
+			Check(TEXT("dash and climbing are locked at first"), !GM->IsDashUnlocked() && !GM->IsClimbUnlocked() && GetHider()->JumpMaxCount == 0 && !GetHider()->bDashUnlocked && !GetHider()->bClimbUnlocked);
+			GS()->PrestigePoints = 2; // 下の「足りないと買えない」を確かめるため、2 pt にそろえる（もらえる数は転生ポイントの式で変わる）
 			Check(TEXT("click the wall hardness upgrade"), Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::WallHP)));
 			NextTick([=, this]
 			{
 				Check(FString::Printf(TEXT("clicking buys it with points (Lv%d, %d pt left, walls x%.2f)"), GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP), GS()->PrestigePoints, GM->GetWallHPMultiplier()),
-					GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 1 && GS()->PrestigePoints == 1 && FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1)));
+					GM->GetPrestigeLevel(EPrestigeUpgrade::WallHP) == 1 && GS()->PrestigePoints == 1
+					&& FMath::IsNearlyEqual(GM->GetWallHPMultiplier(), GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1) * GM->GetPrestigeAutoWallHPMultiplier()));
 				Shot(TEXT("prestige_03_prestige_shop"));
 			});
 		} });
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 足りないと買えない（ジャンプは 2 pt）
-			Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::Jump));
+			Click(EKakurenboUIAction::ShopItem, static_cast<int32>(EPrestigeUpgrade::Climb));
 			NextTick([=, this]
 			{
-				Check(FString::Printf(TEXT("not enough points -> not bought (jump Lv%d, %d pt)"), GM->GetPrestigeLevel(EPrestigeUpgrade::Jump), GS()->PrestigePoints),
-					GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 0 && GS()->PrestigePoints == 1);
+				Check(FString::Printf(TEXT("not enough points -> not bought (climb Lv%d, %d pt)"), GM->GetPrestigeLevel(EPrestigeUpgrade::Climb), GS()->PrestigePoints),
+					GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == 0 && GS()->PrestigePoints == 1);
 				// ほかの強化も確かめる（ポイントを足して、番号で買う）
 				GS()->PrestigePoints += 20;
-				const double TreasureBefore = GM->GetTreasureValue();
+				const int32 TreasureBefore = GM->GetGemsPerTreasure();
+				const int32 BonusBefore = GM->GetAllTreasureBonusGems();
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Treasure) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeDuration) + 1);
 				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::SmokeCount) + 1);
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1);
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1);
 				const int32 PointsAfter = GS()->PrestigePoints;
-				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Jump) + 1); // 最大レベルなのでもう買えない
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = GM->PrestigeUpgrades[static_cast<int32>(EPrestigeUpgrade::Climb)].MaxLevel; // 最大レベルにして
+				KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Climb) + 1); // 最大レベルなのでもう買えない
 				AHiderCharacter* Hider = GetHider();
-				Check(FString::Printf(TEXT("treasure upgrade raises the treasure value (%.1f -> %.1f)"), TreasureBefore, GM->GetTreasureValue()),
-					FMath::IsNearlyEqual(GM->GetTreasureValue(), TreasureBefore * GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 1) / GM->GetPrestigeValue(EPrestigeUpgrade::Treasure, 0), 0.01));
+				Check(FString::Printf(TEXT("treasure upgrade gives one more gem per treasure (%d -> %d)"), TreasureBefore, GM->GetGemsPerTreasure()), GM->GetGemsPerTreasure() == TreasureBefore + 1);
+				Check(FString::Printf(TEXT("treasure upgrade also raises the complete bonus (%d -> %d)"), BonusBefore, GM->GetAllTreasureBonusGems()),
+					GM->GetAllTreasureBonusGems() > BonusBefore && GM->GetAllTreasureBonusGems() == GM->AllTreasureBonusGems * GM->GetGemsPerTreasure() / FMath::Max(1, GM->GetGemsPerTreasure(0)));
 				Check(FString::Printf(TEXT("smoke dash unlocked with its smoke time and uses (%.1fs, %d per round)"), GM->GetSmokeDuration(), Hider->DashUsesPerRound),
 					Hider->bDashUnlocked && FMath::IsNearlyEqual(GM->GetSmokeDuration(), GM->MinSmokeDuration)
 					&& Hider->DashUsesPerRound == GM->GetSmokeUsesPerRound(1) && GM->GetSmokeUsesPerRound(1) == GM->GetSmokeUsesPerRound(0) + 1);
-				Check(TEXT("jump unlocked"), Hider->JumpMaxCount == 1 && GM->IsJumpUnlocked());
-				Check(TEXT("jump is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Jump) == 1 && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Jump)].bMaxed);
+				Check(TEXT("climbing unlocked (and still no jumping)"), Hider->bClimbUnlocked && Hider->JumpMaxCount == 0 && GM->IsClimbUnlocked());
+				Check(TEXT("climbing is maxed: cannot buy it again"), GS()->PrestigePoints == PointsAfter && GM->GetPrestigeLevel(EPrestigeUpgrade::Climb) == GM->PrestigeUpgrades[static_cast<int32>(EPrestigeUpgrade::Climb)].MaxLevel && GM->GetPrestigeShopItems()[static_cast<int32>(EPrestigeUpgrade::Climb)].bMaxed);
 			});
 		} });
 		Steps.Add({ 0.5f, [=, this]
@@ -2288,7 +2663,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			{
 				// コインのお店：クリックで木の壁を買う
 				KakuAddCoins(100.0);
-				Check(TEXT("back on the coin tab"), !bPrestigeShopTab && Click(EKakurenboUIAction::ShopItem, GM->GetShopIndexOfWall(0)));
+				Check(TEXT("back on the coin tab"), !IsPrestigeShopTab() && Click(EKakurenboUIAction::ShopItem, GM->GetShopIndexOfWall(0)));
 				NextTick([=, this]
 				{
 					const TArray<FShopItemView> Items = GM->GetShopItems();
@@ -2372,8 +2747,10 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const AKakurenboGameState* S = GS();
 			Log(TEXT("2nd launch"));
 			Check(FString::Printf(TEXT("2nd launch resumes in the build phase (phase=%s)"), *UEnum::GetValueAsString(S->Phase)), S->Phase == EKakurenboPhase::Build);
-			Check(FString::Printf(TEXT("stage and coins carried over (stage %d, coins %.2f, expected 2 / ~580)"), S->Stage, S->Coins),
-				S->Stage == 2 && FMath::Abs(S->Coins - 580.0) < 1.0);
+			// 1 回目：ステージ 1 の逃げ切り報酬 ＋ 500 − 通常壁 2 個（1 個目と 2 個目の値段）
+			const double ExpectedCoins = GM->GetStageSettingsFor(1).ClearReward + 500.0 - GM->WallTypes[0].Cost * (1.0 + GM->WallTypes[0].CostGrowth);
+			Check(FString::Printf(TEXT("stage and coins carried over (stage %d, coins %.2f, expected 2 / %.2f)"), S->Stage, S->Coins, ExpectedCoins),
+				S->Stage == 2 && FMath::Abs(S->Coins - ExpectedCoins) < 1.0);
 			Check(FString::Printf(TEXT("placed walls carried over (blocks %d, wood stock %d)"), Grid()->GetBlockCount(), S->WallStock.IsValidIndex(0) ? S->WallStock[0] : -1),
 				Grid()->GetBlockCount() == 2 && S->WallStock.IsValidIndex(0) && S->WallStock[0] == 0);
 			Check(TEXT("resume notice is shown"), !S->NoticeText.IsEmpty() && GetWorld()->GetTimeSeconds() < S->NoticeUntilTime);
@@ -2491,8 +2868,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("trap stock restored (%s)"), *FString::JoinBy(S->TrapStock, TEXT(","), [](int32 N) { return FString::FromInt(N); })), S->TrapStock == Expected->TrapStock);
 			Check(FString::Printf(TEXT("wall and trap layout restored (%d columns, %d blocks, %d traps)"), Layout.Num(), Grid()->GetBlockCount(), Grid()->GetAllTraps().Num()),
 				bSameLayout && Grid()->GetBlockCount() == 3 && Grid()->GetAllTraps().Num() == 1);
-			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2)),
-				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2), 0.001));
+			Check(FString::Printf(TEXT("restored walls keep the prestige HP (min %.2f, expected %.2f)"), MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2) * GM->GetPrestigeAutoWallHPMultiplier()),
+				FMath::IsNearlyEqual(MinHP, GM->WallTypes[0].MaxHP * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 2) * GM->GetPrestigeAutoWallHPMultiplier(), 0.001));
 			Check(FString::Printf(TEXT("player position restored (%.0f cm off)"), FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation)),
 				FVector::Dist(GetPawn()->GetActorLocation(), Expected->PlayerLocation) < 5.f);
 			Log(TEXT("loaded"));
@@ -2658,20 +3035,34 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Shot(TEXT("steps_crouch"));
 			bTestSneak = false;
 		} });
-		// 4) ジャンプ（転生のお店で解放）で音が出る
+		// 4) よじ登る（転生のお店で解放）と音が出る：目の前に壁を置いて、そちらを向いてよじ登る
 		Steps.Add({ 0.3f, [=, this]
 		{
 			Check(FString::Printf(TEXT("sneaking stops when Ctrl is released and the player stands up (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->IsSneaking() && !GetHider()->bIsCrouched);
-			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Jump)] = 1;
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
 			GM->ApplyPrestigeToPlayer();
-			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerJump);
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			for (const FIntPoint Dir : { FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1), FIntPoint(1, 0) })
+			{
+				if (Grid()->IsWalkable(Me + Dir) && !Grid()->IsReservedCell(Me + Dir))
+				{
+					PlaceTestWall(Me + Dir);
+					GetPawn()->SetActorRotation(FRotator(0.f, FVector(Dir.X, Dir.Y, 0.f).Rotation().Yaw, 0.f));
+					break;
+				}
+			}
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Before->JumpSounds = Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb);
 			SimulateKey(EKeys::SpaceBar, IE_Pressed);
 		} });
 		Steps.Add({ 0.4f, [=, this]
 		{
 			SimulateKey(EKeys::SpaceBar, IE_Released);
-			Check(FString::Printf(TEXT("jumping makes a sound (%d)"), Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds),
-				Sound()->GetPlayCount(EKakurenboSfx::PlayerJump) - Before->JumpSounds >= 1);
+			Check(FString::Printf(TEXT("climbing makes a sound (%d, climbs %d)"), Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb) - Before->JumpSounds, GetHider()->GetClimbCount()),
+				Sound()->GetPlayCount(EKakurenboSfx::PlayerClimb) - Before->JumpSounds >= 1 && GetHider()->GetClimbCount() >= 1);
 		} });
 	}
 	// ================================================================ TreasureOni（宝物鬼）
@@ -2683,8 +3074,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 3.3f, [=, this]
 		{
 			AOniCharacter* Oni = GM->GetOnis()[0];
-			Check(FString::Printf(TEXT("treasure oni: deaf to mashing, sensitive to footsteps (hearing %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
-				Oni->OniType == EOniType::Treasure && Oni->HearingRadius < GM->GetOniHearingRadius() * 0.5f && Oni->StepHearingRadius > GM->GetOniHearingRadius() * 1.5f);
+			Check(FString::Printf(TEXT("treasure oni: ignores mashing and decoys, very sensitive to footsteps (hearing %.0f / decoy %.0f / steps %.0f / base %.0f)"), Oni->HearingRadius, Oni->DecoyHearingRadius, Oni->StepHearingRadius, GM->GetOniHearingRadius()),
+				Oni->OniType == EOniType::Treasure && Oni->HearingRadius <= 0.f && Oni->DecoyHearingRadius <= 0.f && Oni->StepHearingRadius >= GM->GetOniHearingRadius() * 1.f);
 			Check(FString::Printf(TEXT("treasure oni is weak at breaking walls (damage %.2f) and does not inspect hollows"), Oni->AttackDamage),
 				Oni->AttackDamage < GM->GetOniAttackDamage() && Oni->PocketInspectChance <= 0.f);
 			Oni->SightRadius = 0.f;
@@ -2811,7 +3202,13 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->DecoyHearingRadius = 0.f;
 				Oni->PocketInspectChance = 0.f;
 			}
-			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			// ステージ 1 の鬼は遅い（覚えるステージ。2026-10-18）ので、見張りの場所へ間に合うよう探知鬼は種類の基本の速さにする
+			const float GuardSpeed = GM->OniWanderSpeedBase * GM->GetOniTypeRow(EOniType::Detector).SpeedScale;
+			Detector()->WanderSpeed = Detector()->InvestigateSpeed = GuardSpeed;
+			Detector()->GetCharacterMovement()->MaxWalkSpeed = GuardSpeed;
+			// 見張りの場所は毎回ランダム。(1,1) のそばに決まるとプレイヤーが邪魔で着けないので、そのときは反対の角へ
+			const FIntPoint GuardCell = Detector()->GetGuardCell();
+			TeleportPlayer(Grid()->CellFloorCenter((GuardCell.X <= 4 && GuardCell.Y <= 4) ? FIntPoint(Grid()->GetSizeX() - 2, Grid()->GetSizeY() - 2) : FIntPoint(1, 1)));
 		} });
 		Steps.Add({ 9.f, [=, this]
 		{
@@ -2827,7 +3224,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const FIntPoint Post = Grid()->WorldToCell(Watcher->GetActorLocation());
 			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
 			{
-				const FIntPoint Near(FMath::Clamp(Post.X + (i == 1 ? -6 : 6), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Post.Y + 5, 1, Grid()->GetSizeY() - 2));
+				const FIntPoint Near = NearestWalkable(FIntPoint(FMath::Clamp(Post.X + (i == 1 ? -6 : 6), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Post.Y + 5, 1, Grid()->GetSizeY() - 2)));
 				GM->GetOnis()[i]->SetActorLocation(Grid()->CellFloorCenter(Near) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
 			}
 			Watcher->SightRadius = 1500.f;
@@ -2849,12 +3246,142 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			int32 Coming = 0;
 			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
 			{
-				Coming += GM->GetOnis()[i]->GetIntent() == EOniState::Investigate ? 1 : 0;
+				// 呼ばれた場所へ向かっている（そのままプレイヤーが見えて追いかけ始めていてもよい）
+				const EOniState Intent = GM->GetOnis()[i]->GetIntent();
+				Coming += (Intent == EOniState::Investigate || Intent == EOniState::Chase) ? 1 : 0;
 			}
 			Check(FString::Printf(TEXT("the detector saw the player and called the others (summoned %d, coming %d, summons %d)"), GM->GetLastSummonedCount(), Coming, GS()->SummonsThisRound),
 				GS()->SummonsThisRound >= 1 && GM->GetLastSummonedCount() == 2 && Coming == 2);
 			Check(TEXT("the detector itself does not chase"), Detector()->GetIntent() != EOniState::Chase);
 			Shot(TEXT("detector_01_summon"));
+		} });
+	}
+	// ================================================================ DetectorLure（探知鬼：おとりの音が聞こえたら、その場所へ仲間を呼ぶ。2026-10-18 ユーザーの指定）
+	// 同じおとりで呼ぶのは 1 回だけ。呼んだおとりが片付くまでは、ほかの音（別のおとり）にも反応しない
+	else if (Scenario.Equals(TEXT("DetectorLure"), ESearchCase::IgnoreCase))
+	{
+		constexpr int32 Decoy = 1;
+		struct FLure { FIntPoint First = FIntPoint(-1, -1); FIntPoint Second = FIntPoint(-1, -1); int32 Summons = 0; };
+		TSharedRef<FLure> Lure = MakeShared<FLure>();
+		auto Detector = [GM]() { return GM->GetOnis()[0].Get(); };
+		// 見張りの場所から Dist マス先の、歩けて罠の無いマス（Skip 以外）
+		auto CellNearPost = [Grid](const FIntPoint& Post, const FIntPoint& Skip) -> FIntPoint
+		{
+			for (int32 Dist = 5; Dist >= 3; --Dist)
+			{
+				for (const FIntPoint& D : { FIntPoint(0, 1), FIntPoint(1, 0), FIntPoint(0, -1), FIntPoint(-1, 0) })
+				{
+					const FIntPoint C = Post + D * Dist;
+					if (C != Skip && Grid()->IsWalkable(C) && !Grid()->GetTrap(C))
+					{
+						return C;
+					}
+				}
+			}
+			return FIntPoint(-1, -1);
+		};
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Detector, EOniType::Balanced, EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the detector hears decoys (decoy hearing %.0f cm)"), Detector()->DecoyHearingRadius),
+				Detector()->OniType == EOniType::Detector && Detector()->DecoyHearingRadius > 0.f);
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				// 誰もプレイヤーを見ない・聞かない。ふつうの鬼はおとりも聞かない（呼ばれたときだけ動く）。探知鬼はおとりだけ聞く
+				Oni->SightRadius = 0.f;
+				Oni->CloseSenseRadius = 0.f;
+				Oni->HearingRadius = 0.f;
+				Oni->StepHearingRadius = 0.f;
+				Oni->PocketInspectChance = 0.f;
+				Oni->NoiseInaccuracyCells = 0.f;
+				if (Oni->OniType != EOniType::Detector)
+				{
+					Oni->DecoyHearingRadius = 0.f;
+				}
+			}
+			const float GuardSpeed = GM->OniWanderSpeedBase * GM->GetOniTypeRow(EOniType::Detector).SpeedScale;
+			Detector()->WanderSpeed = Detector()->InvestigateSpeed = GuardSpeed;
+			Detector()->GetCharacterMovement()->MaxWalkSpeed = GuardSpeed;
+			const FIntPoint GuardCell = Detector()->GetGuardCell(); // (1,1) のそばならプレイヤーは反対の角へ（見張りの場所に着けるように）
+			TeleportPlayer(Grid()->CellFloorCenter((GuardCell.X <= 4 && GuardCell.Y <= 4) ? FIntPoint(Grid()->GetSizeX() - 2, Grid()->GetSizeY() - 2) : FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 9.f, [=, this]
+		{
+			AOniCharacter* Watcher = Detector();
+			Check(FString::Printf(TEXT("the detector reached its post (%d,%d)"), Watcher->GetGuardCell().X, Watcher->GetGuardCell().Y), Watcher->IsAtGuardPost());
+			const FIntPoint Post = Grid()->WorldToCell(Watcher->GetActorLocation());
+			Lure->First = CellNearPost(Post, FIntPoint(-1, -1));
+			Check(FString::Printf(TEXT("found a floor cell for the decoy near the post (%d,%d)"), Lure->First.X, Lure->First.Y), Lure->First.X >= 0);
+			if (Lure->First.X < 0)
+			{
+				return;
+			}
+			// ふつうの鬼は探知鬼の反対側に置いて止めておく（呼ばれたことだけ見る。着いておとりを壊さないように）
+			const FIntPoint Away = Post - (Lure->First - Post);
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				const FIntPoint Near = NearestWalkable(FIntPoint(FMath::Clamp(Away.X + (i == 1 ? -2 : 2), 1, Grid()->GetSizeX() - 2), FMath::Clamp(Away.Y, 1, Grid()->GetSizeY() - 2)));
+				GM->GetOnis()[i]->SetActorLocation(Grid()->CellFloorCenter(Near) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				GM->GetOnis()[i]->SetActorTickEnabled(false);
+			}
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f; // 2 つ目のおとりまで確かめ終わるまで時間切れにしない
+			Lure->Summons = GS()->SummonsThisRound;
+			Grid()->PlaceTrap(Lure->First, Decoy, GM->TrapTypes[Decoy]);
+			Log(FString::Printf(TEXT("decoy placed at (%d,%d), detector post (%d,%d)"), Lure->First.X, Lure->First.Y, Post.X, Post.Y));
+		} });
+		// おとりは 2.5 秒ごとに鳴る（置いた直後は鳴らないことがある）。2 回鳴るまで待つ
+		Steps.Add({ 6.f, [=, this]
+		{
+			if (Lure->First.X < 0)
+			{
+				return;
+			}
+			int32 Coming = 0;
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				Coming += GM->GetOnis()[i]->GetIntent() == EOniState::Investigate ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("hearing the decoy, the detector called the others to it once (summons %d -> %d, for sound %d, summoned %d, coming %d)"),
+				Lure->Summons, GS()->SummonsThisRound, Detector()->WasLastSummonForSound() ? 1 : 0, GM->GetLastSummonedCount(), Coming),
+				GS()->SummonsThisRound == Lure->Summons + 1 && Detector()->WasLastSummonForSound() && GM->GetLastSummonedCount() == 2 && Coming == 2);
+			Check(TEXT("the player was not spotted (no chase)"), Detector()->GetIntent() != EOniState::Chase
+				&& GM->GetOnis()[1]->GetIntent() != EOniState::Chase && GM->GetOnis()[2]->GetIntent() != EOniState::Chase);
+			Check(TEXT("the detector waits for the decoy it called to"), Detector()->IsWaitingForLure());
+			// 呼んだおとりが残っている間に、別のおとりを置く
+			Lure->Second = CellNearPost(Grid()->WorldToCell(Detector()->GetActorLocation()), Lure->First);
+			if (Lure->Second.X >= 0)
+			{
+				Grid()->PlaceTrap(Lure->Second, Decoy, GM->TrapTypes[Decoy]);
+			}
+			Lure->Summons = GS()->SummonsThisRound;
+		} });
+		// 呼ぶ間隔（5 秒）より長く待つ：同じおとりが鳴っても・別のおとりが鳴っても呼ばない
+		Steps.Add({ 7.f, [=, this]
+		{
+			if (Lure->First.X < 0)
+			{
+				return;
+			}
+			Check(FString::Printf(TEXT("no more calls while the first decoy is still there (summons %d -> %d, second decoy at (%d,%d))"),
+				Lure->Summons, GS()->SummonsThisRound, Lure->Second.X, Lure->Second.Y),
+				Lure->Second.X >= 0 && GS()->SummonsThisRound == Lure->Summons && Grid()->GetTrap(Lure->First) != nullptr);
+			// 1 つ目のおとりを片付ける（鬼が壊したのと同じ）
+			Grid()->ConsumeTrap(Grid()->GetTrap(Lure->First));
+		} });
+		Steps.Add({ 6.f, [=, this]
+		{
+			if (Lure->Second.X < 0)
+			{
+				return;
+			}
+			Check(FString::Printf(TEXT("after the first decoy is gone, the detector calls the others to the second one (summons %d -> %d, for sound %d)"),
+				Lure->Summons, GS()->SummonsThisRound, Detector()->WasLastSummonForSound() ? 1 : 0),
+				GS()->SummonsThisRound == Lure->Summons + 1 && Detector()->WasLastSummonForSound() && Detector()->IsWaitingForLure());
+			Shot(TEXT("detectorlure_01"));
+			for (int32 i = 1; i < GM->GetOnis().Num(); ++i)
+			{
+				GM->GetOnis()[i]->SetActorTickEnabled(true);
+			}
 		} });
 	}
 	// ================================================================ CarefulSweep（慎重鬼：広い場所から手分けして調べ、囲まれた場所と細い道は後回し）
@@ -2885,7 +3412,7 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			}
 			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(22, 1)));
 		} });
-		Steps.Add({ 3.3f, [=]
+		Steps.Add({ 3.3f, [=, this]
 		{
 			for (AOniCharacter* Oni : GM->GetOnis())
 			{
@@ -2895,12 +3422,19 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				Oni->StepHearingRadius = 0.f;
 				Oni->bDrawDebug = true;
 			}
+			// 目と耳を閉じても、ぶつかれば見つかる。広い場所を見て回る鬼が角のプレイヤーに触れてラウンドが終わると、
+			// 鬼が止まって測れなくなる（手分け・空洞の数字がでたらめになる）ので、プレイヤーは舞台の上の空中に止めておく
+			if (ACharacter* P = Cast<ACharacter>(GetPawn()))
+			{
+				P->GetCharacterMovement()->DisableMovement();
+				P->SetActorLocation(P->GetActorLocation() + FVector(0.f, 0.f, 1500.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
 		} });
 		for (int32 i = 0; i < 100; ++i)
 		{
 			Steps.Add({ 0.5f, [=, this]
 			{
-				if (GM->GetOnis().Num() < 2)
+				if (GM->GetOnis().Num() < 2 || GS()->Phase != EKakurenboPhase::Hide)
 				{
 					return;
 				}
@@ -2933,6 +3467,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		}
 		Steps.Add({ 0.1f, [=, this]
 		{
+			Check(FString::Printf(TEXT("the round keeps going while measuring (phase=%s, samples %d of 100)"), *UEnum::GetValueAsString(GS()->Phase), Sweep->Samples),
+				GS()->Phase == EKakurenboPhase::Hide && Sweep->Samples == 100);
 			Check(FString::Printf(TEXT("careful onis first look over the open area, not the hollow (inspect samples in the first 8s: %d)"), Sweep->EarlyInspect), Sweep->EarlyInspect == 0);
 			Check(FString::Printf(TEXT("after the open area, they inspect the hollow (%d samples)"), Sweep->Inspect), Sweep->Inspect >= 1);
 			Check(FString::Printf(TEXT("never both on the same hollow (%d)"), Sweep->SameInspect), Sweep->SameInspect == 0);
@@ -3014,6 +3550,9 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 					const bool bHasWood = FPackageName::DoesPackageExist(TEXT("/Game/Kakurenbo/Wood/Wood01_Base_Color"));
 					// 家具のメッシュはマスからはみ出さない（はみ出すと、空いて見えるマスに壁が置けない）
 					Check(FString::Printf(TEXT("map %s: furniture stays inside its cells (max overhang %.1f cm)"), *Name.ToString(), Arena->GetMaxFurnitureOverhang()), Arena->GetMaxFurnitureOverhang() < 8.f);
+					// 2×2 のテーブルなどが、マスの境目にまたがって真ん中にぽつんと置かれていない（マスごとに 1 個ずつ）
+					Check(FString::Printf(TEXT("map %s: no furniture mesh sits on a cell line without filling the cells (%d)"), *Name.ToString(), Arena->GetFurnitureStraddleCount()),
+						Arena->GetFurnitureStraddleCount() == 0);
 					Check(FString::Printf(TEXT("map %s is %dx%d (arena %dx%d), wood floor %d, wood walls %d"), *Name.ToString(), G->GetSizeX(), G->GetSizeY(), Arena->GridSizeX, Arena->GridSizeY,
 						Arena->IsFloorUsingMaterial(), Arena->IsWallUsingPanels()),
 						G->GetSizeX() == Arena->GridSizeX && G->GetSizeY() == Arena->GridSizeY && (!bHasWood || (Arena->IsFloorUsingMaterial() && Arena->IsWallUsingPanels())));
@@ -3043,6 +3582,37 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			} });
 			Steps.Add({ 0.8f, [=, this] { Shot(FString::Printf(TEXT("maps_%02d_%s"), m + 1, GM->MapOrder.IsValidIndex(m) ? *GM->MapOrder[m].ToString() : TEXT("none"))); } });
 		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 全部の館で：家具はマスからはみ出さず、マスの境目にまたがって真ん中にぽつんと置かれていない
+			FString Problems;
+			for (const FName& Name : GM->MapOrder)
+			{
+				GM->MapOverride = Name;
+				GM->SwitchToMap(Name);
+				const AKakurenboArena* Arena = GM->GetArena();
+				if (Arena->GetFurnitureStraddleCount() > 0 || Arena->GetMaxFurnitureOverhang() >= 8.f)
+				{
+					Problems += FString::Printf(TEXT(" %s(straddle %d, overhang %.0f)"), *Name.ToString(), Arena->GetFurnitureStraddleCount(), Arena->GetMaxFurnitureOverhang());
+				}
+			}
+			Check(FString::Printf(TEXT("all %d maps keep every furniture mesh in its own cells:%s"), GM->MapOrder.Num(), Problems.IsEmpty() ? TEXT(" ok") : *Problems), Problems.IsEmpty());
+			// M14：音の届く距離は館の大きさに合わせる（小さい館ほど小さい。連打の音が館じゅうに届かないように）
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+			const float CrownScale = GM->GetMapNoiseScale();
+			GM->MapOverride = TEXT("Parlor");
+			GM->SwitchToMap(TEXT("Parlor"));
+			const float ParlorScale = GM->GetMapNoiseScale();
+			// 2026-10-19：館の一辺に比例（居間 16 マス ×0.4・王の間 40 マス ×1）
+			Check(FString::Printf(TEXT("noise reaches less far in small mansions, in proportion to the size (Parlor x%.2f, Crown x%.2f, hearing %.0f)"), ParlorScale, CrownScale, GM->GetOniHearingRadius()),
+				FMath::IsNearlyEqual(ParlorScale, 16.f / GM->MapNoiseReferenceSide, 0.01f) && FMath::IsNearlyEqual(CrownScale, 40.f / GM->MapNoiseReferenceSide, 0.01f)
+				&& FMath::IsNearlyEqual(GM->GetOniHearingRadius(), GM->GetStageSettings().OniHearingRadius * ParlorScale, 1.f));
+			// 2×2 のテーブルがある館（書斎）を上から撮る
+			GM->MapOverride = TEXT("Study");
+			GM->SwitchToMap(TEXT("Study"));
+		} });
+		Steps.Add({ 1.0f, [=, this] { Shot(TEXT("maps_98_study_tables")); } });
 		Steps.Add({ 0.5f, [=, this]
 		{
 			// 最初のマップに戻ると、設計図が戻る（壁は在庫から設置パートで直る）
@@ -3115,6 +3685,118 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			SetControlRotation(FRotator(-15.f, 0.f, 0.f));
 		} });
 		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("mood_04_library")); } });
+		// M14：一番大きな館（王の間）を部屋ごとに三人称で撮る。部屋の隅から、その部屋らしい家具（小文字は床の種類）の方を向く
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+			GS()->HideTimeRemaining = 600.f; // 撮り終わるまでかくれんぼを終わらせない
+			const AKakurenboArena* Arena = GM->GetArena();
+			Check(FString::Printf(TEXT("the mansion has floor kinds (%d), door frames (%d), windows (%d), paintings (%d) and wall lights (%d)"), Arena->GetFloorKindCount(),
+				Arena->GetDecorCount(EKakurenboDecorKind::DoorFrame) + Arena->GetDecorCount(EKakurenboDecorKind::DoorFrameWide), Arena->GetDecorCount(EKakurenboDecorKind::Window),
+				Arena->GetDecorCount(EKakurenboDecorKind::Painting), Arena->GetDecorCount(EKakurenboDecorKind::Sconce)),
+				Arena->GetFloorKindCount() >= 4 && Arena->GetDecorCount(EKakurenboDecorKind::Window) > 0 && Arena->GetDecorCount(EKakurenboDecorKind::Painting) > 0
+				&& Arena->GetDecorCount(EKakurenboDecorKind::Sconce) > 0);
+			// M14：出入り口の上には壁がある（枠だけが天井まで抜けた隙間に立って見えない）。家具の当たり判定はメッシュ 1 個ずつ
+			Check(FString::Printf(TEXT("doorways have a wall above them (%d headers, %d door frames), furniture collision follows each mesh (%d boxes, %d meshes)"), Arena->GetDoorHeaderCount(),
+				Arena->GetDecorCount(EKakurenboDecorKind::DoorFrame) + Arena->GetDecorCount(EKakurenboDecorKind::DoorFrameWide), Arena->GetFurnitureCollisionBoxCount(), Arena->GetFurnitureMeshCount()),
+				Arena->GetDoorHeaderCount() >= 10 && Arena->GetFurnitureCollisionBoxCount() >= Arena->GetFurnitureMeshCount());
+		} });
+		struct FRoomShot { TCHAR Key; const TCHAR* Name; };
+		static const FRoomShot RoomShots[] = { { TEXT('m'), TEXT("entrance") }, { TEXT('p'), TEXT("corridor") }, { TEXT('D'), TEXT("bedroom") }, { TEXT('I'), TEXT("dining") },
+			{ TEXT('V'), TEXT("kitchen") }, { TEXT('Y'), TEXT("bath") }, { TEXT('B'), TEXT("library") }, { TEXT('J'), TEXT("lounge") }, { TEXT('3'), TEXT("great_hall") } };
+		for (int32 r = 0; r < UE_ARRAY_COUNT(RoomShots); ++r)
+		{
+			const FRoomShot Room = RoomShots[r];
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AKakurenboArena* Arena = GM->GetArena();
+				UKakurenboGridSubsystem* G = Grid();
+				const bool bFloorKind = FChar::IsLower(Room.Key);
+				auto Matches = [&](const FIntPoint& C) { return bFloorKind ? (Arena->GetFloorKind(C) == Room.Key && Arena->GetLayoutChar(C) != KakurenboMaps::WallChar) : Arena->GetLayoutChar(C) == Room.Key; };
+				// 見る物：床の種類なら、その種類のマスの真ん中。家具なら最初に見つかった 1 つ（同じ文字のつながったマス）
+				TArray<FIntPoint> Target;
+				for (int32 Y = 0; Y < G->GetSizeY() && (bFloorKind || Target.Num() == 0); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						if (Matches(FIntPoint(X, Y)))
+						{
+							Target.Add(FIntPoint(X, Y));
+							if (!bFloorKind)
+							{
+								break;
+							}
+						}
+					}
+				}
+				if (Target.Num() == 0)
+				{
+					Check(FString::Printf(TEXT("room '%c' (%s) exists in Crown"), Room.Key, Room.Name), false);
+					return;
+				}
+				for (int32 i = 0; !bFloorKind && i < Target.Num(); ++i)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						if (Matches(Target[i] + D) && !Target.Contains(Target[i] + D))
+						{
+							Target.Add(Target[i] + D);
+						}
+					}
+				}
+				FVector2D Sum(0.0, 0.0);
+				for (const FIntPoint& C : Target)
+				{
+					Sum += FVector2D(C.X, C.Y);
+				}
+				const FVector2D Mid = Sum / Target.Num();
+				// 立つ場所：見る物から歩いて行ける、同じ床の種類のマス（部屋の中）のうち、見る物から遠い所（最大 6 マス）
+				TMap<FIntPoint, int32> Dist;
+				TArray<FIntPoint> Queue;
+				for (const FIntPoint& C : Target)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint N = C + D;
+						if (G->IsWalkable(N) && !G->IsObstacle(N) && !Dist.Contains(N) && (bFloorKind || Arena->GetFloorKind(N) == Arena->GetFloorKind(C)))
+						{
+							Dist.Add(N, 1);
+							Queue.Add(N);
+						}
+					}
+				}
+				const TCHAR RoomFloor = Arena->GetFloorKind(Target[0]); // 家具の下の床＝その部屋の床の種類
+				FIntPoint Spot = Queue.Num() > 0 ? Queue[0] : Target[0];
+				double BestScore = -1.0;
+				for (int32 q = 0; q < Queue.Num(); ++q)
+				{
+					const FIntPoint C = Queue[q];
+					const int32 Dc = Dist[C];
+					const double Score = FVector2D::Distance(FVector2D(C.X, C.Y), Mid);
+					if (Score > BestScore && Dc <= 6)
+					{
+						BestScore = Score;
+						Spot = C;
+					}
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint N = C + D;
+						if (Dc < 6 && G->IsWalkable(N) && !G->IsObstacle(N) && !Dist.Contains(N) && (bFloorKind || Arena->GetFloorKind(N) == RoomFloor))
+						{
+							Dist.Add(N, Dc + 1);
+							Queue.Add(N);
+						}
+					}
+				}
+				const FVector From = G->CellFloorCenter(Spot);
+				const FVector To = G->CellFloorCenter(FIntPoint(FMath::RoundToInt(Mid.X), FMath::RoundToInt(Mid.Y)));
+				TeleportPlayer(From);
+				SetControlRotation(FRotator(-16.f, (To - From).Rotation().Yaw, 0.f));
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] room %s: stand (%d,%d), look at (%.1f,%.1f)"), Room.Name, Spot.X, Spot.Y, Mid.X, Mid.Y);
+			} });
+			Steps.Add({ 1.5f, [=, this] { Shot(FString::Printf(TEXT("mood_%02d_crown_%s"), 10 + r, Room.Name)); } });
+		}
 	}
 	// ================================================================ Sounds（鬼の足音・お宝のキラキラ・BGM）
 	else if (Scenario.Equals(TEXT("Sounds"), ESearchCase::IgnoreCase))
@@ -3147,11 +3829,68 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			const AOniCharacter* Oni = GM->GetOnis()[0];
 			Check(FString::Printf(TEXT("a walking oni stomps (%d step sounds in 2s, oni counted %d)"), Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps, Oni->GetStepSoundCount()),
 				Sound()->GetPlayCount(EKakurenboSfx::OniStep) - Counts->OniSteps >= 4 && Oni->GetStepSoundCount() >= 4);
+			// Data/Sounds に WAV があれば、BGM はそちら（BGM を作る AI の曲）
+			const bool bHasWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/Music_Hide.wav")));
+			Check(FString::Printf(TEXT("the hide BGM comes from Data/Sounds when the WAV exists (wav=%d)"), bHasWav ? 1 : 0),
+				Sound()->IsMusicFromFile(EKakurenboMusic::Hide) == bHasWav);
+			// 効果音も同じ（採用した AI の音。鬼の足音はもう鳴った）
+			const bool bHasStepWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/OniStep.wav")));
+			Check(FString::Printf(TEXT("oni steps come from Data/Sounds when the WAV exists (wav=%d)"), bHasStepWav ? 1 : 0),
+				Sound()->IsSfxFromFile(EKakurenboSfx::OniStep) == bHasStepWav);
+			// 鬼に見つけさせて追わせる（ゆっくり歩かせて、つかまらないように）
+			AOniCharacter* Chaser = GM->GetOnis()[0];
+			Chaser->SightRadius = 3000.f;
+			Chaser->SightHalfAngle = 180.f;
+			Chaser->ChaseMaxDuration = 60.f;
+			Chaser->WanderSpeed = Chaser->InvestigateSpeed = Chaser->ChaseSpeed = 1.f;
+			TeleportPlayer(Chaser->GetActorLocation() + FVector(600.f, 0.f, 0.f));
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("being chased plays the chase BGM (intent=%s, music=%s)"), *UEnum::GetValueAsString(Oni->GetIntent()), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())),
+				Oni->GetIntent() == EOniState::Chase && Sound()->GetCurrentMusic() == EKakurenboMusic::Chase);
+			GM->GetOnis()[0]->Deactivate(); // 追われなくなる
+		} });
+		Steps.Add({ 2.f, [=, this] // ChaseMusicHoldSeconds（4 秒）の半分
+		{
+			Check(FString::Printf(TEXT("the chase BGM stays a while after the chase ends (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Chase);
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("then it goes back to the hide BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Hide);
 			KakuSkipTime(1000.f);
 		} });
 		Steps.Add({ 1.f, [=, this]
 		{
 			Check(FString::Printf(TEXT("result plays the calm BGM (%s)"), *UEnum::GetValueAsString(Sound()->GetCurrentMusic())), Sound()->GetCurrentMusic() == EKakurenboMusic::Calm);
+			// 大きな館（DeepHideMusicStage から）はかくれんぼの曲が変わる
+			const int32 StageBefore = GS()->Stage;
+			GS()->Stage = GM->DeepHideMusicStage;
+			const EKakurenboMusic Deep = GM->GetHideMusic();
+			GS()->Stage = 1;
+			const EKakurenboMusic Early = GM->GetHideMusic();
+			GS()->Stage = StageBefore;
+			Check(TEXT("big mansions use the deep hide BGM"), Deep == EKakurenboMusic::HideDeep && Early == EKakurenboMusic::Hide);
+			// 鬼の種類ごとの足音（WAV が無ければ OniStep の高さ違い）。次のラウンドのスピード鬼が門から歩いて出てくる足音を数える
+			SetStageOniTypes({ EOniType::Scout });
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Counts->OniSteps = Sound()->GetPlayCount(EKakurenboSfx::OniStepScout);
+		} });
+		Steps.Add({ 5.f, [=, this] // 「もういいかい」の間（HideStartDelay）の後、鬼が門から歩いて出てくる
+		{
+			const AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0] : nullptr;
+			Check(FString::Printf(TEXT("the scout has its own step sound (%s)"), Oni ? *UEnum::GetValueAsString(Oni->StepSfx) : TEXT("-")), Oni && Oni->StepSfx == EKakurenboSfx::OniStepScout);
+			Check(FString::Printf(TEXT("a walking scout patters (%d step sounds, oni counted %d)"), Sound()->GetPlayCount(EKakurenboSfx::OniStepScout) - Counts->OniSteps, Oni ? Oni->GetStepSoundCount() : -1),
+				Oni && Sound()->GetPlayCount(EKakurenboSfx::OniStepScout) - Counts->OniSteps >= 2);
+			const bool bHasWav = FPaths::FileExists(KakurenboBalance::GetDataFilePath(TEXT("Sounds/OniStepScout.wav")));
+			Check(FString::Printf(TEXT("scout steps come from Data/Sounds when the WAV exists (wav=%d)"), bHasWav ? 1 : 0),
+				Sound()->IsSfxFromFile(EKakurenboSfx::OniStepScout) == bHasWav);
 		} });
 	}
 	// ================================================================ Swatches（M12：Data/Surfaces.csv の見た目を並べて撮る・プレイヤーと宝石の見た目）
@@ -3274,6 +4013,362 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 			Check(FString::Printf(TEXT("standing up again (crouched %d)"), GetHider()->bIsCrouched), !GetHider()->bIsCrouched);
 		} });
 	}
+	// ================================================================ CrouchWalk（しゃがんで家具に向かって歩き続けても、体とカメラががくがくしない）
+	else if (Scenario.Equals(TEXT("CrouchWalk"), ESearchCase::IgnoreCase))
+	{
+		// 本物の館（天文台：地球儀・望遠鏡が柱のように並ぶ）で、周りが空いている 1 マスの家具を探し、そこへ歩いてぶつかり続ける
+		struct FFrame { FVector Actor; float Yaw = 0.f; FVector Mesh; FVector Camera; float Speed = 0.f; };
+		struct FWalk { FIntPoint Target = FIntPoint(-1, -1); TArray<FFrame> Frames; FTSTicker::FDelegateHandle Ticker; };
+		TSharedRef<FWalk> Walk = MakeShared<FWalk>();
+		auto Begin = [=, this](bool bSneak, float AngleOffset)
+		{
+			const FVector Goal = Grid()->CellFloorCenter(Walk->Target);
+			TeleportPlayer(Goal - FRotator(0.f, AngleOffset, 0.f).RotateVector(FVector(300.f, 0.f, 0.f)));
+			GetPawn()->SetActorRotation(FRotator(0.f, AngleOffset, 0.f));
+			SetControlRotation(FRotator(-20.f, AngleOffset, 0.f));
+			bTestSneak = bSneak;
+			SimulateKey(EKeys::W, IE_Pressed);
+			Walk->Frames.Reset();
+			Walk->Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+			{
+				const AHiderCharacter* H = GetHider();
+				FFrame F;
+				F.Actor = H->GetActorLocation();
+				F.Yaw = H->GetActorRotation().Yaw;
+				F.Mesh = H->LookMesh ? H->LookMesh->GetComponentLocation() : H->BodyMesh->GetComponentLocation();
+				F.Camera = H->Camera->GetComponentLocation();
+				F.Speed = H->GetVelocity().Size2D();
+				Walk->Frames.Add(F);
+				return true;
+			}));
+		};
+		auto Finish = [=, this](const FString& Label)
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(Walk->Ticker);
+			SimulateKey(EKeys::W, IE_Released);
+			bTestSneak = false;
+			// 最後の 1.5 秒（家具にぶつかって押し続けている間）の、フレームごとの揺れ（2 階差分）
+			const TArray<FFrame>& Fr = Walk->Frames;
+			const int32 Start = FMath::Max(2, Fr.Num() - 90);
+			float MeshJerk = 0.f, CamJerk = 0.f, YawStep = 0.f, MeshRel = 0.f, MaxMeshRel = 0.f, ActorJerk = 0.f;
+			int32 N = 0;
+			for (int32 i = Start; i < Fr.Num(); ++i)
+			{
+				auto Jerk = [&](auto Get) { return (Get(Fr[i]) - Get(Fr[i - 1]) * 2.f + Get(Fr[i - 2])).Size(); };
+				MeshJerk += Jerk([](const FFrame& F) { return F.Mesh; });
+				CamJerk += Jerk([](const FFrame& F) { return F.Camera; });
+				ActorJerk += Jerk([](const FFrame& F) { return F.Actor; });
+				YawStep += FMath::Abs(FRotator::NormalizeAxis(Fr[i].Yaw - Fr[i - 1].Yaw));
+				const float Rel = FMath::Abs((Fr[i].Mesh.Z - Fr[i].Actor.Z) - (Fr[i - 1].Mesh.Z - Fr[i - 1].Actor.Z));
+				MeshRel += Rel;
+				MaxMeshRel = FMath::Max(MaxMeshRel, Rel);
+				++N;
+			}
+			N = FMath::Max(N, 1);
+			FString Series;
+			for (int32 i = Start; i < Fr.Num(); i += 3)
+			{
+				Series += FString::Printf(TEXT(" [%.1f,%.1f z%.1f m%.1f y%.0f v%.0f]"), Fr[i].Actor.X, Fr[i].Actor.Y, Fr[i].Actor.Z, Fr[i].Mesh.Z - Fr[i].Actor.Z, Fr[i].Yaw, Fr[i].Speed);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] crouchwalk %s: frames %d, mesh jerk %.2f, camera jerk %.2f, actor jerk %.2f, yaw step %.2f, mesh-rel step %.2f (max %.2f)%s"),
+				*Label, Fr.Num(), MeshJerk / N, CamJerk / N, ActorJerk / N, YawStep / N, MeshRel / N, MaxMeshRel, *Series);
+			// 体（モデル）の高さはカプセルに対して動かない（以前は歩く脚の振りでしゃがむ高さが変わり、上下にがくがくしていた）
+			Check(FString::Printf(TEXT("%s: the body does not shake while pushing into furniture (mesh jerk %.2f, mesh-rel step %.2f max %.2f, yaw step %.2f)"), *Label, MeshJerk / N, MeshRel / N, MaxMeshRel, YawStep / N),
+				MeshJerk / N < 1.5f && MeshRel / N < 0.1f && MaxMeshRel < 0.3f && YawStep / N < 1.5f);
+			Check(FString::Printf(TEXT("%s: the camera does not shake (camera jerk %.2f)"), *Label, CamJerk / N), CamJerk / N < 1.5f);
+		};
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GM->bMapOverride = true;
+			// 周り 8 マス＋その先 3 マス西が空いている、1 マスだけの家具（天文台から順に、全部の館から探す。M14 で館が部屋に分かれた）
+			TArray<FName> Order = GM->MapOrder;
+			Order.Remove(TEXT("Observatory"));
+			Order.Insert(TEXT("Observatory"), 0);
+			for (const FName& MapName : Order)
+			{
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				for (int32 Y = 2; Y < Grid()->GetSizeY() - 2 && Walk->Target.X < 0; ++Y)
+				{
+					for (int32 X = 5; X < Grid()->GetSizeX() - 2 && Walk->Target.X < 0; ++X)
+					{
+						const FIntPoint C(X, Y);
+						bool bAlone = Grid()->IsObstacle(C) && GM->GetArena()->GetLayoutChar(C) != KakurenboMaps::WallChar;
+						for (int32 DY = -2; DY <= 2 && bAlone; ++DY)
+						{
+							for (int32 DX = -4; DX <= 2 && bAlone; ++DX)
+							{
+								bAlone = (DX == 0 && DY == 0) || Grid()->IsWalkable(C + FIntPoint(DX, DY));
+							}
+						}
+						if (bAlone)
+						{
+							Walk->Target = C;
+						}
+					}
+				}
+				if (Walk->Target.X >= 0)
+				{
+					break;
+				}
+			}
+			Check(FString::Printf(TEXT("found a lone piece of furniture at (%d,%d) in %s ('%c')"), Walk->Target.X, Walk->Target.Y, *GM->GetCurrentMapName().ToString(),
+				Walk->Target.X >= 0 ? GM->GetArena()->GetLayoutChar(Walk->Target) : TEXT('-')), Walk->Target.X >= 0);
+		} });
+		Steps.Add({ 3.3f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } Begin(true, 0.f); } });
+		Steps.Add({ 2.5f, [=, this] { Shot(TEXT("crouchwalk_01_sneak_straight")); } });
+		Steps.Add({ 0.1f, [=] { Finish(TEXT("sneak straight")); } });
+		Steps.Add({ 0.5f, [=] { Begin(true, 25.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("sneak diagonal")); } });
+		Steps.Add({ 0.5f, [=] { Begin(false, 0.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("standing straight")); } });
+		Steps.Add({ 0.5f, [=] { Begin(false, 25.f); } });
+		Steps.Add({ 2.6f, [=] { Finish(TEXT("standing diagonal")); } });
+	}
+	// ================================================================ Title（タイトル・設定・キー設定・一時停止メニュー）
+	else if (bTitleScenario)
+	{
+		auto HUD = [this]() { return GetHUD<AKakurenboHUD>(); };
+		auto Settings = [this]() { return UKakurenboSettings::Get(this); };
+		// つまみの横の位置（0〜1）をクリックする
+		auto ClickSlider = [this, HUD](EKakurenboSettingSlider Slider, float Value01) -> bool
+		{
+			FVector2D Center;
+			FKakurenboUIButton Button;
+			if (!HUD() || !HUD()->GetButtonCenter(EKakurenboUIAction::Slider, static_cast<int32>(Slider), Center) || !HUD()->FindButtonAt(Center, Button))
+			{
+				return false;
+			}
+			bUseTestCursor = true;
+			TestCursorPosition = FVector2D(FMath::Lerp(Button.Rect.Min.X, Button.Rect.Max.X, Value01), Center.Y);
+			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Pressed, 1.f));
+			PlayerInput->InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::LeftMouseButton, IE_Released, 1.f));
+			return true;
+		};
+		auto Press = [SimulateKey](const FKey& Key) { SimulateKey(Key, IE_Pressed); SimulateKey(Key, IE_Released); };
+		struct FTitleState { float FrozenTime = 0.f; int32 MashBefore = 0; };
+		TSharedRef<FTitleState> T = MakeShared<FTitleState>();
+
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the game starts at the title (phase %s, cursor %d)"), *UEnum::GetValueAsString(GS()->Phase), bShowMouseCursor ? 1 : 0),
+				GS()->Phase == EKakurenboPhase::Title && bShowMouseCursor);
+			FVector2D Center;
+			Check(TEXT("the title has new game / continue / settings / quit"), HUD() && HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame), Center)
+				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue), Center)
+				&& HUD()->GetButtonCenter(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Settings), Center));
+			Check(TEXT("without a save, continue is disabled"), !IsTitleItemEnabled(EKakurenboTitleItem::Continue) && !GM->HasContinueData());
+			Check(TEXT("the title plays the title music and does not save"), Sound()->GetCurrentMusic() == EKakurenboMusic::Title);
+			Shot(TEXT("title_01_title"));
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("clicking the disabled continue does nothing"), GS()->Phase == EKakurenboPhase::Title && !IsMenuOpen());
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Settings));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("settings open from the title (menu %d)"), static_cast<int32>(GetMenu())), GetMenu() == EKakurenboMenu::Settings);
+			Shot(TEXT("title_02_settings"));
+			Check(TEXT("click the master volume at 25%"), ClickSlider(EKakurenboSettingSlider::Master, 0.25f));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the volume slider sets the volume (setting %.2f, sound %.2f)"), Settings()->MasterVolume, Sound()->MasterVolume),
+				FMath::IsNearlyEqual(Settings()->MasterVolume, 0.25f, 0.03f) && FMath::IsNearlyEqual(Sound()->MasterVolume, Settings()->MasterVolume, 0.001f));
+			ClickSlider(EKakurenboSettingSlider::Mouse, 0.99f);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the mouse slider changes the sensitivity (%.3f)"), MouseSensitivity),
+				MouseSensitivity > UKakurenboSettings::DefaultMouseSensitivity * 2.f && FMath::IsNearlyEqual(MouseSensitivity, Settings()->MouseSensitivity));
+			ClickSlider(EKakurenboSettingSlider::Mouse, (UKakurenboSettings::DefaultMouseSensitivity - UKakurenboSettings::MinMouseSensitivity) / (UKakurenboSettings::MaxMouseSensitivity - UKakurenboSettings::MinMouseSensitivity));
+			ClickUI(EKakurenboUIAction::Toggle, static_cast<int32>(EKakurenboSettingToggle::InvertY));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("the invert toggle inverts the mouse"), bInvertMouseY && Settings()->bInvertMouseY);
+			ClickUI(EKakurenboUIAction::Toggle, static_cast<int32>(EKakurenboSettingToggle::InvertY));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::OpenKeys, 0); } });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("key config opens"), GetMenu() == EKakurenboMenu::Keys && !bInvertMouseY);
+			Shot(TEXT("title_03_keys"));
+			// 連打を K にする
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Mash) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			EKakurenboAction Waiting;
+			bool bSecondary = false;
+			Check(TEXT("clicking a key slot waits for a key"), IsWaitingForKey(Waiting, bSecondary) && Waiting == EKakurenboAction::Mash && !bSecondary);
+			Shot(TEXT("title_04_waiting_key"));
+			Press(EKeys::K);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("pressing K binds mash to K (%s)"), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
+				Settings()->GetKey(EKakurenboAction::Mash) == EKeys::K && GetMenu() == EKakurenboMenu::Keys);
+			// ジャンプにも K → 入れ替わる（連打は Space になる）
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Climb) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the same key on another action swaps them (climb %s, mash %s)"), *Settings()->GetKey(EKakurenboAction::Climb).ToString(), *Settings()->GetKey(EKakurenboAction::Mash).ToString()),
+				Settings()->GetKey(EKakurenboAction::Climb) == EKeys::K && Settings()->GetKey(EKakurenboAction::Mash) == EKeys::SpaceBar);
+			ClickUI(EKakurenboUIAction::ResetKeys, 0);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("reset brings the default keys back"), Settings()->GetKey(EKakurenboAction::Mash) == EKeys::LeftMouseButton && Settings()->GetKey(EKakurenboAction::Climb) == EKeys::SpaceBar);
+			ClickUI(EKakurenboUIAction::KeySlot, static_cast<int32>(EKakurenboAction::Mash) * 2);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::K); } });
+		Steps.Add({ 0.3f, [=, this] { Press(EKeys::Escape); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("Esc goes back to the settings"), GetMenu() == EKakurenboMenu::Settings);
+			Press(EKeys::Escape);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("Esc again closes the settings (title)"), !IsMenuOpen() && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("new game starts the first hide round (phase %s, stage %d)"), *UEnum::GetValueAsString(GS()->Phase), GS()->Stage),
+				GS()->Phase == EKakurenboPhase::Hide && GS()->Stage == 1 && !bShowMouseCursor);
+			Check(FString::Printf(TEXT("hide shows the oni's counting line (%s)"), HUD() && HUD()->HasDrawnText(TEXT("もういいかい")) ? TEXT("yes") : TEXT("no")),
+				HUD() && HUD()->HasDrawnText(TEXT("もういいかい")) && !HUD()->HasDrawnText(TEXT("ぶつかったらアウト")));
+			Shot(TEXT("title_05_hide_countdown"));
+		} });
+		Steps.Add({ 3.0f, [=, this]
+		{
+			if (AOniCharacter* Oni = KeepOnlyOni(0))
+			{
+				Oni->Deactivate();
+			}
+			T->MashBefore = GS()->MashCountThisRound;
+			Press(EKeys::K);
+			Press(EKeys::LeftMouseButton);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the rebound key mashes and the old one does not (%d -> %d)"), T->MashBefore, GS()->MashCountThisRound), GS()->MashCountThisRound == T->MashBefore + 1);
+			Shot(TEXT("title_06_hide"));
+			Press(EKeys::Escape);
+			// ここから一時停止中。ワールドのタイマーは止まるので、実時間で進める
+			RealDelay(0.4f, [=, this]
+			{
+				T->FrozenTime = GS()->HideTimeRemaining;
+				Check(FString::Printf(TEXT("Esc pauses the hide round and shows the menu (paused %d, menu %d, cursor %d)"), IsPaused() ? 1 : 0, static_cast<int32>(GetMenu()), bShowMouseCursor ? 1 : 0),
+					IsPaused() && GetMenu() == EKakurenboMenu::Pause && bShowMouseCursor);
+				Shot(TEXT("title_07_pause"));
+				ClickUI(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Help));
+				RealDelay(0.4f, [=, this]
+				{
+					Check(FString::Printf(TEXT("the help lists the hide controls with the bound keys (%d)"), HUD() && HUD()->HasDrawnText(TEXT("しゃがむ")) ? 1 : 0),
+						GetMenu() == EKakurenboMenu::Help && HUD()->HasDrawnText(TEXT("しゃがむ")) && HUD()->HasDrawnText(TEXT("[K]")));
+					Shot(TEXT("title_08_help"));
+					Press(EKeys::Escape);
+					RealDelay(0.3f, [=, this]
+					{
+						Check(FString::Printf(TEXT("the round stays frozen while paused (%.2f -> %.2f)"), T->FrozenTime, GS()->HideTimeRemaining),
+							FMath::IsNearlyEqual(T->FrozenTime, GS()->HideTimeRemaining) && GetMenu() == EKakurenboMenu::Pause);
+						ClickUI(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Title));
+						RealDelay(0.3f, [=, this]
+						{
+							Check(TEXT("going to the title in a round asks first"), GetMenu() == EKakurenboMenu::ConfirmTitle);
+							Shot(TEXT("title_09_confirm"));
+							ClickUI(EKakurenboUIAction::ConfirmYes, 0);
+							RealDelay(0.4f, [=, this]
+							{
+								Check(FString::Printf(TEXT("back at the title, unpaused, and continue is enabled (phase %s, paused %d)"), *UEnum::GetValueAsString(GS()->Phase), IsPaused() ? 1 : 0),
+									GS()->Phase == EKakurenboPhase::Title && !IsPaused() && !IsMenuOpen() && IsTitleItemEnabled(EKakurenboTitleItem::Continue) && GM->GetOnis().Num() == 0);
+							});
+						});
+					});
+				});
+			});
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Shot(TEXT("title_10_back_to_title"));
+			// セーブがあるとき（この起動で遊んだとき）の「はじめから」は確かめる
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::NewGame));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("new game with progress asks before erasing"), GetMenu() == EKakurenboMenu::ConfirmNewGame && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::ConfirmNo, 0);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("no keeps the title"), !IsMenuOpen() && GS()->Phase == EKakurenboPhase::Title);
+			ClickUI(EKakurenboUIAction::TitleItem, static_cast<int32>(EKakurenboTitleItem::Continue));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("continue resumes from the build phase (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Build);
+			Settings()->ResetBindings();
+		} });
+	}
+	// ================================================================ Hints（はじめての操作のヒント・キーの形の案内）
+	else if (Scenario.Equals(TEXT("Hints"), ESearchCase::IgnoreCase))
+	{
+		auto HUD = [this]() { return GetHUD<AKakurenboHUD>(); };
+		Steps.Add({ 0.1f, [=, this]
+		{
+			bShowTipsInAutoTest = true;
+			UKakurenboSettings::Get(this)->ResetTips();
+		} });
+		Steps.Add({ 1.2f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the first hide round shows how to move (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Move")));
+			Check(TEXT("the controls are drawn as keys at the bottom"), HUD() && HUD()->HasDrawnText(TEXT("しゃがむ")));
+			Shot(TEXT("hints_01_hide"));
+		} });
+		// 鬼は止めておく（捕まると結果画面になって、ヒントが消える）
+		Steps.Add({ 2.3f, [=, this] { if (AOniCharacter* Oni = KeepOnlyOni(0)) { Oni->Deactivate(); } } });
+		Steps.Add({ 4.7f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("then how to earn coins (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Mash")));
+			Shot(TEXT("hints_02_mash"));
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Shot(TEXT("hints_03_result"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → 購入
+		Steps.Add({ 0.8f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the shop explains buying (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Shop")));
+			Shot(TEXT("hints_04_shop"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.8f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("the build phase explains placing (%s)"), Tip ? *Tip->Text : TEXT("none")), Tip && Tip->Id == FName(TEXT("Build")));
+			Shot(TEXT("hints_05_build"));
+		} });
+		Steps.Add({ 0.2f, [=, this] { KakuNext(); } }); // → かくれんぼ（2 回目）
+		Steps.Add({ 1.2f, [=, this]
+		{
+			const FKakurenboTip* Tip = GetCurrentTip();
+			Check(FString::Printf(TEXT("a tip is shown only once (%s)"), Tip ? *Tip->Id.ToString() : TEXT("none")), !Tip || Tip->Id != FName(TEXT("Move")));
+			bShowTipsInAutoTest = false;
+		} });
+	}
 	// ================================================================ Hearing（M12：左右の聞こえ方・壁の向こう・気づいた音・心臓の音）
 	else if (Scenario.Equals(TEXT("Hearing"), ESearchCase::IgnoreCase))
 	{
@@ -3331,7 +4426,8 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		Steps.Add({ 0.3f, [=, this]
 		{
 			AOniCharacter* Oni = GM->GetOnis()[0];
-			Oni->SetActorLocation(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 8)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// 連打が届く距離（ステージ 1 は 1000 × 0.75 = 7.5m。2026-10-18）の内側
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Hear->Me + FIntPoint(0, 6)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
 			Oni->Activate(GetHider());
 			Oni->SightRadius = 0.f;
 			Oni->CloseSenseRadius = 0.f;
@@ -3372,6 +4468,3432 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 				GS()->Phase == EKakurenboPhase::Hide && GM->GetCurrentDanger() < 0.05f && GM->GetHeartbeatCount() == Hear->Beats);
 		} });
 	}
+	// ================================================================ Climb（M14：ジャンプの代わりによじ登る）
+	else if (Scenario.Equals(TEXT("Climb"), ESearchCase::IgnoreCase))
+	{
+		// 家具の無い舞台に並べる（東 = +X）：
+		//   (4,4) から東へ [通常壁 1 段][通常壁 2 段][すき間][通常壁 1 段]（登る・2 段目へ・すき間は越えられない）
+		//   (4,9) から北へ [クライミング壁 1 段]、その東に [通常壁 2 段]（すばやく登る・鬼が飛び乗れない塔）
+		//   (11,4) の東に低い家具（80cm）・(11,8) の東に高い家具（220cm）
+		struct FClimbState { float FloorZ = 0.f; int32 LeapsWhileStanding = 0; bool bTowerStood = true; int32 Samples = 0; };
+		TSharedRef<FClimbState> CS = MakeShared<FClimbState>();
+		const FIntPoint Start(4, 4), WallA(5, 4), WallB(6, 4), WallC(8, 4);
+		const FIntPoint LadderFrom(4, 9), Ladder(4, 8), Tower(5, 8);
+		const FIntPoint LowFrom(11, 4), Low(12, 4), TallFrom(11, 8), Tall(12, 8);
+		const FIntPoint SideFrom(4, 14), SideTarget(5, 14), SideTall(5, 13), DollFrom(4, 18), DollTarget(5, 18);
+		auto FeetHeight = [this, CS]() { return GetPawn()->GetActorLocation().Z - GetPawn()->GetSimpleCollisionHalfHeight() - CS->FloorZ; };
+		auto PressClimb = [=]() { SimulateKey(EKeys::SpaceBar, IE_Pressed); SimulateKey(EKeys::SpaceBar, IE_Released); };
+		auto StandAt = [=, this](const FIntPoint& Cell, float Yaw)
+		{
+			TeleportPlayer(Grid()->CellFloorCenter(Cell));
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-20.f, Yaw, 0.f));
+		};
+		auto SpawnBox = [this, Grid](const FIntPoint& Cell, float Height)
+		{
+			const FVector Center = Grid()->CellFloorCenter(Cell);
+			AStaticMeshActor* Box = GetWorld()->SpawnActor<AStaticMeshActor>(Center + FVector(0.f, 0.f, Height * 0.5f), FRotator::ZeroRotator);
+			Box->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Box->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+			Box->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+			Box->SetActorScale3D(FVector(Grid()->GetCellSize() / 100.f, Grid()->GetCellSize() / 100.f, Height / 100.f));
+		};
+		const int32 LadderType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.bLadder; });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f; // 途中で時間切れにならないように
+			CS->FloorZ = Grid()->CellFloorCenter(Start).Z;
+			PlaceTestWall(WallA);
+			PlaceTestWall(WallB);
+			PlaceTestWall(WallB);
+			PlaceTestWall(WallC);
+			const FWallTypeDef& LadderDef = GM->WallTypes[FMath::Max(LadderType, 0)];
+			Grid()->PlaceBlock(Ladder, LadderType, LadderDef.MaxHP, LadderDef.Color);
+			PlaceTestWall(Tower);
+			PlaceTestWall(Tower);
+			Grid()->SetObstacles({ Low, Tall });
+			SpawnBox(Low, 80.f);
+			SpawnBox(Tall, 220.f);
+			StandAt(Start, 0.f);
+			const APlaceableBlock* LadderBlock = Grid()->GetTopBlock(Ladder);
+			Check(FString::Printf(TEXT("the climbing wall has rungs (%d)"), LadderBlock ? LadderBlock->GetRungCount() : -1), LadderType != INDEX_NONE && LadderBlock && LadderBlock->bLadder && LadderBlock->GetRungCount() == 12);
+		} });
+		Steps.Add({ 3.4f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE); // 鬼は後で 1 体だけ使う
+			StandAt(Start, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot climb before it is unlocked (climbing %d, unlocked %d)"), GetHider()->IsClimbing(), GM->IsClimbUnlocked()),
+					!GetHider()->IsClimbing() && GetHider()->GetClimbCount() == 0 && !GM->IsClimbUnlocked());
+				GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1; // 転生のお店で買ったことにする
+				GM->ApplyPrestigeToPlayer();
+			});
+		} });
+		// 1) 1 段の壁によじ登る（通常壁は 1 秒）
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("Space climbs the wall in front (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()),
+					GetHider()->IsClimbing() && FMath::IsNearlyEqual(GetHider()->GetLastClimbSeconds(), GM->WallTypes[0].ClimbSeconds, 0.01f));
+			});
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("still climbing (cannot move meanwhile) (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
+			Shot(TEXT("climb_01_climbing"));
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the 1-high wall (feet %.0f cm, climbing %d)"), FeetHeight(), GetHider()->IsClimbing()),
+				!GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			Shot(TEXT("climb_02_on_wall"));
+			PressClimb(); // 2) となりの 2 段の壁へ（1 段ずつ）
+		} });
+		Steps.Add({ 1.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("climbs one more level onto the 2-high wall (feet %.0f cm)"), FeetHeight()),
+				!GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight() * 2.f, 15.f) && GetHider()->GetClimbCount() == 2);
+			// 3) すき間の先の壁へは跳べない（ジャンプは無い）
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot cross the gap (climbing %d, vz %.0f)"), GetHider()->IsClimbing(), GetHider()->GetVelocity().Z),
+					!GetHider()->IsClimbing() && GetHider()->GetClimbCount() == 2 && GetHider()->GetVelocity().Z < 50.f);
+			});
+		} });
+		Steps.Add({ 0.4f, [=, this] { SimulateKey(EKeys::W, IE_Pressed); } }); // 歩いて縁から下りる
+		Steps.Add({ 0.9f, [=, this] { SimulateKey(EKeys::W, IE_Released); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const FIntPoint Here = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			Check(FString::Printf(TEXT("walking off the edge drops nearly straight into the gap, not onto the wall beyond (feet %.0f cm, cell (%d,%d))"), FeetHeight(), Here.X, Here.Y),
+				FeetHeight() < 20.f && Here == WallB + FIntPoint(1, 0));
+			// 4) 床から 2 段の壁へは登れない（1 段ずつ）
+			StandAt(WallB + FIntPoint(0, 1), -90.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("cannot climb a 2-high wall from the floor (climbing %d)"), GetHider()->IsClimbing()), !GetHider()->IsClimbing());
+			});
+		} });
+		// 5) クライミング壁はすばやく登れる
+		Steps.Add({ 0.3f, [=, this] { StandAt(LadderFrom, -90.f); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("the climbing wall is quick to climb (%.2f s, normal %.2f s)"), GetHider()->GetLastClimbSeconds(), GM->WallTypes[0].ClimbSeconds),
+					GetHider()->IsClimbing() && GetHider()->GetLastClimbSeconds() < GM->WallTypes[0].ClimbSeconds * 0.5f);
+			});
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("already on top of the climbing wall (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			GetPawn()->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 東の塔（2 段）へ
+			PressClimb();
+		} });
+		Steps.Add({ 1.4f, [=, this]
+		{
+			Check(FString::Printf(TEXT("from the climbing wall onto the 2-high tower (feet %.0f cm)"), FeetHeight()), FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight() * 2.f, 15.f));
+			// 6) 鬼は塔に飛び乗れない（クライミング壁にも乗れない）→ 下から壊すしかない
+			AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr;
+			if (Oni)
+			{
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Tower + FIntPoint(4, 2)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+				Oni->Activate(GetHider());
+				Oni->SightRadius = 3000.f;
+				Oni->SightHalfAngle = 180.f;
+				Oni->bDrawDebug = true;
+			}
+			LookAtOni();
+		} });
+		for (int32 i = 0; i < 24; ++i)
+		{
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr;
+				const bool bTowerUp = Grid()->GetColumnHeight(Tower) == 2;
+				if (Oni && bTowerUp && CS->bTowerStood)
+				{
+					CS->LeapsWhileStanding = Oni->GetLeapCount();
+					++CS->Samples;
+				}
+				CS->bTowerStood = CS->bTowerStood && bTowerUp;
+				if (i == 6)
+				{
+					Shot(TEXT("climb_03_tower"));
+				}
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the oni could not leap onto the tower or the climbing wall while the tower stood (leaps %d over %d samples)"), CS->LeapsWhileStanding, CS->Samples),
+				CS->Samples > 0 && CS->LeapsWhileStanding == 0);
+			Check(FString::Printf(TEXT("so it broke the tower from below (walls destroyed %d, phase %s)"), GS()->LastRoundWallsDestroyed, *UEnum::GetValueAsString(GS()->Phase)),
+				GS()->LastRoundWallsDestroyed >= 1);
+		} });
+		// 7) 低い家具にはよじ登れる（家具はゆっくり）・高い家具には登れない
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE);
+			if (GS()->Phase != EKakurenboPhase::Hide)
+			{
+				KakuNext(); KakuNext(); KakuNext(); // 捕まっていたら、次のかくれんぼへ
+			}
+		} });
+		Steps.Add({ 3.6f, [=, this]
+		{
+			KeepOnlyOni(INDEX_NONE);
+			GS()->HideTimeRemaining = 300.f;
+			StandAt(LowFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("low furniture can be climbed, slowly (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()),
+					GetHider()->IsClimbing() && FMath::IsNearlyEqual(GetHider()->GetLastClimbSeconds(), GM->FurnitureClimbSeconds, 0.01f));
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the low furniture (feet %.0f cm)"), FeetHeight()), FMath::IsNearlyEqual(FeetHeight(), 80.f, 15.f));
+			StandAt(TallFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 Before = GetHider()->GetClimbCount();
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("tall furniture (220 cm) cannot be climbed (climbing %d)"), GetHider()->IsClimbing()), !GetHider()->IsClimbing() && GetHider()->GetClimbCount() == Before);
+			});
+		} });
+		// 転生のお店で「よじ登る」を上げる：速く登れる・ClimbTwoTierLevel で 2 段の高さ（220cm の家具）にも登れる
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const float SlowSeconds = GM->GetClimbSeconds(INDEX_NONE);
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = GM->ClimbTwoTierLevel;
+			GM->ApplyPrestigeToPlayer();
+			Check(FString::Printf(TEXT("higher climb level is faster (furniture %.2f s -> %.2f s, x%.2f) and reaches two tiers (%.0f cm)"), SlowSeconds, GM->GetClimbSeconds(INDEX_NONE), GM->GetClimbSpeedMultiplier(), GetHider()->ClimbMaxHeight),
+				GM->GetClimbSeconds(INDEX_NONE) < SlowSeconds && GM->CanClimbTwoTiers() && GetHider()->ClimbMaxHeight >= Grid()->GetBlockHeight() * 2.f);
+			StandAt(TallFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("now the tall furniture (220 cm) can be climbed (climbing %d, %.2f s)"), GetHider()->IsClimbing(), GetHider()->GetLastClimbSeconds()), GetHider()->IsClimbing());
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the tall furniture (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), 220.f, 15.f));
+			Shot(TEXT("climb_09_two_tiers"));
+			// 隣に高い壁（3 段）がある 1 段の壁へ、高い壁の側に寄って登る（ユーザーの指摘：隣に壁があると登るのがシビア）
+			PlaceTestWall(SideTarget);
+			for (int32 i = 0; i < 3; ++i)
+			{
+				PlaceTestWall(SideTall);
+			}
+			StandAt(SideFrom, 0.f);
+			GetPawn()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(0.f, -30.f, 0.f), false, nullptr, ETeleportType::TeleportPhysics); // 高い壁の側（-Y）へ 30cm
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("climbs a wall even when a tall wall stands right beside it (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
+			});
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("stands on the wall next to the tall wall (feet %.0f cm)"), FeetHeight()), !GetHider()->IsClimbing() && FMath::IsNearlyEqual(FeetHeight(), Grid()->GetBlockHeight(), 15.f));
+			// 身代わり人形がすぐ横にいても登れる（ユーザーの指摘：おとりが近くにいると登れない）
+			PlaceTestWall(DollTarget);
+			const int32 DollType = GM->FindTrapTypeOfKind(ETrapKind::FakeHider);
+			Grid()->PlaceTrap(DollFrom + FIntPoint(0, 3), DollType, GM->TrapTypes[DollType], 0);
+			StandAt(DollFrom, 0.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const TArray<AHiderCharacter*> Dolls = GM->GetFakeHiders();
+			if (Dolls.Num() > 0)
+			{
+				// 人形をプレイヤーのすぐ横（体がふれるくらい）に立たせる
+				Dolls[0]->SetActorLocation(GetPawn()->GetActorLocation() + FVector(0.f, 45.f, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			Check(TEXT("a fake hider stands right beside the player"), Dolls.Num() > 0);
+		} });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			PressClimb();
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("a fake hider beside the player does not stop climbing (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing());
+			});
+		} });
+	}
+	// ================================================================ Walls（M14：通常壁・消音壁・クライミング壁と、壁の補強）
+	else if (Scenario.Equals(TEXT("Walls"), ESearchCase::IgnoreCase))
+	{
+		struct FWallsState { double HPBefore = 0.0; FIntPoint Cell = FIntPoint::ZeroValue; };
+		TSharedRef<FWallsState> WS = MakeShared<FWallsState>();
+		const int32 LadderType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.bLadder; });
+		const int32 QuietType = GM->WallTypes.IndexOfByPredicate([](const FWallTypeDef& Def) { return Def.NoiseDamping > 0.f; });
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(1000000.0);
+			Check(FString::Printf(TEXT("three wall types: normal, soundproof, climbing (%d)"), GM->WallTypes.Num()),
+				GM->WallTypes.Num() == 3 && LadderType == 2 && QuietType == 1 && !GM->WallTypes[0].bLadder && GM->WallTypes[0].NoiseDamping <= 0.f);
+			// クライミング壁は「よじ登る」を解放するまで買えない
+			const TArray<FShopItemView> Items = GM->GetShopItems();
+			const int32 StockBefore = GS()->WallStock[LadderType];
+			BuyWall(LadderType, 1);
+			Check(FString::Printf(TEXT("the climbing wall is locked before climbing is unlocked (locked %d, stock %d)"), Items[GM->GetShopIndexOfWall(LadderType)].bLocked, GS()->WallStock[LadderType]),
+				Items[GM->GetShopIndexOfWall(LadderType)].bLocked && GS()->WallStock[LadderType] == StockBefore && !Items[GM->GetShopIndexOfWall(0)].bLocked);
+			// 壁の補強：足し算で伸びる（1 レベルで元の耐久の +50%）。説明に「何回で壊れるか」
+			WS->HPBefore = GM->GetEffectiveWallTypes()[0].MaxHP;
+			KakuBuy(3); // 3 番目の商品 = 壁の補強
+			const double After1 = GM->GetEffectiveWallTypes()[0].MaxHP;
+			KakuBuy(3);
+			const double After2 = GM->GetEffectiveWallTypes()[0].MaxHP;
+			const double Step = GM->WallTypes[0].MaxHP * GM->WallReinforcePerLevel;
+			Check(FString::Printf(TEXT("wall reinforcement adds a fixed amount per level (%.2f -> %.2f -> %.2f)"), WS->HPBefore, After1, After2),
+				GS()->WallReinforceLevel == 2 && FMath::IsNearlyEqual(After1 - WS->HPBefore, Step, 0.001) && FMath::IsNearlyEqual(After2 - After1, Step, 0.001));
+			const FString Desc = GM->GetShopItems()[2].Description.ToString();
+			Check(FString::Printf(TEXT("the reinforcement shows the hits to break ('%s')"), *Desc), Desc.Contains(TEXT("回")) && Desc.Contains(UKakurenboLibrary::FormatStatNumber(After2)));
+			// 転生のお店の「壁の硬さ」はかけ算（補強の上に掛かる）
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::WallHP)] = 1;
+			const double WithPrestige = GM->GetEffectiveWallTypes()[0].MaxHP;
+			Check(FString::Printf(TEXT("prestige wall hardness multiplies the reinforced HP (%.2f -> %.2f)"), After2, WithPrestige),
+				FMath::IsNearlyEqual(WithPrestige, After2 * GM->GetPrestigeValue(EPrestigeUpgrade::WallHP, 1), 0.001));
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::WallHP)] = 0;
+			// よじ登るを解放すると、クライミング壁が買える
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
+			BuyWall(0, 2);
+			BuyWall(QuietType, 1);
+			BuyWall(LadderType, 1);
+			Check(FString::Printf(TEXT("after unlocking climbing, the climbing wall can be bought (stock %d)"), GS()->WallStock[LadderType]),
+				GS()->WallStock[LadderType] == 1 && !GM->GetShopItems()[GM->GetShopIndexOfWall(LadderType)].bLocked);
+			Shot(TEXT("walls_01_shop"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			WS->Cell = Me + FIntPoint(2, 0);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y, 0);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y + 2, QuietType);
+			KakuPlaceWall(WS->Cell.X, WS->Cell.Y - 2, LadderType);
+			const APlaceableBlock* Normal = Grid()->GetTopBlock(WS->Cell);
+			const APlaceableBlock* LadderBlock = Grid()->GetTopBlock(WS->Cell - FIntPoint(0, 2));
+			Check(FString::Printf(TEXT("placed walls get the reinforced HP (%.2f, expected %.2f)"), Normal ? Normal->MaxHP : -1.0, GM->GetEffectiveWallTypes()[0].MaxHP),
+				Normal && FMath::IsNearlyEqual(Normal->MaxHP, GM->GetEffectiveWallTypes()[0].MaxHP, 0.001));
+			Check(TEXT("the climbing wall has rungs, the others do not"), LadderBlock && LadderBlock->bLadder && LadderBlock->GetRungCount() > 0 && Normal && Normal->GetRungCount() == 0);
+			GetHider()->AddTopDownTilt(40.f); // 斜めから見る（横木が見えるように）
+		} });
+		Steps.Add({ 1.0f, [=] { Shot(TEXT("walls_02_build")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuShop(); // 購入パートへ戻って補強をもう 1 つ：置いてある壁もすぐ硬くなる
+			const double Before = Grid()->GetTopBlock(WS->Cell)->MaxHP;
+			KakuBuy(3);
+			const double After = Grid()->GetTopBlock(WS->Cell)->MaxHP;
+			Check(FString::Printf(TEXT("placed walls get harder right away (%.2f -> %.2f, expected %.2f)"), Before, After, GM->GetEffectiveWallTypes()[0].MaxHP),
+				FMath::IsNearlyEqual(After, GM->GetEffectiveWallTypes()[0].MaxHP, 0.001) && After > Before);
+		} });
+	}
+	// ================================================================ Gamepad（M14：コントローラーで遊ぶ）
+	else if (Scenario.Equals(TEXT("Gamepad"), ESearchCase::IgnoreCase))
+	{
+		// コントローラーの入力は PlayerController の InputKey を通す（最後に触った機器の切り替えも確かめる）
+		auto PadPress = [this](const FKey& Key)
+		{
+			InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Pressed, 1.f));
+			InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Released, 0.f));
+		};
+		auto PadHold = [this](const FKey& Key, bool bDown) { InputKey(FInputKeyEventArgs::CreateSimulated(Key, bDown ? IE_Pressed : IE_Released, bDown ? 1.f : 0.f)); };
+		auto PadAxis = [this](const FKey& Key, float Value) { InputKey(FInputKeyEventArgs::CreateSimulated(Key, IE_Axis, Value, 1)); };
+		struct FPadState { FVector Pos = FVector::ZeroVector; FRotator Rot = FRotator::ZeroRotator; int32 Mash = 0; FIntPoint Cell = FIntPoint::ZeroValue; int32 Stock = 0; float Volume = 0.f; };
+		TSharedRef<FPadState> PS = MakeShared<FPadState>();
+		Steps.Add({ 3.4f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			KeepOnlyOni(INDEX_NONE); // 鬼に捕まらないように
+			GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f;
+			PS->Pos = GetPawn()->GetActorLocation();
+			SetControlRotation(FRotator(-20.f, 0.f, 0.f));
+			PadAxis(EKeys::Gamepad_LeftY, 1.f); // 左スティックを前へ
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_LeftY, 0.f);
+			const float Moved = FVector::DotProduct(GetPawn()->GetActorLocation() - PS->Pos, FVector::ForwardVector);
+			Check(FString::Printf(TEXT("the left stick walks forward (%.0f cm) and the game switches to the controller (%d)"), Moved, IsUsingGamepad()), Moved > 100.f && IsUsingGamepad());
+			Check(FString::Printf(TEXT("the on-screen controls show controller buttons (climb key '%s')"), *KeyName(EKakurenboAction::Climb)), KeyName(EKakurenboAction::Climb) == TEXT("A"));
+			PS->Rot = GetControlRotation();
+			PadAxis(EKeys::Gamepad_RightX, 1.f); // 右スティックでカメラ
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_RightX, 0.f);
+			const float DYaw = FRotator::NormalizeAxis(GetControlRotation().Yaw - PS->Rot.Yaw);
+			Check(FString::Printf(TEXT("the right stick turns the camera (dYaw %.1f)"), DYaw), DYaw > 40.f);
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			Check(TEXT("the hide controls line shows controller buttons"), HUD && HUD->HasDrawnText(TEXT("[RT] 連打")) && HUD->HasDrawnText(TEXT("[L スティック] 移動")));
+			PS->Mash = GS()->MashCountThisRound;
+			PadPress(EKeys::Gamepad_RightTrigger); // RT：連打
+			PadHold(EKeys::Gamepad_LeftTrigger, true); // LT：しゃがむ
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("RT mashes (%d -> %d), LT crouches (%d)"), PS->Mash, GS()->MashCountThisRound, GetHider()->IsSneaking()),
+					GS()->MashCountThisRound == PS->Mash + 1 && GetHider()->IsSneaking());
+			});
+			Shot(TEXT("gamepad_01_hide"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PadHold(EKeys::Gamepad_LeftTrigger, false);
+			// A：よじ登る（目の前に壁を置く）
+			GS()->PrestigeLevels[static_cast<int32>(EPrestigeUpgrade::Climb)] = 1;
+			GM->ApplyPrestigeToPlayer();
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			PlaceTestWall(Me + FIntPoint(1, 0));
+			GetPawn()->SetActorRotation(FRotator::ZeroRotator);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+			NextTick([=, this] { Check(FString::Printf(TEXT("A climbs (climbing %d)"), GetHider()->IsClimbing()), GetHider()->IsClimbing()); });
+		} });
+		// START：一時停止メニュー。十字キーで選んで A、B でもどる（一時停止中はワールドのタイマーが止まるので実時間で進める）
+		Steps.Add({ 1.4f, [=, this]
+		{
+			PadPress(EKeys::Gamepad_Special_Right);
+			RealDelay(0.3f, [=, this]
+			{
+				Check(FString::Printf(TEXT("START opens the pause menu (menu %d, paused %d)"), static_cast<int32>(GetMenu()), IsPaused()), GetMenu() == EKakurenboMenu::Pause && IsPaused());
+				Check(TEXT("no mouse cursor while using the controller"), !bShowMouseCursor);
+				PadPress(EKeys::Gamepad_DPad_Down);
+				RealDelay(0.2f, [=, this]
+				{
+					Check(TEXT("the first menu item was selected, D-pad down moves to the next"), IsUIFocused(EKakurenboUIAction::MenuItem, 1));
+					PadPress(EKeys::Gamepad_DPad_Down);
+					RealDelay(0.2f, [=, this]
+					{
+						Check(TEXT("D-pad down moves to the settings item"), IsUIFocused(EKakurenboUIAction::MenuItem, static_cast<int32>(EKakurenboPauseItem::Settings)));
+						PadPress(EKeys::Gamepad_FaceButton_Bottom);
+						RealDelay(0.3f, [=, this]
+						{
+							Check(FString::Printf(TEXT("A opens the settings (menu %d)"), static_cast<int32>(GetMenu())), GetMenu() == EKakurenboMenu::Settings);
+							PS->Volume = Settings()->MasterVolume;
+							PadPress(EKeys::Gamepad_DPad_Left);
+							RealDelay(0.2f, [=, this]
+							{
+								Check(FString::Printf(TEXT("the first slider is selected and left turns it down (%.2f -> %.2f)"), PS->Volume, Settings()->MasterVolume),
+									IsUIFocused(EKakurenboUIAction::Slider, 0) && FMath::IsNearlyEqual(Settings()->MasterVolume, PS->Volume - 0.05f, 0.001f));
+								Shot(TEXT("gamepad_02_settings"));
+								RealDelay(0.3f, [=, this]
+								{
+									PadPress(EKeys::Gamepad_FaceButton_Right); // B：もどる
+									RealDelay(0.2f, [=, this]
+									{
+										Check(TEXT("B goes back to the pause menu"), GetMenu() == EKakurenboMenu::Pause);
+										PadPress(EKeys::Gamepad_Special_Right); // START：閉じる
+										RealDelay(0.2f, [=, this] { Check(TEXT("START closes the menu and resumes"), !IsMenuOpen() && !IsPaused()); });
+									});
+								});
+							});
+						});
+					});
+				});
+			});
+		} });
+		// リザルト → 購入（十字キーで選んで A で買う・LB/RB でお店の切り替え）
+		Steps.Add({ 3.0f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Check(TEXT("result: the next button is selected"), GS()->Phase == EKakurenboPhase::Result && IsUIFocused(EKakurenboUIAction::NextPhase, 0));
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A on the next button goes to the shop (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Shop);
+			KakuAddCoins(100000.0);
+			// 設置パートのカーソルの通り道に、自分（スタート位置）や前に置いた壁が無いように
+			Grid()->ClearAllBlocks();
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			PadPress(EKeys::Gamepad_DPad_Down);
+		} });
+		Steps.Add({ 0.2f, [=, this] { PadPress(EKeys::Gamepad_DPad_Down); } });
+		Steps.Add({ 0.2f, [=, this] { PadPress(EKeys::Gamepad_DPad_Down); } });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(TEXT("D-pad moves down the shop list to the first wall"), IsUIFocused(EKakurenboUIAction::ShopItem, GM->GetShopIndexOfWall(0)));
+			PS->Stock = GS()->WallStock[0];
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A buys the selected item (stock %d -> %d)"), PS->Stock, GS()->WallStock[0]), GS()->WallStock[0] == PS->Stock + 1);
+			Shot(TEXT("gamepad_03_shop"));
+			PadPress(EKeys::Gamepad_RightShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("RB switches to the prestige shop"), IsPrestigeShopTab());
+			PadPress(EKeys::Gamepad_LeftShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("LB switches back"), !IsPrestigeShopTab());
+			PadPress(EKeys::Gamepad_FaceButton_Top); // Y：設置へ
+		} });
+		// 設置：左スティックでカーソル（カメラが付いてくる）、A で置く、X で回収、十字キーで 1 マス
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("Y goes to the build phase (%s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Build);
+			PS->Cell = BuildTargetCell;
+			PadAxis(EKeys::Gamepad_LeftX, 1.f);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			PadAxis(EKeys::Gamepad_LeftX, 0.f);
+			Check(FString::Printf(TEXT("the left stick moves the build cursor ((%d,%d) -> (%d,%d))"), PS->Cell.X, PS->Cell.Y, BuildTargetCell.X, BuildTargetCell.Y),
+				bHasBuildTarget && BuildTargetCell != PS->Cell);
+			PS->Cell = BuildTargetCell;
+			PadPress(EKeys::Gamepad_DPad_Right);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 Moved = FMath::Abs(BuildTargetCell.X - PS->Cell.X) + FMath::Abs(BuildTargetCell.Y - PS->Cell.Y);
+			Check(FString::Printf(TEXT("the D-pad moves the cursor one cell ((%d,%d) -> (%d,%d))"), PS->Cell.X, PS->Cell.Y, BuildTargetCell.X, BuildTargetCell.Y), Moved == 1);
+			PS->Stock = GS()->WallStock[0];
+			PS->Cell = BuildTargetCell;
+			PadPress(EKeys::Gamepad_FaceButton_Bottom);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("A places a wall at the cursor (height %d, stock %d -> %d)"), Grid()->GetColumnHeight(PS->Cell), PS->Stock, GS()->WallStock[0]),
+				Grid()->GetColumnHeight(PS->Cell) == 1 && GS()->WallStock[0] == PS->Stock - 1);
+			Shot(TEXT("gamepad_04_build"));
+			PadPress(EKeys::Gamepad_FaceButton_Left);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("X picks it up (height %d, stock %d)"), Grid()->GetColumnHeight(PS->Cell), GS()->WallStock[0]),
+				Grid()->GetColumnHeight(PS->Cell) == 0 && GS()->WallStock[0] == PS->Stock);
+			PadPress(EKeys::Gamepad_RightShoulder);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("RB selects the next item (slot %d)"), SelectedBuildSlot), SelectedBuildSlot == 1);
+			PadPress(EKeys::Gamepad_FaceButton_Right); // B：購入へ戻る
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("B goes back to the shop"), GS()->Phase == EKakurenboPhase::Shop);
+			PadPress(EKeys::Gamepad_FaceButton_Top);
+		} });
+		Steps.Add({ 0.4f, [=, this] { PadPress(EKeys::Gamepad_FaceButton_Top); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			Check(TEXT("Y twice starts hiding"), GS()->Phase == EKakurenboPhase::Hide);
+			// マウスを動かすとキーボード・マウスに戻る
+			InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::MouseX, IE_Axis, 25.f, 1));
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("moving the mouse switches back to keyboard and mouse (gamepad %d, climb key '%s')"), IsUsingGamepad(), *KeyName(EKakurenboAction::Climb)),
+					!IsUsingGamepad() && KeyName(EKakurenboAction::Climb) == TEXT("Space"));
+			});
+		} });
+		// M14：任天堂の配置（設定画面の「コントローラーの配置」）。＋でメニュー、下のボタン（任天堂の B）で戻る
+		Steps.Add({ 0.5f, [=, this]
+		{
+			ToggleSetting(EKakurenboSettingToggle::PadLayout);
+			Check(FString::Printf(TEXT("the settings toggle switches to the Nintendo layout (%d)"), UKakurenboSettings::IsNintendoLayout()), UKakurenboSettings::IsNintendoLayout());
+			PadPress(EKeys::Gamepad_Special_Right); // ＋：メニュー
+			RealDelay(0.3f, [=, this]
+			{
+				Check(FString::Printf(TEXT("nintendo layout: + opens the menu, hints show [A] %s / [B] %s / %s"), *UIKeyLabel(EKakurenboUIKey::Confirm), *UIKeyLabel(EKakurenboUIKey::Cancel),
+					*UIKeyLabel(EKakurenboUIKey::Menu)), GetMenu() == EKakurenboMenu::Pause && UIKeyLabel(EKakurenboUIKey::Menu) == TEXT("[＋]")
+					&& UIKeyLabel(EKakurenboUIKey::Cancel) == TEXT("[B]") && KeyName(EKakurenboAction::Climb) == TEXT("A"));
+				Shot(TEXT("gamepad_nintendo_menu"));
+				PadPress(EKeys::Gamepad_FaceButton_Bottom); // 任天堂の B（下のボタン）：もどる
+				RealDelay(0.3f, [=, this]
+				{
+					Check(FString::Printf(TEXT("nintendo layout: the bottom button (B) closes the menu (menu %d)"), static_cast<int32>(GetMenu())), !IsMenuOpen() && !IsPaused());
+					UKakurenboSettings::SetPadLayout(EKakurenboPadLayout::Xbox);
+				});
+			});
+		} });
+	}
+	// ================================================================ CrouchFind（M14：しゃがむと無敵、にならない。近くではのぞき込まれる・すぐそばでは気配で気づかれる）
+	else if (Scenario.Equals(TEXT("CrouchFind"), ESearchCase::IgnoreCase))
+	{
+		struct FCrouch { TObjectPtr<AStaticMeshActor> Sofa; int32 NoticesBeforeWall = 0; };
+		TSharedRef<FCrouch> C = MakeShared<FCrouch>();
+		const FIntPoint Me(6, 12);
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			GS()->HideTimeRemaining = 600.f;
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			if (Oni)
+			{
+				Oni->Deactivate(); // 見え方だけを調べる（動かない）
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			bTestSneak = true; // しゃがむ
+			// 東側に、ソファくらいの高さ（110cm）の家具を、プレイヤーにくっつけて置く（家具の陰にしゃがむ）
+			UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+			const FVector Floor = Grid()->CellFloorCenter(Me);
+			C->Sofa = GetWorld()->SpawnActor<AStaticMeshActor>(Floor + FVector(85.f, 0.f, 55.f), FRotator::ZeroRotator);
+			C->Sofa->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			C->Sofa->GetStaticMeshComponent()->SetStaticMesh(Cube);
+			C->Sofa->SetActorScale3D(FVector(1.f, 1.f, 1.1f));
+		} });
+		auto PlaceOni = [=, this](float DistanceCm)
+		{
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			const FVector Floor = Grid()->CellFloorCenter(Me);
+			Oni->SetActorLocation(Floor + FVector(DistanceCm, 0.f, Oni->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f)); // プレイヤーの方を向く
+			return Oni;
+		};
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the player is crouching (%d)"), GetHider()->bIsCrouched ? 1 : 0), GetHider()->bIsCrouched);
+			const AOniCharacter* Oni = PlaceOni(800.f);
+			Check(TEXT("from 8 m, a crouching player behind low furniture (110 cm) is hidden"), !Oni->CanSeeTarget());
+			const AOniCharacter* Near = PlaceOni(230.f);
+			Check(TEXT("from 2.3 m, the oni peeks over the furniture and sees the crouching player"), Near->CanSeeTarget());
+			Shot(TEXT("crouchfind_01_peek"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 立っている相手は、壁 1 段（160cm）の陰なら近くても見えない（今まで通り）
+			bTestSneak = false;
+			C->Sofa->SetActorHiddenInGame(true);
+			C->Sofa->SetActorEnableCollision(false);
+			PlaceTestWall(Me + FIntPoint(1, 0));
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the player stands up (%d)"), GetHider()->bIsCrouched ? 1 : 0), !GetHider()->bIsCrouched);
+			const AOniCharacter* Oni = PlaceOni(300.f);
+			Check(TEXT("a standing player behind a one-tier wall is still hidden from 3 m"), !Oni->CanSeeTarget());
+			Grid()->DamageBlocksInRadius(Grid()->CellToWorld(Me + FIntPoint(1, 0), 0), 10.f, 1000.0); // 壁をどける
+			// 気配：見えない（目を閉じた）鬼をすぐそば（1.2m・背を向けて）に置き、動かないようにする
+			bTestSneak = true;
+			AOniCharacter* Sense = PlaceOni(120.f);
+			Sense->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 背を向ける
+			Sense->SightRadius = 0.f;
+			Sense->CloseSenseRadius = 0.f;
+			Sense->HearingRadius = 0.f;
+			Sense->StepHearingRadius = 0.f;
+			Sense->Activate(GetHider());
+			Sense->GetCharacterMovement()->DisableMovement();
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("an oni lingering right next to a hidden player notices them (presence notices %d, notice sounds %d)"), Oni->GetPresenceNoticeCount(), Oni->GetNoticeSoundCount()),
+				Oni->GetPresenceNoticeCount() >= 1 && Oni->GetNoticeSoundCount() >= 1);
+			// 壁 1 段の向こうの気配は伝わらない
+			C->NoticesBeforeWall = Oni->GetPresenceNoticeCount();
+			AOniCharacter* Behind = GM->GetOnis()[0];
+			Behind->Deactivate();
+			PlaceTestWall(Me + FIntPoint(1, 0));
+			PlaceOni(200.f);
+			Behind->Activate(GetHider());
+			Behind->GetCharacterMovement()->DisableMovement();
+			C->Sofa->SetActorLocation(FVector(0.f, 0.f, -5000.f));
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("presence does not pass through a wall (presence %.2f, notices %d -> %d)"), Oni->GetPresence(), C->NoticesBeforeWall, Oni->GetPresenceNoticeCount()),
+				Oni->GetPresenceNoticeCount() == C->NoticesBeforeWall && Oni->GetPresence() < 0.05f);
+			bTestSneak = false;
+		} });
+	}
+	// ================================================================ LowCover（全部の館で、低い家具（椅子・つぼ・テーブルなど）の陰にしゃがんだプレイヤーが、
+	//   家具の向こう側の鬼から見えるか。距離ごとに、今の判定と、手前の家具を見ない前の判定（CrouchCoverReach 0）で数える。のぞき込める距離（2.5m）より遠くからは見えない）
+	else if (Scenario.Equals(TEXT("LowCover"), ESearchCase::IgnoreCase))
+	{
+		constexpr int32 LowCoverDists = 5;
+		struct FLowCover
+		{
+			int32 Total[LowCoverDists] = {};
+			int32 Old[LowCoverDists] = {};
+			int32 Seen[LowCoverDists] = {};
+			TMap<TCHAR, FIntVector> ByKey; // 文字 → (数, 前の判定で見えた, 今の判定で見えた)（2〜3 マス）
+		};
+		static const int32 DistCells[LowCoverDists] = { 1, 2, 3, 4, 6 };
+		TSharedRef<FLowCover> R = MakeShared<FLowCover>();
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 3.3f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				GS()->HideTimeRemaining = 600.f;
+				if (AOniCharacter* Oni = KeepOnlyOni(0))
+				{
+					Oni->Activate(GetHider());
+					Oni->Deactivate(); // 動かさず、見えるかどうかだけ調べる
+				}
+				bTestSneak = true;
+			} });
+			Steps.Add({ 0.6f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				const AKakurenboArena* Arena = GM->GetArena();
+				AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0] : nullptr;
+				AHiderCharacter* Me = GetHider();
+				if (!Oni || !Me || !Me->bIsCrouched)
+				{
+					Check(TEXT("lowcover: oni and crouching player are ready"), false);
+					return;
+				}
+				const FCollisionShape Probe = FCollisionShape::MakeSphere(6.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuLowCover), false, Me);
+				Params.AddIgnoredActor(Oni);
+				const float SavedReach = Oni->CrouchCoverReach;
+				const float OniHalf = Oni->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+				const float MeHalf = Me->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+				auto Open = [G](const FIntPoint& P) { return G->IsWalkable(P); };
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						const TCHAR Key = Arena->GetLayoutChar(C);
+						if (!G->IsObstacle(C) || Key == KakurenboMaps::WallChar || Key == TEXT('.'))
+						{
+							continue;
+						}
+						const FVector Floor = G->CellFloorCenter(C);
+						// 低い家具だけ（1.6m の高さには何も無く、30cm の高さには何かある）
+						bool bLow = false, bTall = false;
+						for (int32 i = 0; i < 5; ++i)
+						{
+							for (int32 j = 0; j < 5; ++j)
+							{
+								const FVector P = Floor + FVector(-40.f + i * 20.f, -40.f + j * 20.f, 0.f);
+								bLow |= GetWorld()->OverlapBlockingTestByChannel(P + FVector(0, 0, 30.f), FQuat::Identity, ECC_Pawn, Probe, Params);
+								bTall |= GetWorld()->OverlapBlockingTestByChannel(P + FVector(0, 0, 160.f), FQuat::Identity, ECC_Pawn, Probe, Params);
+							}
+						}
+						if (!bLow || bTall)
+						{
+							continue;
+						}
+						for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+						{
+							if (!Open(C + D))
+							{
+								continue;
+							}
+							// プレイヤーは家具のすぐ後ろ（家具の面から体の半径ぶん）
+							const FVector Dir(D.X, D.Y, 0.f);
+							const FVector Behind = G->CellFloorCenter(C + D);
+							FHitResult Hit;
+							FVector Spot = Behind;
+							if (GetWorld()->LineTraceSingleByChannel(Hit, Behind + FVector(0, 0, 25.f), Floor + FVector(0, 0, 25.f), ECC_Pawn, Params))
+							{
+								Spot = FVector(Hit.Location.X, Hit.Location.Y, Behind.Z) + Dir * 38.f;
+							}
+							Me->SetActorLocation(Spot + FVector(0, 0, MeHalf + 1.f), false, nullptr, ETeleportType::TeleportPhysics);
+							for (int32 k = 0; k < LowCoverDists; ++k)
+							{
+								// 鬼は家具の反対側、間が空いている床（家具のマスから DistCells マス）
+								bool bClear = true;
+								for (int32 s = 1; s <= DistCells[k] && bClear; ++s)
+								{
+									bClear = Open(C - D * s);
+								}
+								if (!bClear)
+								{
+									break;
+								}
+								const FVector OniFloor = G->CellFloorCenter(C - D * DistCells[k]);
+								Oni->SetActorLocation(OniFloor + FVector(0, 0, OniHalf + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+								Oni->SetActorRotation(Dir.Rotation());
+								Oni->CrouchCoverReach = 0.f;
+								const bool bOld = Oni->CanSeeTarget();
+								Oni->CrouchCoverReach = SavedReach;
+								const bool bSeen = Oni->CanSeeTarget();
+								++R->Total[k];
+								R->Old[k] += bOld ? 1 : 0;
+								R->Seen[k] += bSeen ? 1 : 0;
+								if (k == 1 || k == 2)
+								{
+									FIntVector& K = R->ByKey.FindOrAdd(Key);
+									K.X += 1;
+									K.Y += bOld ? 1 : 0;
+									K.Z += bSeen ? 1 : 0;
+								}
+							}
+						}
+					}
+				}
+				Oni->CrouchCoverReach = SavedReach;
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			bTestSneak = false;
+			for (int32 k = 0; k < LowCoverDists; ++k)
+			{
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] lowcover oni %d cells beyond the furniture: %d spots, seen %d (before the fix %d)"), DistCells[k], R->Total[k], R->Seen[k], R->Old[k]);
+			}
+			FString ByKey;
+			for (const TPair<TCHAR, FIntVector>& Pair : R->ByKey)
+			{
+				ByKey += FString::Printf(TEXT(" %c:%d/%d/%d"), Pair.Key, Pair.Value.X, Pair.Value.Y, Pair.Value.Z);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] lowcover by furniture (spots/seen before the fix/seen now, 2-3 cells):%s"), *ByKey);
+			Check(FString::Printf(TEXT("measured %d spots behind low furniture"), R->Total[0]), R->Total[0] > 100);
+			int32 FarSeen = 0, FarTotal = 0;
+			for (int32 k = 1; k < LowCoverDists; ++k)
+			{
+				FarSeen += R->Seen[k];
+				FarTotal += R->Total[k];
+			}
+			Check(FString::Printf(TEXT("crouching behind low furniture (chairs too) hides the player from 2+ cells away (%d of %d seen)"), FarSeen, FarTotal), FarSeen == 0 && FarTotal > 0);
+			Check(FString::Printf(TEXT("an oni right on the other side still peeks over and sees the player (%d of %d)"), R->Seen[0], R->Total[0]), R->Seen[0] * 10 >= R->Total[0] * 9);
+		} });
+	}
+	// ================================================================ CarefulFind（M14：慎重鬼 2 体が、本物の館（客間）で家具のとなりにしゃがんで隠れたプレイヤーを見つけるまでの時間。
+	//   のぞき込み・気配なし / あり を比べる。約 8 分。探し方を変えたら流して、前と比べる）
+	else if (Scenario.Equals(TEXT("CarefulFind"), ESearchCase::IgnoreCase))
+	{
+		struct FFind { TArray<FIntPoint> Spots; TArray<float> Times; float Start = 0.f; bool bFound = false; };
+		TSharedRef<FFind> F = MakeShared<FFind>();
+		constexpr int32 Variants = 2;
+		constexpr int32 SpotCount = 4;
+		constexpr int32 PollSeconds = 45;
+		static const TCHAR* VariantNames[Variants] = { TEXT("no-peek-presence"), TEXT("peek+presence") };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Careful, EOniType::Careful });
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Rooms");
+			GM->SwitchToMap(TEXT("Rooms"));
+			// 隠れ場所：門から遠い西半分の、家具のとなりの歩けるマス（4 つ。6 マス以上離す）
+			UKakurenboGridSubsystem* G = Grid();
+			const FIntPoint Gate = GM->GetOniGateCells()[0];
+			TArray<TPair<int32, FIntPoint>> Candidates;
+			for (int32 Y = 1; Y < G->GetSizeY() - 1; ++Y)
+			{
+				for (int32 X = 1; X < G->GetSizeX() / 2; ++X)
+				{
+					const FIntPoint P(X, Y);
+					if (!G->IsWalkable(P) || G->IsObstacle(P))
+					{
+						continue;
+					}
+					int32 Furniture = 0;
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const TCHAR Ch = GM->GetArena()->GetLayoutChar(P + D);
+						Furniture += (G->IsObstacle(P + D) && Ch != KakurenboMaps::WallChar) ? 1 : 0;
+					}
+					if (Furniture > 0)
+					{
+						Candidates.Emplace(FMath::Abs(P.X - Gate.X) + FMath::Abs(P.Y - Gate.Y), P);
+					}
+				}
+			}
+			Candidates.Sort([](const TPair<int32, FIntPoint>& A, const TPair<int32, FIntPoint>& B) { return A.Key > B.Key; });
+			for (const TPair<int32, FIntPoint>& Cand : Candidates)
+			{
+				bool bFar = true;
+				for (const FIntPoint& Spot : F->Spots)
+				{
+					bFar &= FMath::Abs(Spot.X - Cand.Value.X) + FMath::Abs(Spot.Y - Cand.Value.Y) >= 6;
+				}
+				if (bFar && F->Spots.Num() < SpotCount)
+				{
+					F->Spots.Add(Cand.Value);
+				}
+			}
+			Check(FString::Printf(TEXT("found %d hiding spots next to furniture"), F->Spots.Num()), F->Spots.Num() == SpotCount);
+			KakuSkipTime(1000.f); // 今のラウンドを終わらせて、試すたびに新しいラウンドで鬼を門から出す
+		} });
+		for (int32 Trial = 0; Trial < Variants * SpotCount; ++Trial)
+		{
+			const int32 Variant = Trial / SpotCount;
+			const int32 SpotIndex = Trial % SpotCount;
+			Steps.Add({ 0.6f, [=, this] { KakuNext(); } }); // → 購入
+			Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+			Steps.Add({ 0.5f, [=, this]
+			{
+				KakuNext(); // → かくれんぼ（鬼は 3 秒後に門から出てくる）
+				F->bFound = false;
+			} });
+			Steps.Add({ 0.3f, [=, this]
+			{
+				GS()->HideTimeRemaining = GS()->HideTimeLimit = 300.f;
+				if (UKakurenboOniBlackboard* BB = GetWorld()->GetSubsystem<UKakurenboOniBlackboard>())
+				{
+					BB->Reset(Grid()->GetSizeX(), Grid()->GetSizeY());
+				}
+				if (F->Spots.IsValidIndex(SpotIndex))
+				{
+					TeleportPlayer(Grid()->CellFloorCenter(F->Spots[SpotIndex]));
+				}
+				bTestSneak = true;
+			} });
+			Steps.Add({ 3.3f, [=, this]
+			{
+				for (AOniCharacter* Oni : GM->GetOnis())
+				{
+					if (Variant == 0)
+					{
+						Oni->PeekRadius = 0.f;
+						Oni->PresenceRadius = 0.f;
+					}
+				}
+				F->Start = GetWorld()->GetTimeSeconds();
+			} });
+			for (int32 Poll = 0; Poll < PollSeconds; ++Poll)
+			{
+				Steps.Add({ 1.0f, [=, this]
+				{
+					if (!F->bFound && GS()->Phase != EKakurenboPhase::Hide)
+					{
+						F->bFound = true;
+						F->Times.Add(GetWorld()->GetTimeSeconds() - F->Start);
+					}
+				} });
+			}
+			Steps.Add({ 0.1f, [=, this]
+			{
+				if (!F->bFound)
+				{
+					F->Times.Add(-1.f); // 見つからなかった
+					KakuSkipTime(1000.f);
+				}
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] carefulfind %s spot %d (%d,%d): %s"), VariantNames[Variant], SpotIndex,
+					F->Spots.IsValidIndex(SpotIndex) ? F->Spots[SpotIndex].X : -1, F->Spots.IsValidIndex(SpotIndex) ? F->Spots[SpotIndex].Y : -1,
+					F->Times.Last() < 0.f ? *FString::Printf(TEXT("not found in %d s"), PollSeconds) : *FString::Printf(TEXT("found after %.0f s"), F->Times.Last()));
+				bTestSneak = false;
+			} });
+		}
+		Steps.Add({ 0.5f, [=, this]
+		{
+			FString Summary;
+			int32 FoundFull = 0;
+			for (int32 i = 0; i < F->Times.Num(); ++i)
+			{
+				Summary += FString::Printf(TEXT(" %s#%d=%s"), VariantNames[i / SpotCount], i % SpotCount, F->Times[i] < 0.f ? TEXT("-") : *FString::Printf(TEXT("%.0fs"), F->Times[i]));
+				FoundFull += (i / SpotCount == Variants - 1 && F->Times[i] >= 0.f) ? 1 : 0;
+			}
+			Check(FString::Printf(TEXT("careful onis find a crouching player hidden next to furniture (the current search finds %d of %d):%s"), FoundFull, SpotCount, *Summary),
+				F->Times.Num() == Variants * SpotCount && FoundFull >= SpotCount - 1);
+		} });
+	}
+	// ================================================================ CameraWall（M14：壁に当たって寄ったカメラは、壁から離れたらゆっくり戻る。グワングワン揺れない）
+	else if (Scenario.Equals(TEXT("CameraWall"), ESearchCase::IgnoreCase))
+	{
+		struct FCam { FIntPoint Spot = FIntPoint(-1, -1); FIntPoint Dir = FIntPoint(1, 0); float Short = 0.f; float Soon = 0.f; };
+		TSharedRef<FCam> Cam = MakeShared<FCam>();
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Crown");
+			GM->SwitchToMap(TEXT("Crown"));
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			GS()->HideTimeRemaining = 600.f;
+			KeepOnlyOni(-1);
+			// 後ろが部屋の壁（#）で、前に 7 マス歩ける場所を探す
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			for (int32 Y = 0; Y < G->GetSizeY() && Cam->Spot.X < 0; ++Y)
+			{
+				for (int32 X = 0; X < G->GetSizeX() && Cam->Spot.X < 0; ++X)
+				{
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint P(X, Y);
+						bool bOpen = Arena->GetLayoutChar(P - D) == KakurenboMaps::WallChar;
+						for (int32 k = 0; k <= 7 && bOpen; ++k)
+						{
+							bOpen = G->IsWalkable(P + D * k) && !G->IsObstacle(P + D * k);
+						}
+						if (bOpen)
+						{
+							Cam->Spot = P;
+							Cam->Dir = D;
+							break;
+						}
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("found a spot with a room wall behind (%d,%d dir %d,%d)"), Cam->Spot.X, Cam->Spot.Y, Cam->Dir.X, Cam->Dir.Y), Cam->Spot.X >= 0);
+			const float Yaw = FVector(Cam->Dir.X, Cam->Dir.Y, 0.f).Rotation().Yaw;
+			TeleportPlayer(G->CellFloorCenter(Cam->Spot));
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-15.f, Yaw, 0.f)); // カメラは後ろ＝壁の方
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			Cam->Short = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("camera moves in front of the wall behind (arm %.0f)"), Cam->Short), Cam->Short < 200.f);
+			Shot(TEXT("camerawall_01_wall_behind"));
+			const float Yaw = FVector(-Cam->Dir.X, -Cam->Dir.Y, 0.f).Rotation().Yaw;
+			SetControlRotation(FRotator(-15.f, Yaw, 0.f)); // 向きを変える：カメラの後ろは 7 マス空いている
+		} });
+		Steps.Add({ 0.12f, [=, this]
+		{
+			Cam->Soon = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("after turning away from the wall the camera eases out instead of jumping (%.0f -> %.0f in 0.12 s)"), Cam->Short, Cam->Soon),
+				Cam->Soon >= Cam->Short - 1.f && Cam->Soon < Cam->Short + 180.f);
+		} });
+		Steps.Add({ 2.5f, [=, this]
+		{
+			const float Late = GetHider()->GetCameraArmLength();
+			Check(FString::Printf(TEXT("the camera returns to its distance (%.0f -> %.0f, wanted %.0f)"), Cam->Short, Late, GetHider()->ThirdPersonDistance),
+				Late > GetHider()->ThirdPersonDistance - 40.f);
+			Shot(TEXT("camerawall_02_open"));
+		} });
+	}
+	// ================================================================ GemShop（M15：お宝で宝石・全部取るとボーナス・宝石のお店・まとめ買い）
+	else if (Scenario.Equals(TEXT("GemShop"), ESearchCase::IgnoreCase))
+	{
+		struct FGemTest { int32 Treasures = 0; int32 GemsBefore = 0; double CoinsBefore = 0.0; int32 MashLevel = 0; };
+		TSharedRef<FGemTest> T = MakeShared<FGemTest>();
+		Steps.Add({ 0.5f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Balanced });
+			T->Treasures = GM->GetTreasures().Num();
+			T->GemsBefore = GS()->Gems;
+			T->CoinsBefore = GS()->Coins;
+			Check(FString::Printf(TEXT("treasures spawned (%d)"), T->Treasures), T->Treasures > 0);
+		} });
+		// お宝を 1 つずつ取りに行く（鬼が出てくる前に）
+		for (int32 i = 0; i < 4; ++i)
+		{
+			Steps.Add({ 0.3f, [=, this]
+			{
+				if (GM->GetTreasures().Num() > 0 && GM->GetTreasures()[0])
+				{
+					TeleportPlayer(GM->GetTreasures()[0]->GetActorLocation());
+				}
+			} });
+		}
+		Steps.Add({ 0.4f, [=, this]
+		{
+			const AKakurenboGameState* S = GS();
+			Check(FString::Printf(TEXT("every treasure gives a gem, plus the complete bonus (gems %d -> %d, treasures %d, bonus %d)"), T->GemsBefore, S->Gems, T->Treasures, GM->GetAllTreasureBonusGems()),
+				S->Gems == T->GemsBefore + T->Treasures * GM->GetGemsPerTreasure() + GM->GetAllTreasureBonusGems() && S->bAllTreasuresThisRound);
+			Check(FString::Printf(TEXT("treasures give no coins (coins %.1f -> %.1f, only time income)"), T->CoinsBefore, S->Coins), S->Coins - T->CoinsBefore < 10.0 && S->TreasureBonusCoinsThisRound == 0.0);
+			Check(TEXT("the complete sound played"), Sound()->GetPlayCount(EKakurenboSfx::Gem) == 1);
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			Check(TEXT("result shows the gems"), GS()->GemsThisRound == T->Treasures * GM->GetGemsPerTreasure() + GM->GetAllTreasureBonusGems());
+			Shot(TEXT("gemshop_01_result"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddCoins(100000.0);
+			T->MashLevel = GS()->MashIncomeLevel;
+			BuyAmount = EKakurenboBuyAmount::Ten;
+		} });
+		// まとめ買い：×10 で連打コイン強化を押す
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(TEXT("the x10 button is shown"), GetHUD<AKakurenboHUD>() && [this] { FVector2D C; return GetHUD<AKakurenboHUD>()->GetButtonCenter(EKakurenboUIAction::BuyAmount, 1, C); }());
+			ClickUI(EKakurenboUIAction::ShopItem, 0);
+			NextTick([=, this]
+			{
+				Check(FString::Printf(TEXT("x10 buys ten levels at once (Lv %d -> %d)"), T->MashLevel, GS()->MashIncomeLevel), GS()->MashIncomeLevel == T->MashLevel + 10);
+			});
+		} });
+		Steps.Add({ 0.3f, [=, this] { Shot(TEXT("gemshop_02_coin_shop_x10")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 買えるだけ：通常壁を押すと、コインが次の 1 個に足りなくなるまで買う
+			ClickUI(EKakurenboUIAction::BuyAmount, 2);
+			NextTick([=, this]
+			{
+				Check(TEXT("max is selected"), BuyAmount == EKakurenboBuyAmount::Max);
+				const int32 Before = GS()->WallStock[0];
+				KakuBuy(GM->GetShopIndexOfWall(0) + 1);
+				Check(FString::Printf(TEXT("max buys as many walls as the coins allow (stock %d -> %d, coins %.0f, next %.0f)"), Before, GS()->WallStock[0], GS()->Coins, GM->GetWallCost(0)),
+					GS()->WallStock[0] > Before + 10 && GS()->Coins < GM->GetWallCost(0));
+				BuyAmount = EKakurenboBuyAmount::One;
+				KakuAddCoins(1000.0);
+			});
+		} });
+		// 宝石のお店
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("the gem tab is clickable"), ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Gem)));
+			NextTick([=, this] { Check(TEXT("clicking the gem tab opens the gem shop"), IsGemShopTab()); });
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("gemshop_03_gem_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			const int32 Items = GM->GetGemShopItems().Num();
+			Check(FString::Printf(TEXT("six gem items (%d)"), Items), Items == 6);
+			// 宝石が足りないと買えない
+			const int32 Gems = GS()->Gems;
+			GS()->Gems = 0;
+			KakuBuyGem(1);
+			Check(TEXT("without gems nothing is bought"), GS()->TrapStock[GM->GetGemShopTrapType(0)] == 0);
+			GS()->Gems = Gems + 60;
+			int32 Spent = 0;
+			for (int32 i = 0; i < Items; ++i)
+			{
+				Spent += GM->GetGemTrapCost(GM->GetGemShopTrapType(i));
+				KakuBuyGem(i + 1);
+			}
+			bool bAll = true;
+			for (int32 i = 0; i < Items; ++i)
+			{
+				bAll &= GS()->TrapStock[GM->GetGemShopTrapType(i)] == 1;
+			}
+			Check(FString::Printf(TEXT("each gem item bought once with gems (spent %d, gems %d -> %d)"), Spent, Gems + 60, GS()->Gems), bAll && GS()->Gems == Gems + 60 - Spent);
+			Check(TEXT("the gem price grows with the number owned"), GM->GetGemTrapCost(GM->GetGemShopTrapType(0)) > GM->TrapTypes[GM->GetGemShopTrapType(0)].Cost);
+			Check(TEXT("gem items are not in the coin shop"), GM->GetShopIndexOfTrap(GM->GetGemShopTrapType(0)) == INDEX_NONE && GM->GetShopItems().Num() == 3 + GM->WallTypes.Num() + 2);
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("gemshop_04_gem_shop_bought")); } });
+		Steps.Add({ 0.3f, [=, this] { CycleShopTab(+1); } });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			Check(TEXT("Tab goes coin -> gem -> prestige"), IsPrestigeShopTab());
+			Shot(TEXT("gemshop_05_prestige_shop"));
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const TArray<int32> Slots = GetBuildSlots();
+			const int32 Daruma = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
+			Check(FString::Printf(TEXT("build slots show the owned gem items but not daruma (%d slots)"), Slots.Num()),
+				Slots.Num() == GM->WallTypes.Num() + 2 + 5 && // 置ける宝石の道具 5 つ（ゴールドラッシュも置く）
+				!Slots.Contains(GM->WallTypes.Num() + Daruma));
+			GetHider()->SetOverheadYaw(0.f);
+		} });
+		Steps.Add({ 0.6f, [=, this] { Shot(TEXT("gemshop_06_build_slots")); } });
+	}
+	// ================================================================ OneWay（M15：一方通行ののれん）
+	else if (Scenario.Equals(TEXT("OneWay"), ESearchCase::IgnoreCase))
+	{
+		struct FOneWayTest { FIntPoint Room, Gate, Outside; int32 Type = INDEX_NONE; FVector BlockedFrom; };
+		TSharedRef<FOneWayTest> T = MakeShared<FOneWayTest>();
+		auto TheGate = [T, Grid]() { return Grid()->GetTrap(T->Gate); };
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::OneWay);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+			Check(TEXT("one-way gate bought with gems"), GS()->TrapStock[T->Type] == 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			UKakurenboGridSubsystem* G = Grid();
+			const FIntPoint Me = G->WorldToCell(GetPawn()->GetActorLocation());
+			// プレイヤーから離れた所に、東だけ開いた部屋（3×3 の壁の輪）。東の開いたマスにのれん（西向き＝鬼は外から中へだけ通れる）
+			T->Room = FIntPoint(FMath::Clamp(Me.X, 4, G->GetSizeX() - 9), Me.Y + (Me.Y < G->GetSizeY() / 2 ? 6 : -6));
+			T->Gate = T->Room + FIntPoint(1, 0);
+			T->Outside = T->Room + FIntPoint(4, 0);
+			// 部屋の壁はとても硬くする（中から出るには、のれんを壊すしかない＝行き止まり）
+			for (int32 DY = -1; DY <= 1; ++DY)
+			{
+				for (int32 DX = -1; DX <= 1; ++DX)
+				{
+					if ((DX != 0 || DY != 0) && !(DX == 1 && DY == 0))
+					{
+						G->PlaceBlock(T->Room + FIntPoint(DX, DY), 0, 1000.0, FLinearColor::Gray);
+					}
+				}
+			}
+			GM->OneWayPlaceDir = 2;
+			KakuPlaceTrap(T->Gate.X, T->Gate.Y, T->Type);
+			Check(FString::Printf(TEXT("gate placed facing west (dir %d)"), G->GetTrapDir(T->Gate)), TheGate() && G->GetTrapDir(T->Gate) == 2);
+			TArray<FIntPoint> Path;
+			FKakurenboPathGrid Walk = G->BuildWalkGrid();
+			Check(TEXT("onis can walk in through the gate"), KakurenboPathfinding::FindPath(Walk, T->Outside, T->Room, Path) && Path.Contains(T->Gate));
+			Check(TEXT("onis cannot walk out through the gate"), !KakurenboPathfinding::FindPath(Walk, T->Room, T->Outside, Path));
+			// 置いたのれんをクリックすると 90 度ずつ回る（2 回で東向き＝逆）
+			Check(TEXT("rotate the gate"), GM->RotateTrap(T->Gate) && GM->RotateTrap(T->Gate) && G->GetTrapDir(T->Gate) == 0);
+			Walk = G->BuildWalkGrid();
+			Check(TEXT("after rotating, onis can only walk out"), !KakurenboPathfinding::FindPath(Walk, T->Outside, T->Room, Path) && KakurenboPathfinding::FindPath(Walk, T->Room, T->Outside, Path));
+			GM->RotateTrap(T->Gate);
+			GM->RotateTrap(T->Gate);
+			GetHider()->SetTopDownFocus(G->CellFloorCenter(T->Room));
+			GetHider()->TopDownDistance = 1400.f;
+		} });
+		Steps.Add({ 0.6f, [=] { Shot(TEXT("oneway_01_build")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			// プレイヤーはどちらからでも通れる：外から中へ、中から外へ（のれんを通り抜ける）
+			ACharacter* Player = Cast<ACharacter>(GetPawn());
+			const float Z = Player->GetActorLocation().Z;
+			const FVector Out = Grid()->CellFloorCenter(T->Gate + FIntPoint(1, 0));
+			const FVector In = Grid()->CellFloorCenter(T->Room);
+			const FVector Start = Player->GetActorLocation();
+			Player->SetActorLocation(FVector(In.X, In.Y, Z), false, nullptr, ETeleportType::TeleportPhysics);
+			const bool bOut = Player->SetActorLocation(FVector(Out.X, Out.Y, Z), true) && FVector::Dist2D(Player->GetActorLocation(), Out) < 5.f;
+			const bool bIn = Player->SetActorLocation(FVector(In.X, In.Y, Z), true) && FVector::Dist2D(Player->GetActorLocation(), In) < 5.f;
+			Check(TEXT("the player passes the gate both ways"), bOut && bIn);
+			Player->SetActorLocation(Start, false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		// 鬼：矢印の向き（外 → 中）なら通れる
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			MakeBlindListener(Oni);
+			Oni->SetActorLocation(Grid()->CellFloorCenter(T->Outside) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// 外から押しても箱にぶつかる（向きが逆の側からは通れない）を先に確かめる：中から外へ動かしてみる
+			const FVector In = Grid()->CellFloorCenter(T->Room) + FVector(0.f, 0.f, Oni->GetActorLocation().Z - Grid()->CellFloorCenter(T->Room).Z);
+			Oni->DebugGoTo(T->Room);
+		} });
+		Steps.Add({ 3.5f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("the oni walked in through the gate (cell %d,%d, passes %d)"), Grid()->WorldToCell(Oni->GetActorLocation()).X, Grid()->WorldToCell(Oni->GetActorLocation()).Y, TheGate() ? TheGate()->GetPassCount() : -1),
+				Grid()->WorldToCell(Oni->GetActorLocation()) == T->Room && TheGate() && TheGate()->GetPassCount() == 1);
+			LookAtOni();
+			ShotLater(TEXT("oneway_02_inside"));
+			// 中から外へは、のれんを通れない（壁を壊すしかない）。まっすぐ押し出してみる
+			const FVector From = Oni->GetActorLocation();
+			const FVector To = Grid()->CellFloorCenter(T->Gate + FIntPoint(1, 0)) + FVector(0.f, 0.f, From.Z - Grid()->CellFloorCenter(T->Room).Z);
+			Oni->SetActorLocation(To, true);
+			Check(FString::Printf(TEXT("the gate blocks the oni going the wrong way (stopped %.0f cm short)"), FVector::Dist2D(Oni->GetActorLocation(), To)), FVector::Dist2D(Oni->GetActorLocation(), To) > 60.f);
+			Oni->SetActorLocation(From, false, nullptr, ETeleportType::TeleportPhysics);
+			Check(FString::Printf(TEXT("passing does not wear the gate out, and it is twice as hard as a normal wall (HP %.1f, wall %.1f)"), TheGate()->GetGateHP(), GM->GetEffectiveWallTypes()[0].MaxHP),
+				FMath::IsNearlyEqual(TheGate()->GetGateHP(), GM->GetEffectiveWallTypes()[0].MaxHP * 2.0, 0.01));
+			// 中から外へ出たい：ほかに道が無い（行き止まり）ので、のれんを壊して出る
+			Oni->DebugGoTo(T->Outside);
+		} });
+		Steps.Add({ 2.f, [=, this]
+		{
+			const ATrapActor* Gate = TheGate();
+			Check(FString::Printf(TEXT("in a dead end the oni attacks the gate (HP %.1f, state %s)"), Gate ? Gate->GetGateHP() : -1.0, *UEnum::GetValueAsString(GM->GetOnis()[0]->GetOniState())),
+				Gate && Gate->GetGateHP() < GM->GetOneWayMaxHP());
+		} });
+		Steps.Add({ 8.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the gate is broken (live %d, design %d)"), TheGate() ? 1 : 0, Grid()->GetTrapDesign(T->Gate)),
+				!TheGate() && Grid()->GetTrapDesign(T->Gate) == T->Type && GS()->TrapsTriggeredThisRound >= 1);
+			Check(TEXT("the walls are untouched (the gate was the only way)"), Grid()->GetColumnHeight(T->Room + FIntPoint(-1, 0)) == 1 && Grid()->GetColumnHeight(T->Room + FIntPoint(0, 1)) == 1);
+		} });
+	}
+	// ================================================================ Darkness（M15：真っ暗ブロック。館じゅうが暗く、1 ラウンドで壊れる）
+	else if (Scenario.Equals(TEXT("Darkness"), ESearchCase::IgnoreCase))
+	{
+		struct FDarkTest { FIntPoint Cell; int32 Type = INDEX_NONE; };
+		TSharedRef<FDarkTest> T = MakeShared<FDarkTest>();
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::Darkness);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			T->Cell = Grid()->WorldToCell(GetPawn()->GetActorLocation()) + FIntPoint(2, 2);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(TEXT("darkness block placed"), Grid()->GetTrap(T->Cell) != nullptr);
+		} });
+		Steps.Add({ 0.4f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.4f, [=, this]
+		{
+			Check(TEXT("the whole mansion is dark this round"), GM->IsMansionDark());
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Oni->Deactivate(); // その場に立たせて、見えるかだけ調べる
+			const FVector Me = GetPawn()->GetActorLocation();
+			const FVector Far = Me + FVector(600.f, 0.f, 0.f);
+			Oni->SetActorLocation(FVector(Far.X, Far.Y, Me.Z + 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			Check(FString::Printf(TEXT("in the dark the oni cannot see 6 m away (sight %.0f)"), Oni->GetEffectiveSightRadius()), !Oni->DebugCanSeeTarget() && Oni->GetEffectiveSightRadius() <= 300.f);
+			Oni->SetActorLocation(FVector(Me.X + 220.f, Me.Y, Me.Z + 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Check(TEXT("but it still sees 2 m away"), Oni->DebugCanSeeTarget());
+			// 真っ暗の間は、プレイヤーの懐中電灯が体の前を照らす（鬼の方を向かせて写す）
+			GetHider()->SetActorRotation(FRotator(0.f, 0.f, 0.f));
+			Check(TEXT("the player's flashlight is on and the body glows in the dark"), GetHider()->IsFlashlightOn() && GetHider()->IsBodyGlowOn());
+			LookAtOni();
+			ShotLater(TEXT("darkness_01_dark"));
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(TEXT("after the round the darkness block is used up (design stays)"), !Grid()->GetTrap(T->Cell) && Grid()->GetTrapDesign(T->Cell) == T->Type && !GM->IsMansionDark());
+			Check(TEXT("the flashlight and the glow turn off after the round"), !GetHider()->IsFlashlightOn() && !GetHider()->IsBodyGlowOn());
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			KakuNext(); // → 設置（在庫から置き直す）
+			Check(TEXT("the second darkness block refills from stock"), Grid()->GetTrap(T->Cell) != nullptr && GS()->TrapStock[T->Type] == 0);
+		} });
+	}
+	// ================================================================ GoldRush（宝石のお店のゴールドラッシュ・転生のお店のお金アップ）
+	else if (Scenario.Equals(TEXT("GoldRush"), ESearchCase::IgnoreCase))
+	{
+		struct FGoldTest { int32 Type = INDEX_NONE; double Mash0 = 0.0; double Time0 = 0.0; double MashCoinsBefore = 0.0; FIntPoint Cell; };
+		TSharedRef<FGoldTest> T = MakeShared<FGoldTest>();
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			T->Mash0 = GM->GetMashIncome();
+			T->Time0 = GM->GetTimeIncomePerSecond();
+			// 転生のお店：お金アップを 1 つ（連打・時間・逃げ切りの報酬が全部増える）
+			const double Reward0 = GM->GetClearReward();
+			GS()->PrestigePoints = 10;
+			ShopTab = EKakurenboShopTab::Prestige;
+			KakuBuyPrestige(static_cast<int32>(EPrestigeUpgrade::Income) + 1);
+			const double Income = GM->GetPrestigeValue(EPrestigeUpgrade::Income);
+			Check(FString::Printf(TEXT("prestige: income x%.2f (mash %.2f -> %.2f, time %.2f -> %.2f, reward %.0f -> %.0f)"), Income, T->Mash0, GM->GetMashIncome(), T->Time0, GM->GetTimeIncomePerSecond(), Reward0, GM->GetClearReward()),
+				GM->GetPrestigeLevel(EPrestigeUpgrade::Income) == 1 && Income > 1.0
+				&& FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * Income) && FMath::IsNearlyEqual(GM->GetTimeIncomePerSecond(), T->Time0 * Income)
+				&& FMath::IsNearlyEqual(GM->GetClearReward(), Reward0 * Income));
+			Check(TEXT("the prestige shop lists every upgrade once (one income upgrade)"), GM->GetPrestigeShopItems().Num() == static_cast<int32>(EPrestigeUpgrade::Count));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_01_prestige_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 宝石のお店：ゴールドラッシュを 1 個
+			ShopTab = EKakurenboShopTab::Gem;
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::GoldRush);
+			KakuAddGems(30);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+			Check(FString::Printf(TEXT("gold rush bought with gems (stock %d), placeable like the darkness block"), GS()->TrapStock.IsValidIndex(T->Type) ? GS()->TrapStock[T->Type] : -1),
+				GS()->TrapStock.IsValidIndex(T->Type) && GS()->TrapStock[T->Type] == 1 && GM->IsPlaceableTrap(T->Type) && !GM->IsGoldRushActive());
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Gem)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_02_gem_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → 設置
+			// 自分のそばに置く（置いたらそのかくれんぼで発動）
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			T->Cell = FIntPoint(FMath::Clamp(Me.X - 2, 1, Grid()->GetSizeX() - 2), Me.Y);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(FString::Printf(TEXT("gold rush placed (stock %d)"), GS()->TrapStock[T->Type]), Grid()->GetTrap(T->Cell) != nullptr && GS()->TrapStock[T->Type] == 0);
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("goldrush_03_placed")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Check(FString::Printf(TEXT("a placed gold rush works this round (active %d)"), GM->IsGoldRushActive()), GM->IsGoldRushActive());
+		} });
+		Steps.Add({ 3.5f, [=, this]
+		{
+			KeepOnlyOni(0)->SetActorLocation(FVector(0.f, 0.f, -5000.f), false, nullptr, ETeleportType::TeleportPhysics); // 鬼はじゃまをしない
+			T->MashCoinsBefore = GS()->MashCoinsThisRound;
+			SimulateKey(EKeys::LeftMouseButton, IE_Pressed);
+			SimulateKey(EKeys::LeftMouseButton, IE_Released);
+			NextTick([=, this]
+			{
+				const double Got = GS()->MashCoinsThisRound - T->MashCoinsBefore;
+				const double Expected = T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::Income) * GM->GoldRushMashMultiplier;
+				Check(FString::Printf(TEXT("one mash during gold rush gives x%.0f coins (%.2f, expected %.2f)"), GM->GoldRushMashMultiplier, Got, Expected), FMath::IsNearlyEqual(Got, Expected, 0.01));
+			});
+		} });
+		Steps.Add({ 0.5f, [=, this] { Shot(TEXT("goldrush_04_hiding")); } });
+		Steps.Add({ 0.3f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			// 真っ暗ブロックと同じく 1 ラウンドで壊れる（設計図は残る）
+			Check(FString::Printf(TEXT("gold rush ends with the round and breaks (live %d, design %d)"), Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell)),
+				!GM->IsGoldRushActive() && Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
+			// 値段は、壊れて持っている数が 0 に戻っても、このラン（転生するまで）は上がったまま
+			Check(FString::Printf(TEXT("the gold rush price stays raised for the run (cost %d, base %.0f, bought %d)"), GM->GetGemTrapCost(T->Type), GM->TrapTypes[T->Type].Cost, GS()->GoldRushBoughtThisRun),
+				GM->GetOwnedTrapCount(T->Type) == 0 && GS()->GoldRushBoughtThisRun == 1
+				&& FMath::IsNearlyEqual(GM->GetTrapCost(T->Type), GM->TrapTypes[T->Type].Cost * GM->TrapTypes[T->Type].CostGrowth, 0.01));
+			KakuNext(); // → 購入
+		} });
+		Steps.Add({ 0.3f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			Check(FString::Printf(TEXT("without stock there is no gold rush next round (mash %.2f)"), GM->GetMashIncome()),
+				!GM->IsGoldRushActive() && FMath::IsNearlyEqual(GM->GetMashIncome(), T->Mash0 * GM->GetPrestigeValue(EPrestigeUpgrade::Income)));
+		} });
+	}
+	// ================================================================ Cat（M15：迷い猫）
+	else if (Scenario.Equals(TEXT("Cat"), ESearchCase::IgnoreCase))
+	{
+		struct FCatTest { FIntPoint Cell; int32 Type = INDEX_NONE; FVector PlayerStart = FVector::ZeroVector; TWeakObjectPtr<ATrapActor> Cat; };
+		TSharedRef<FCatTest> T = MakeShared<FCatTest>();
+		// 鬼に当たった猫はグリッドから外れる（壊れた扱い）ので、置いた猫を覚えておく
+		auto TheCat = [T]() { return T->Cat.Get(); };
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Treasure }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::Cat);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			T->Cell = FIntPoint(FMath::Clamp(Me.X - 7, 2, Grid()->GetSizeX() - 3), Me.Y);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			T->Cat = Grid()->GetTrap(T->Cell);
+			Check(TEXT("cat placed"), TheCat() != nullptr);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ
+			T->Cat = Grid()->GetTrap(T->Cell); // かくれんぼの始めに置き直されていても追えるように
+			// 鬼が出てくる前に、猫を近くから写す（見た目の確認）
+			const FVector Cat = TheCat()->GetGadgetLocation();
+			T->PlayerStart = GetPawn()->GetActorLocation();
+			TeleportPlayer(Cat + FVector(-220.f, 120.f, 0.f));
+			SetControlRotation(FRotator(-12.f, (Cat - GetPawn()->GetActorLocation()).Rotation().Yaw, 0.f));
+			GetHider()->ThirdPersonDistance = 250.f;
+		} });
+		TSharedRef<FVector> CatAtShot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 1.5f, [=, this]
+		{
+			*CatAtShot = TheCat()->GetGadgetLocation();
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] cat yaw %.0f, camera yaw %.0f (the face should point this way)"), TheCat()->GetCatYaw(), PlayerCameraManager->GetCameraRotation().Yaw);
+			Shot(TEXT("cat_00_closeup"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 写真の中で猫がどちらへ歩いているか（顔の向きと合っているかを写真と見比べる）
+			FVector2D A, B;
+			ProjectWorldLocationToScreen(*CatAtShot, A, true);
+			ProjectWorldLocationToScreen(TheCat()->GetGadgetLocation(), B, true);
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] cat walks on screen from (%.0f, %.0f) to (%.0f, %.0f)"), A.X, A.Y, B.X, B.Y);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			GetHider()->ThirdPersonDistance = 550.f;
+			TeleportPlayer(T->PlayerStart);
+			// 宝物鬼（ふだんは連打もおとりも聞かない）を猫の 5 m 先へ
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Oni->SetActorLocation(Grid()->CellFloorCenter(T->Cell + FIntPoint(0, 5)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 7.f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("the cat meows (%d)"), TheCat() ? TheCat()->GetMeowCount() : -1), TheCat() && TheCat()->GetMeowCount() >= 1);
+			Check(FString::Printf(TEXT("even the treasure oni comes and pets the cat (pets %d, intent %s)"), TheCat() ? TheCat()->GetPetCount() : -1, *UEnum::GetValueAsString(Oni->GetIntent())),
+				TheCat() && TheCat()->GetPetCount() >= 1);
+			// 鬼に当たった猫は、壊れた壁と同じでその場でグリッドから外れる（設計図は残る）
+			Check(FString::Printf(TEXT("a cat touched by an oni counts as broken right away (on grid %d, design %d)"), Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell)),
+				Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type && Grid()->GetMissingTrapCount(T->Type) == 1);
+			LookAtOni();
+			ShotLater(TEXT("cat_01_petting"));
+		} });
+		Steps.Add({ 0.1f, [=, this]
+		{
+			Check(TEXT("a petting oni cannot catch the player"), GM->GetOnis()[0]->GetOniState() == EOniState::Stunned || TheCat()->GetPetCount() >= 1);
+			// なで終わった鬼にぶつかって見つかると、ラウンドが終わって猫が使い切りになる（この後の確かめができない）ので、鬼から離れておく
+			const TArray<FIntPoint> Far = Grid()->FindSpreadFreeCells({ GM->GetOnis()[0]->GetActorLocation() }, 1);
+			if (Far.Num() > 0)
+			{
+				TeleportPlayer(Grid()->CellFloorCenter(Far[0]) + FVector(0.f, 0.f, GetHider()->GetSimpleCollisionHalfHeight() + 2.f));
+			}
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		Steps.Add({ 5.5f, [=, this]
+		{
+			// なで終わったら、猫はその鬼の頭の上に乗る（もうなでられない）
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("after petting, the cat rides on the oni's head (pets %d)"), TheCat() ? TheCat()->GetPetCount() : -1),
+				TheCat() && TheCat()->IsOnOniHead() && TheCat()->GetGadgetLocation().Z > Oni->GetActorLocation().Z + 50.f && TheCat()->GetPetCount() == 1);
+			LookAtOni();
+			ShotLater(TEXT("cat_02_on_head"));
+		} });
+		Steps.Add({ 3.f, [=, this]
+		{
+			Check(TEXT("the cat cannot be petted again"), TheCat() && TheCat()->GetPetCount() == 1 && TheCat()->IsOnOniHead());
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			// 壊れた猫はかくれんぼが終わると消える（在庫が無ければ、次の設置パートで赤い枠）
+			Check(FString::Printf(TEXT("a broken cat is gone after the round (live %d, on grid %d, design %d, stock %d)"), TheCat() != nullptr, Grid()->GetTrap(T->Cell) != nullptr, Grid()->GetTrapDesign(T->Cell), GS()->TrapStock[T->Type]),
+				TheCat() == nullptr && Grid()->GetTrap(T->Cell) == nullptr && Grid()->GetTrapDesign(T->Cell) == T->Type);
+		} });
+	}
+	// ================================================================ FakeHider（M15：身代わり人形）
+	else if (Scenario.Equals(TEXT("FakeHider"), ESearchCase::IgnoreCase))
+	{
+		struct FFakeTest { FIntPoint Cell; int32 Type = INDEX_NONE; FVector Home; int32 Steps = 0; };
+		TSharedRef<FFakeTest> T = MakeShared<FFakeTest>();
+		auto TheFake = [GM]() -> AFakeHiderCharacter* { const TArray<AHiderCharacter*> F = GM->GetFakeHiders(); return F.Num() > 0 ? Cast<AFakeHiderCharacter>(F[0]) : nullptr; };
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::FakeHider);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			// プレイヤーは隅、人形は真ん中
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			T->Cell = FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			GM->FakeHiderPlaceDir = 0; // 東向きに置いて
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(TEXT("the fake hider stands on its cell"), TheFake() != nullptr);
+			// のれんと同じく、置いた人形をクリック（RotateTrap）すると 90 度回る → 南（+Y）向き
+			GM->RotateTrap(T->Cell);
+			Check(FString::Printf(TEXT("clicking a placed fake hider turns it (dir %d, yaw %.0f, next %d)"), Grid()->GetTrapDir(T->Cell), TheFake() ? TheFake()->GetActorRotation().Yaw : -1.f, GM->FakeHiderPlaceDir),
+				Grid()->GetTrapDir(T->Cell) == 1 && TheFake() && FMath::IsNearlyEqual(TheFake()->GetActorRotation().Yaw, 90.f, 1.f) && GM->FakeHiderPlaceDir == 1);
+			if (TheFake())
+			{
+				T->Home = TheFake()->GetActorLocation();
+			}
+			GetHider()->SetTopDownFocus(Grid()->CellFloorCenter(T->Cell));
+			GetHider()->TopDownDistance = 1200.f;
+			GetHider()->TopDownPitch = -50.f;
+		} });
+		Steps.Add({ 0.8f, [=] { Shot(TEXT("fake_01_build")); } });
+		Steps.Add({ 0.3f, [=, this] { GetHider()->TopDownPitch = -90.f; KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.3f, [=, this]
+		{
+			// 鬼を人形の 4 m 東に、人形の方を向けて立たせる（プレイヤーは遠い隅）
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Oni->ChaseSpeed = 300.f; // 追いつかないように遅く（逃げるところを見る）
+			const FVector Fake = TheFake()->GetActorLocation();
+			Oni->SetActorLocation(Fake + FVector(400.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			T->Steps = GS()->StepsThisRound;
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			AFakeHiderCharacter* Fake = TheFake();
+			Check(FString::Printf(TEXT("the oni chases the fake hider (intent %s, chasing player %d)"), *UEnum::GetValueAsString(Oni->GetIntent()), Oni->IsChasingPlayer() ? 1 : 0),
+				Fake && Oni->GetIntent() == EOniState::Chase && Oni->GetChaseTarget() == Fake);
+			// 鬼は東にいるが、人形は置いた向き（南 = +Y）へ逃げる
+			const FVector Moved = Fake ? (Fake->GetActorLocation() - T->Home) * FVector(1.f, 1.f, 0.f) : FVector::ZeroVector;
+			Check(FString::Printf(TEXT("the fake hider flees the way it faces (moved %.0f cm, flee dir (%.2f, %.2f), moved dir (%.2f, %.2f))"), Moved.Size(),
+				Fake ? Fake->GetFleeDirection().X : 0.f, Fake ? Fake->GetFleeDirection().Y : 0.f, Moved.GetSafeNormal().X, Moved.GetSafeNormal().Y),
+				Fake && Fake->IsFleeing() && Moved.Size() > 150.f && Fake->GetFleeDirection().Y > 0.9f && Moved.GetSafeNormal().Y > 0.8f);
+			Check(FString::Printf(TEXT("the fake hider makes loud noise while fleeing (%d)"), Fake ? Fake->GetNoiseCount() : -1), Fake && Fake->GetNoiseCount() >= 1);
+			// 2026-10-19：逃げながら歩幅ごとにドタドタ鳴る（音を立てる回数より多い）
+			Check(FString::Printf(TEXT("the fake hider clatters every stride (steps %d, noises %d)"), Fake ? Fake->GetStepCount() : -1, Fake ? Fake->GetNoiseCount() : -1),
+				Fake && Fake->GetStepCount() > Fake->GetNoiseCount() && Sound()->GetPlayCount(EKakurenboSfx::DollStep) >= Fake->GetStepCount());
+			Check(TEXT("the fake hider's steps are not the player's steps"), GS()->StepsThisRound == T->Steps);
+			LookAtOni();
+			ShotLater(TEXT("fake_02_fleeing"));
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			// 鬼を人形に触れさせる → 「にせもの！」で人形は消え、プレイヤーは見つかっていない
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			Oni->SetActorLocation(TheFake()->GetActorLocation() + FVector(40.f, 0.f, 10.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(TEXT("caught fake hider disappears (design stays)"), !TheFake() && !Grid()->GetTrap(T->Cell) && Grid()->GetTrapDesign(T->Cell) == T->Type);
+			Check(FString::Printf(TEXT("the oni gives up and the player is safe (phase %s, intent %s)"), *UEnum::GetValueAsString(GS()->Phase), *UEnum::GetValueAsString(Oni->GetIntent())),
+				GS()->Phase == EKakurenboPhase::Hide && Oni->GetIntent() != EOniState::Chase);
+		} });
+	}
+	// ================================================================ DetectorDoll（探知鬼が身代わり人形を見つけても、画面に「見つかった」を出さない）
+	else if (Scenario.Equals(TEXT("DetectorDoll"), ESearchCase::IgnoreCase))
+	{
+		struct FDollTest { FIntPoint Cell; int32 Type = INDEX_NONE; int32 Popups = 0; int32 Summons = 0; };
+		TSharedRef<FDollTest> T = MakeShared<FDollTest>();
+		auto TheFake = [GM]() -> AFakeHiderCharacter* { const TArray<AHiderCharacter*> F = GM->GetFakeHiders(); return F.Num() > 0 ? Cast<AFakeHiderCharacter>(F[0]) : nullptr; };
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Detector }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			T->Type = GM->FindTrapTypeOfKind(ETrapKind::FakeHider);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(T->Type) + 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+			// 人形は門（東）から見えない隅に置く（出てきた探知鬼がすぐ見つけないように）
+			T->Cell = FIntPoint(3, Grid()->GetSizeY() - 3);
+			KakuPlaceTrap(T->Cell.X, T->Cell.Y, T->Type);
+			Check(TEXT("the fake hider stands on its cell"), TheFake() != nullptr);
+		} });
+		Steps.Add({ 0.3f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.15f, [=, this]
+		{
+			// 出てきた探知鬼は、見張りの場所へ行く途中で人形を見つけないよう、いったん目を閉じる
+			for (AOniCharacter* Oni : GM->GetOnis())
+			{
+				Oni->SightRadius = 0.f;
+			}
+		} });
+		Steps.Add({ 0.4f, [=, this]
+		{
+			// 探知鬼を人形の 4 マス東に置いて、そこを見張りの場所にし、人形の方を向かせる（プレイヤーは遠い隅）
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			const FIntPoint Post(T->Cell.X + 4, T->Cell.Y);
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// まだ門から歩いている途中なら止める（残った速度の向きへ体が回って、見ている向きが変わらないように）
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
+			Watcher->SetGuardCell(Post);
+			Watcher->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			Watcher->SightRadius = 1500.f;
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			T->Popups = HUD ? HUD->GetPopupCount() : 0;
+			T->Summons = GS()->SummonsThisRound;
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			Check(FString::Printf(TEXT("the detector spots the fake hider and calls (summons %d -> %d, doll %d)"), T->Summons, GS()->SummonsThisRound, Watcher->WasLastSummonForDoll()),
+				GS()->SummonsThisRound > T->Summons && Watcher->WasLastSummonForDoll());
+			Check(TEXT("the summon sound plays"), Sound()->GetPlayCount(EKakurenboSfx::Summon) >= 1);
+			Check(FString::Printf(TEXT("no 'spotted' popup and no '!' for the doll (popups %d -> %d)"), T->Popups, HUD ? HUD->GetPopupCount() : -1),
+				HUD && HUD->GetPopupCount() <= T->Popups && Watcher->GetChaseStartTime() < 0.f);
+			Shot(TEXT("detectordoll_01"));
+		} });
+	}
+	// ================================================================ DetectorEar（探知鬼は連打の音がした方へ振り向き、見つけたら仲間を呼ぶ）
+	else if (Scenario.Equals(TEXT("DetectorEar"), ESearchCase::IgnoreCase))
+	{
+		struct FEarTest { FVector Player; int32 Summons = 0; int32 SummonsAtSetup = 0; };
+		TSharedRef<FEarTest> T = MakeShared<FEarTest>();
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Detector });
+			// 見張りの場所へ歩いている間に見つからないよう、門から遠い隅で待つ（見つけると 5 秒は仲間を呼べない）
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			Check(FString::Printf(TEXT("the detector hears mashing from far (hearing %.0f, base %.0f)"), Watcher->HearingRadius, GM->GetOniHearingRadius()),
+				Watcher->HearingRadius >= GM->GetOniHearingRadius() * 1.5f);
+			// 真ん中を見張りの場所にして、首を回さないようにする（音で振り向くかだけを見る）
+			const FIntPoint Post(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			// まだ門から歩いている途中なら止める（残った速度の向きへ体が回って、見ている向きが変わらないように）
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
+			Watcher->SetGuardCell(Post);
+			Watcher->ScanDegreesPerSecond = 0.f;
+			Watcher->SetActorRotation(FRotator(0.f, 0.f, 0.f)); // 東を向く
+			Watcher->SightRadius = 1500.f;
+			// 歩いている途中にプレイヤーを見つけていても、ここからやり直す（仲間を呼ぶ 5 秒の待ちも戻す）
+			Watcher->Activate(GetHider());
+			T->SummonsAtSetup = GS()->SummonsThisRound;
+			TeleportPlayer(Grid()->CellFloorCenter(Post + FIntPoint(-5, 0))); // 真後ろ（西）5 マス
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			T->Player = GetPawn()->GetActorLocation();
+			T->Summons = GS()->SummonsThisRound;
+			Check(FString::Printf(TEXT("the detector does not see the player behind it (summons %d -> %d, at post %d)"), T->SummonsAtSetup, T->Summons, Watcher->IsAtGuardPost()), T->Summons == T->SummonsAtSetup && Watcher->IsAtGuardPost());
+			KakuMash(1);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			const float Facing = FVector::DotProduct(Watcher->GetActorForwardVector().GetSafeNormal2D(), (T->Player - Watcher->GetActorLocation()).GetSafeNormal2D());
+			Check(FString::Printf(TEXT("hearing the mash, the detector turns toward it (facing %.2f) and calls the others (summons %d)"), Facing, GS()->SummonsThisRound),
+				Facing > 0.8f && GS()->SummonsThisRound > T->Summons);
+			LookAtOni();
+			Shot(TEXT("detectorear_01"));
+		} });
+	}
+	// ================================================================ DetectorClear（探知鬼は見張りの場所のまわりの壁を壊す）
+	else if (Scenario.Equals(TEXT("DetectorClear"), ESearchCase::IgnoreCase))
+	{
+		// 見張りの場所のまわり（となり・2 マス先）に壁を置くと、探知鬼が壊して視線を通す。攻撃の届かない 3 マス先の壁は壊さない（いつまでも攻撃し続けない）
+		struct FClear { FIntPoint Post = FIntPoint::ZeroValue; FVector At = FVector::ZeroVector; };
+		TSharedRef<FClear> T = MakeShared<FClear>();
+		auto Near = [](const FIntPoint& Post) { return TArray<FIntPoint>{ Post + FIntPoint(1, 0), Post + FIntPoint(-1, 1), Post + FIntPoint(0, -2), Post + FIntPoint(-2, 0) }; };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			SetStageOniTypes({ EOniType::Detector });
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(1, 1)));
+		} });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Watcher = KeepOnlyOni(0);
+			Check(FString::Printf(TEXT("the detector is fast and breaks walls quickly in a wide circle (speed x%.2f, windup %.2f s, radius %.0f, damage %.1f)"),
+				GM->GetOniTypeRow(EOniType::Detector).SpeedScale, Watcher->AttackWindup, Watcher->AttackRadius, Watcher->AttackDamage),
+				GM->GetOniTypeRow(EOniType::Detector).SpeedScale > 1.f && Watcher->AttackWindup < GM->GetOniTypeRow(EOniType::Balanced).AttackWindup
+				&& Watcher->AttackRadius >= 200.f && GM->GetOniTypeRow(EOniType::Detector).DamageScale > GM->GetOniTypeRow(EOniType::Balanced).DamageScale);
+			T->Post = FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			for (const FIntPoint& Cell : Near(T->Post))
+			{
+				PlaceTestWall(Cell);
+			}
+			PlaceTestWall(T->Post + FIntPoint(0, 3)); // 届かない
+			Watcher->SightRadius = 0.f;
+			Watcher->HearingRadius = 0.f;
+			Watcher->SetActorLocation(Grid()->CellFloorCenter(T->Post) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Watcher->GetCharacterMovement()->StopMovementImmediately();
+			Watcher->SetGuardCell(T->Post);
+			Watcher->Activate(GetHider());
+			Watcher->bDrawDebug = true;
+			T->At = Watcher->GetActorLocation();
+			SetControlRotation(FRotator(-70.f, 0.f, 0.f));
+			TeleportPlayer(Grid()->CellFloorCenter(T->Post + FIntPoint(-6, 0)));
+		} });
+		Steps.Add({ 5.0f, [=, this]
+		{
+			const AOniCharacter* Watcher = GM->GetOnis()[0];
+			int32 Left = 0;
+			for (const FIntPoint& Cell : Near(T->Post))
+			{
+				Left += Grid()->GetColumnHeight(Cell) > 0 ? 1 : 0;
+			}
+			Log(TEXT("after"));
+			Check(FString::Printf(TEXT("the detector broke the walls around its post (left %d / 4, tries %d, destroyed %d)"), Left, Watcher->GetGuardClearCount(), GS()->LastRoundWallsDestroyed),
+				Left == 0 && Watcher->GetGuardClearCount() >= 1);
+			Check(FString::Printf(TEXT("a wall out of reach is left alone and the detector is back to watching (far wall %d, state %s)"),
+				Grid()->GetColumnHeight(T->Post + FIntPoint(0, 3)), *UEnum::GetValueAsString(Watcher->GetIntent())),
+				Grid()->GetColumnHeight(T->Post + FIntPoint(0, 3)) > 0 && Watcher->GetIntent() != EOniState::Attack);
+			Check(FString::Printf(TEXT("the detector stays at its post (moved %.0f cm)"), FVector::Dist2D(Watcher->GetActorLocation(), T->At)),
+				Watcher->IsAtGuardPost() && FVector::Dist2D(Watcher->GetActorLocation(), T->At) < 60.f);
+			LookAtOni();
+			Shot(TEXT("detectorclear_01"));
+		} });
+	}
+	// ================================================================ Exclaim（見つけたとき頭の上の玉が「!」になる）
+	else if (Scenario.Equals(TEXT("Exclaim"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Scout }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			const FIntPoint Me(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2);
+			TeleportPlayer(Grid()->CellFloorCenter(Me));
+			// 鬼をプレイヤーの東 4 マスに、こちらを向けて置く（追いかけても捕まえないくらい遅く）
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Me + FIntPoint(4, 0)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->GetCharacterMovement()->StopMovementImmediately();
+			Oni->SetActorRotation(FRotator(0.f, 180.f, 0.f));
+			Oni->Activate(GetHider());
+			Oni->WanderSpeed = Oni->InvestigateSpeed = Oni->ChaseSpeed = 1.f;
+			SetControlRotation(FRotator(-15.f, 0.f, 0.f)); // 東（鬼の方）を向く
+			// 出てきてから見つけていても、Activate でやり直す（「!」も消える）
+			Check(TEXT("no exclamation before it spots you (reset by Activate)"), Oni->GetChaseStartTime() < 0.f);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			const AKakurenboHUD* HUD = GetHUD<AKakurenboHUD>();
+			const bool bLabel = HUD && HUD->GetWorldLabels().ContainsByPredicate([](const FKakurenboWorldLabel& L) { return L.Text == TEXT("！"); });
+			Check(FString::Printf(TEXT("spotting the player turns the head ball into a '!' (intent %s, shown %d, ball hidden %d)"),
+				*UEnum::GetValueAsString(Oni->GetIntent()), Oni->IsExclaimShown() ? 1 : 0, Oni->TypeMarker->bHiddenInGame ? 1 : 0),
+				Oni->GetIntent() == EOniState::Chase && Oni->IsExclaimShown() && Oni->TypeMarker->bHiddenInGame);
+			Check(TEXT("the text interface still gets the '！' label"), bLabel);
+			Shot(TEXT("exclaim_01_spotted"));
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			const AOniCharacter* Oni = GM->GetOnis()[0];
+			Check(FString::Printf(TEXT("the '!' goes back to the ball after a while (shown %d, ball hidden %d, model %d)"), Oni->IsExclaimShown() ? 1 : 0, Oni->TypeMarker->bHiddenInGame ? 1 : 0, Oni->UsesSkeletalMesh() ? 1 : 0),
+				!Oni->IsExclaimShown() && Oni->TypeMarker->bHiddenInGame == !Oni->UsesSkeletalMesh());
+			Shot(TEXT("exclaim_02_after"));
+		} });
+	}
+	// ================================================================ Daruma（M15：だるまさんがころんだ）
+	else if (Scenario.Equals(TEXT("Daruma"), ESearchCase::IgnoreCase))
+	{
+		// 使った瞬間に視界にいた鬼（前の鬼 A）だけ 3 秒止まる。後ろの鬼 B は止まらない。止まった A は、目をそらしても 3 秒たつまで動かない
+		// （ユーザーの指摘：「全然弱い。これで敵を巻くことができない」）
+		struct FDarumaTest { FVector AAt; FVector BAt; };
+		TSharedRef<FDarumaTest> T = MakeShared<FDarumaTest>();
+		auto OniA = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		auto OniB = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 1 ? GM->GetOnis()[1].Get() : nullptr; };
+		// プレイヤーの体とカメラを鬼 A の方（bToward）/ 反対へ向ける（だるまさんがころんだはカメラではなく体の向きで見る）
+		auto FaceA = [this, OniA](bool bToward)
+		{
+			const FVector To = (OniA()->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D();
+			const float Yaw = (bToward ? To : -To).Rotation().Yaw;
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(-25.f, Yaw, 0.f));
+		};
+		auto UseByKey = [SimulateKey]()
+		{
+			SimulateKey(EKeys::G, IE_Pressed);
+			SimulateKey(EKeys::G, IE_Released);
+		};
+		Steps.Add({ 0.5f, [=, this] { SetStageOniTypes({ EOniType::Balanced, EOniType::Balanced }); KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			KakuAddGems(30);
+			const int32 Type = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Type) + 1);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Type) + 1);
+			Check(FString::Printf(TEXT("2 darumas bought (%d)"), GS()->TrapStock[Type]), GS()->TrapStock[Type] == 2);
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2))); } }); // → 設置
+		Steps.Add({ 0.4f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.3f, [=, this]
+		{
+			// 鬼 A を 9 m 前（東）、鬼 B を 9 m 後ろ（西）に置く。体とカメラは A の方
+			Check(TEXT("two onis"), OniA() && OniB());
+			for (AOniCharacter* Oni : { OniA(), OniB() })
+			{
+				MakeBlindListener(Oni);
+			}
+			OniA()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(900.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			OniB()->SetActorLocation(GetPawn()->GetActorLocation() + FVector(-900.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+			FaceA(true);
+			Check(TEXT("daruma can be used"), GM->CanUseDaruma());
+			UseByKey();
+		} });
+		Steps.Add({ 0.2f, [=, this]
+		{
+			Check(FString::Printf(TEXT("pressing G calls daruma-san ga koronda (%.1f s, %d onis frozen)"), GM->GetDarumaTimeLeft(), GM->GetDarumaFrozenCount()),
+				GM->IsDarumaActive() && GM->GetDarumaTimeLeft() <= 3.f && GM->GetDarumaFrozenCount() == 1);
+			// A はプレイヤーへ、B はプレイヤーから離れる方（北）へ向かわせる
+			OniA()->DebugGoTo(Grid()->WorldToCell(GetPawn()->GetActorLocation()));
+			OniB()->DebugGoTo(Grid()->WorldToCell(OniB()->GetActorLocation()) + FIntPoint(0, -6));
+			T->AAt = OniA()->GetActorLocation();
+			T->BAt = OniB()->GetActorLocation();
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the oni in view when used cannot move (moved %.0f cm, frozen %d)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt), OniA()->IsDarumaFrozen() ? 1 : 0),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) < 30.f && OniA()->IsDarumaFrozen());
+			Check(FString::Printf(TEXT("the oni behind the player is not frozen (moved %.0f cm, frozen %d)"), FVector::Dist2D(OniB()->GetActorLocation(), T->BAt), OniB()->IsDarumaFrozen() ? 1 : 0),
+				FVector::Dist2D(OniB()->GetActorLocation(), T->BAt) > 40.f && !OniB()->IsDarumaFrozen());
+			Shot(TEXT("daruma_01_frozen"));
+		} });
+		Steps.Add({ 0.1f, [=, this]
+		{
+			// 背を向けて逃げる（体もカメラも反対へ）。止まった鬼は止まったまま
+			FaceA(false);
+			T->AAt = OniA()->GetActorLocation();
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			Check(FString::Printf(TEXT("looking away does not release the frozen oni (moved %.0f cm, frozen %d, %.1f s left)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt),
+				OniA()->IsDarumaFrozen() ? 1 : 0, GM->GetDarumaTimeLeft()),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) < 30.f && OniA()->IsDarumaFrozen());
+		} });
+		Steps.Add({ 1.3f, [=, this]
+		{
+			// 3 秒たったら動き出す
+			Check(FString::Printf(TEXT("after 3 s the oni moves again (moved %.0f cm, frozen %d, active %d)"), FVector::Dist2D(OniA()->GetActorLocation(), T->AAt), OniA()->IsDarumaFrozen() ? 1 : 0, GM->IsDarumaActive() ? 1 : 0),
+				FVector::Dist2D(OniA()->GetActorLocation(), T->AAt) > 40.f && !OniA()->IsDarumaFrozen() && !GM->IsDarumaActive());
+			FaceA(true);
+			UseByKey();
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 止まっている鬼でも、ぶつかれば見つかる（無敵ではない）
+			AOniCharacter* Oni = OniA();
+			Check(TEXT("the second daruma freezes the oni again"), Oni->IsDarumaFrozen());
+			TeleportPlayer(Oni->GetActorLocation() - (Oni->GetActorLocation() - GetPawn()->GetActorLocation()).GetSafeNormal2D() * 70.f);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("bumping into a frozen oni still gets you found (phase %s)"), *UEnum::GetValueAsString(GS()->Phase)), GS()->Phase == EKakurenboPhase::Result && !GS()->bLastRoundCleared);
+		} });
+	}
+	// ================================================================ Showcase（紹介用のスクリーンショット。本物のステージ 10（大広間）で、お店・設置・追われる・だるまさんがころんだ・お宝を撮る。テストではない）
+	else if (Scenario.Equals(TEXT("Showcase"), ESearchCase::IgnoreCase))
+	{
+		struct FShowcase { FIntPoint BuildCell; FIntPoint BuildDir; FIntPoint HideCell; FIntPoint HideDir; };
+		TSharedRef<FShowcase> T = MakeShared<FShowcase>();
+		constexpr int32 ShowStage = 10;
+		// まっすぐ開けた場所を探す：Cell から Dir の向きに Len マス（後ろ 2 マス・bWide なら左右 1 マスも）歩ける。家具が近くにあるほどよい（Avoid から 8 マス以内は使わない）
+		auto FindRunOnce = [Grid](int32 Len, bool bWide, const TArray<FIntPoint>& Avoid, FIntPoint& OutCell, FIntPoint& OutDir) -> bool
+		{
+			const UKakurenboGridSubsystem* G = Grid();
+			int32 BestScore = -1;
+			for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+			{
+				for (int32 X = 0; X < G->GetSizeX(); ++X)
+				{
+					const FIntPoint C(X, Y);
+					bool bNear = false;
+					for (const FIntPoint& A : Avoid)
+					{
+						bNear |= FMath::Max(FMath::Abs(A.X - C.X), FMath::Abs(A.Y - C.Y)) < 8;
+					}
+					if (bNear)
+					{
+						continue;
+					}
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint Side(D.Y, D.X);
+						bool bOpen = true;
+						for (int32 k = -2; k <= Len && bOpen; ++k)
+						{
+							for (int32 s = bWide ? -1 : 0; s <= (bWide ? 1 : 0) && bOpen; ++s)
+							{
+								bOpen = G->IsWalkable(C + D * k + Side * s);
+							}
+						}
+						if (!bOpen)
+						{
+							continue;
+						}
+						// 道の真ん中のまわり（3 マス以内）の家具の数
+						const FIntPoint Mid = C + D * (Len / 2);
+						int32 Score = 0;
+						for (int32 dy = -3; dy <= 3; ++dy)
+						{
+							for (int32 dx = -3; dx <= 3; ++dx)
+							{
+								Score += G->IsObstacle(Mid + FIntPoint(dx, dy)) ? 1 : 0;
+							}
+						}
+						if (Score > BestScore)
+						{
+							BestScore = Score;
+							OutCell = C;
+							OutDir = D;
+						}
+					}
+				}
+			}
+			return BestScore >= 0;
+		};
+		// 見つからなければ、短く・細くして探し直す（館によって部屋の広さが違う）
+		auto FindRun = [FindRunOnce](int32 Len, const TArray<FIntPoint>& Avoid, FIntPoint& OutCell, FIntPoint& OutDir) -> bool
+		{
+			return FindRunOnce(Len, true, Avoid, OutCell, OutDir) || FindRunOnce(Len, false, Avoid, OutCell, OutDir)
+				|| FindRunOnce(Len - 3, true, Avoid, OutCell, OutDir) || FindRunOnce(Len - 3, false, Avoid, OutCell, OutDir)
+				|| FindRunOnce(Len - 5, false, {}, OutCell, OutDir);
+		};
+		// プレイヤーの体とカメラを Dir の向きへ
+		auto FaceDir = [this](const FIntPoint& Dir, float Pitch)
+		{
+			const float Yaw = FVector(Dir.X, Dir.Y, 0.f).Rotation().Yaw;
+			GetPawn()->SetActorRotation(FRotator(0.f, Yaw, 0.f));
+			SetControlRotation(FRotator(Pitch, Yaw, 0.f));
+		};
+
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } }); // ステージ 1 を逃げ切って結果へ
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入。ここでステージ 10 にして、その館へ
+			GS()->Stage = ShowStage;
+			GM->SwitchToMap(GM->GetMapNameForStage(ShowStage));
+			GS()->NoticeUntilTime = 0.f; // ステージ 2 の館に入ったお知らせは消す
+			Check(FString::Printf(TEXT("stage %d uses its own mansion (%s)"), ShowStage, *GM->GetCurrentMapName().ToString()), GM->GetCurrentMapName() == GM->GetMapNameForStage(ShowStage) && !GM->GetCurrentMapName().IsNone());
+			KakuAddCoins(5.0e7);
+			for (int32 i = 0; i < 12; ++i) { KakuBuy(1); } // 連打コイン強化
+			for (int32 i = 0; i < 6; ++i) { KakuBuy(2); }  // 時間コイン強化
+			for (int32 i = 0; i < 3; ++i) { KakuBuy(3); }  // 壁の補強
+			BuyWall(0, 11);
+			BuyWall(1, 4);
+			BuyTrap(0, 2);
+			BuyTrap(1, 1);
+			KakuAddGems(60);
+			const int32 Daruma = GM->FindTrapTypeOfKind(ETrapKind::Daruma);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Daruma) + 1);
+			KakuBuyGem(GM->GetGemShopIndexOfTrap(Daruma) + 1);
+			KakuAddCoins(1.2e8 - GS()->Coins); // 画面のコインを大きな数に
+			Check(FString::Printf(TEXT("darumas bought (%d)"), GS()->TrapStock[Daruma]), GS()->TrapStock[Daruma] >= 1);
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("showcase_01_shop")); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置。家具の多い部屋に、壁で囲んだ隠れ家と罠を置く
+			// 隠れ家の場所：中の 3×3 と罠を置くマスが空いていて、外まわりの輪（16 マス）もほとんど空いている（家具が壁の代わりになってもよい）。
+			// 輪が空いているほど、まわり（4 マス以内）に家具が多いほどよい。門のそばは避ける
+			{
+				const UKakurenboGridSubsystem* G = Grid();
+				const FIntPoint Gate(G->GetSizeX() - 1, G->GetSizeY() / 2);
+				int32 BestScore = -1;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						bool bFree = FMath::Max(FMath::Abs(C.X - Gate.X), FMath::Abs(C.Y - Gate.Y)) > 6;
+						int32 RingFree = 0;
+						for (int32 dy = -2; dy <= 2 && bFree; ++dy)
+						{
+							for (int32 dx = -2; dx <= 2 && bFree; ++dx)
+							{
+								const bool bRing = FMath::Max(FMath::Abs(dx), FMath::Abs(dy)) == 2;
+								const bool bWalk = G->IsWalkable(C + FIntPoint(dx, dy));
+								RingFree += (bRing && bWalk) ? 1 : 0;
+								bFree = bRing || bWalk;
+							}
+						}
+						bFree = bFree && RingFree >= 13;
+						for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+						{
+							const FIntPoint Side(D.Y, D.X);
+							if (!bFree || !G->IsWalkable(C + D * 3) || !G->IsWalkable(C + D * 4 + Side * 2))
+							{
+								continue;
+							}
+							int32 Score = RingFree * 100;
+							for (int32 dy = -4; dy <= 4; ++dy)
+							{
+								for (int32 dx = -4; dx <= 4; ++dx)
+								{
+									Score += G->IsObstacle(C + FIntPoint(dx, dy)) ? 1 : 0;
+								}
+							}
+							if (Score > BestScore)
+							{
+								BestScore = Score;
+								T->BuildCell = C - D * 2;
+								T->BuildDir = D;
+							}
+						}
+					}
+				}
+				Check(TEXT("an open 5x5 spot for the hideout"), BestScore >= 0);
+			}
+			const FIntPoint A = T->BuildCell + T->BuildDir * 2;
+			KakuSetStart(A.X, A.Y);
+			int32 Placed = 0;
+			for (int32 dy = -2; dy <= 2; ++dy)
+			{
+				for (int32 dx = -2; dx <= 2; ++dx)
+				{
+					const FIntPoint Off(dx, dy);
+					if (FMath::Max(FMath::Abs(dx), FMath::Abs(dy)) != 2 || Off == T->BuildDir * 2)
+					{
+						continue; // 外まわりの輪だけ。前に 1 マスの出入り口
+					}
+					KakuPlaceWall(A.X + dx, A.Y + dy, Placed < 11 ? 0 : 1);
+					++Placed;
+				}
+			}
+			const FIntPoint Side(T->BuildDir.Y, T->BuildDir.X);
+			const FIntPoint Sticky = A + T->BuildDir * 3;
+			const FIntPoint Decoy = A + T->BuildDir * 4 + Side * 2;
+			KakuPlaceTrap(Sticky.X, Sticky.Y, 0);
+			KakuPlaceTrap(Decoy.X, Decoy.Y, 1);
+			GetHider()->TopDownPitch = -62.f; // 少し傾けて、壁の高さが分かるように
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] showcase build at (%d,%d) dir (%d,%d), %d walls on the grid"), A.X, A.Y, T->BuildDir.X, T->BuildDir.Y, Grid()->GetBlockCount());
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("showcase_02_build")); } });
+		Steps.Add({ 0.5f, [=, this] { GetHider()->TopDownPitch = -90.f; KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 3.6f, [=, this]
+		{
+			// 鬼が出てきた。1 体だけ残し、別の開けた場所でプレイヤーの先（まっすぐ歩ける所まで・最大 11 マス）に置いて追いかけさせる
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Check(TEXT("an oni came out"), Oni != nullptr);
+			// 門（東の端の真ん中）のそばは赤い明かりで画面が真っ赤になるので避ける
+			const FIntPoint Gate(Grid()->GetSizeX() - 1, Grid()->GetSizeY() / 2);
+			Check(TEXT("an open spot for the chase"), FindRun(12, { T->BuildCell, Gate }, T->HideCell, T->HideDir));
+			int32 Run = 0;
+			while (Run < 11 && Grid()->IsWalkable(T->HideCell + T->HideDir * (Run + 1)))
+			{
+				++Run;
+			}
+			TeleportPlayer(Grid()->CellFloorCenter(T->HideCell));
+			FaceDir(T->HideDir, -14.f);
+			const FIntPoint From = T->HideCell + T->HideDir * Run;
+			Oni->SetActorLocation(Grid()->CellFloorCenter(From) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator(0.f, FVector(-T->HideDir.X, -T->HideDir.Y, 0.f).Rotation().Yaw, 0.f));
+			Oni->DebugGoTo(T->HideCell);
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] showcase hide at (%d,%d) dir (%d,%d), oni %d cells ahead"), T->HideCell.X, T->HideCell.Y, T->HideDir.X, T->HideDir.Y, Run);
+		} });
+		Steps.Add({ 0.45f, [=, this] { Shot(TEXT("showcase_03_chase")); } });
+		Steps.Add({ 0.05f, [=, this]
+		{
+			// 向かってくる鬼に、だるまさんがころんだ（G）
+			FaceDir(T->HideDir, -14.f);
+			SimulateKey(EKeys::G, IE_Pressed);
+			SimulateKey(EKeys::G, IE_Released);
+		} });
+		Steps.Add({ 0.35f, [=, this]
+		{
+			Check(FString::Printf(TEXT("daruma froze the oni (%d)"), GM->GetDarumaFrozenCount()), GM->GetDarumaFrozenCount() == 1);
+			Shot(TEXT("showcase_04_daruma"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// お宝：鬼は遠くへ。いちばん近いお宝の 3 マス手前から見る
+			if (AOniCharacter* Oni = GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr)
+			{
+				Oni->Deactivate();
+				Oni->SetActorLocation(FVector(0.f, 0.f, -5000.f));
+			}
+			const ATreasureActor* Best = nullptr;
+			for (const ATreasureActor* Treasure : GM->GetTreasures())
+			{
+				if (Treasure && (!Best || FVector::Dist2D(Treasure->GetActorLocation(), GetPawn()->GetActorLocation()) < FVector::Dist2D(Best->GetActorLocation(), GetPawn()->GetActorLocation())))
+				{
+					Best = Treasure;
+				}
+			}
+			Check(TEXT("there is a treasure"), Best != nullptr);
+			if (!Best)
+			{
+				return;
+			}
+			const FIntPoint TC = Grid()->WorldToCell(Best->GetActorLocation());
+			for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+			{
+				if (Grid()->IsWalkable(TC + D * 3) && Grid()->IsWalkable(TC + D * 2) && Grid()->IsWalkable(TC + D * 4))
+				{
+					// お宝の方を向き、カメラは少し横から（体の真後ろだとお宝が体に隠れる）
+					TeleportPlayer(Grid()->CellFloorCenter(TC + D * 3));
+					FaceDir(FIntPoint(-D.X, -D.Y), -22.f);
+					SetControlRotation(GetControlRotation() + FRotator(0.f, 28.f, 0.f));
+					break;
+				}
+			}
+		} });
+		Steps.Add({ 3.f, [=, this] { Shot(TEXT("showcase_05_treasure")); } }); // だるまさんがころんだの表示が消えてから
+	}
+	// ================================================================ Intuition（鬼の勘：見えず聞こえずでも、プレイヤーのそばへ来やすい）
+	else if (Scenario.Equals(TEXT("Intuition"), ESearchCase::IgnoreCase))
+	{
+		// 目も耳も使わない鬼を、勘 1（毎回プレイヤーのそばへ）と勘 0（でたらめにうろうろ）で 20 秒ずつ歩かせ、プレイヤーとの距離の平均を比べる
+		struct FIntuitionTest { FVector Player; double SumDist = 0.0; int32 Samples = 0; int32 HunchesBefore = 0; double AvgWith = 0.0; int32 HunchesWith = 0; };
+		TSharedRef<FIntuitionTest> T = MakeShared<FIntuitionTest>();
+		auto TheOni = [GM]() -> AOniCharacter* { return GM->GetOnis().Num() > 0 ? GM->GetOnis()[0].Get() : nullptr; };
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 種類ごとの勘：スピード鬼は低め・慎重鬼は高め・宝物鬼は無し・ほかは普通
+			const float Balanced = GM->GetOniTypeRow(EOniType::Balanced).Intuition;
+			const float Scout = GM->GetOniTypeRow(EOniType::Scout).Intuition;
+			const float Careful = GM->GetOniTypeRow(EOniType::Careful).Intuition;
+			Check(FString::Printf(TEXT("intuition: scout %.2f < balanced %.2f < careful %.2f; breaker / treasure / detector are normal (%.2f %.2f %.2f)"), Scout, Balanced, Careful,
+				GM->GetOniTypeRow(EOniType::Breaker).Intuition, GM->GetOniTypeRow(EOniType::Treasure).Intuition, GM->GetOniTypeRow(EOniType::Detector).Intuition),
+				Scout < Balanced && Balanced < Careful && GM->GetOniTypeRow(EOniType::Breaker).Intuition == Balanced
+				&& GM->GetOniTypeRow(EOniType::Treasure).Intuition == 0.f && GM->GetOniTypeRow(EOniType::Detector).Intuition == Balanced);
+			// 勘は最後の駆け引き：たまにしか働かない（確率が低く、働いたらしばらく働かない）
+			Check(FString::Printf(TEXT("intuition is rare: careful %.2f <= 0.3, cooldown %.0f s"), Careful, GetMutableDefault<AOniCharacter>()->IntuitionCooldown),
+				Careful <= 0.3f && GetMutableDefault<AOniCharacter>()->IntuitionCooldown >= 10.f);
+			SetStageOniTypes({ EOniType::Careful });
+			TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(2, 2)));
+		} });
+		Steps.Add({ 3.5f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Check(FString::Printf(TEXT("a spawned careful oni has its intuition (%.2f)"), Oni ? Oni->Intuition : -1.f), Oni && FMath::IsNearlyEqual(Oni->Intuition, GM->GetOniTypeRow(EOniType::Careful).Intuition));
+			// 目も耳も気配も使わない。プレイヤーは舞台の上の空中に止める（触れられてラウンドが終わらないように）。距離は上から見た距離で測る
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Oni->HearingRadius = 0.f;
+			Oni->StepHearingRadius = 0.f;
+			Oni->DecoyHearingRadius = 0.f;
+			Oni->PocketInspectChance = 0.f;
+			Oni->bDrawDebug = true;
+			if (ACharacter* P = Cast<ACharacter>(GetPawn()))
+			{
+				P->GetCharacterMovement()->DisableMovement();
+				P->SetActorLocation(P->GetActorLocation() + FVector(0.f, 0.f, 1500.f), false, nullptr, ETeleportType::TeleportPhysics);
+			}
+			T->Player = GetPawn()->GetActorLocation();
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		for (int32 Phase = 0; Phase < 2; ++Phase)
+		{
+			const bool bWith = Phase == 0; // 勘 1 は待ち時間も 0 にして、毎回プレイヤーのそばへ行かせる
+			Steps.Add({ 0.2f, [=, this]
+			{
+				// 鬼を門の前（プレイヤーと反対の隅）へ戻して、勘を決める
+				AOniCharacter* Oni = TheOni();
+				const TArray<FIntPoint> Gate = GM->GetArena()->GetOniGateCells();
+				Oni->SetActorLocation(Grid()->CellFloorCenter(Gate[0]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+				Oni->Intuition = bWith ? 1.f : 0.f;
+				Oni->IntuitionCooldown = 0.f;
+				Oni->DebugGoTo(Gate[0] + FIntPoint(-1, 0)); // 今の行き先を捨てて、すぐ次の行き先を決めさせる
+				T->SumDist = 0.0;
+				T->Samples = 0;
+				T->HunchesBefore = Oni->GetHunchCount();
+			} });
+			for (int32 i = 0; i < 20; ++i)
+			{
+				Steps.Add({ 1.f, [=, this]
+				{
+					T->SumDist += FVector::Dist2D(TheOni()->GetActorLocation(), T->Player);
+					++T->Samples;
+				} });
+			}
+			Steps.Add({ 0.f, [=, this]
+			{
+				const double Avg = T->SumDist / FMath::Max(1, T->Samples);
+				const int32 Hunches = TheOni()->GetHunchCount() - T->HunchesBefore;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] intuition %s: average distance %.0f cm, %d hunches, phase %s"), bWith ? TEXT("1.0") : TEXT("0.0"), Avg, Hunches, *UEnum::GetValueAsString(GS()->Phase));
+				if (bWith)
+				{
+					T->AvgWith = Avg;
+					T->HunchesWith = Hunches;
+					Check(FString::Printf(TEXT("with intuition the oni heads near the player without seeing or hearing (%d hunches)"), Hunches), Hunches >= 3);
+					LookAtOni();
+					Shot(TEXT("intuition_01_near"));
+				}
+				else
+				{
+					Check(FString::Printf(TEXT("without intuition no hunches (%d)"), Hunches), Hunches == 0);
+					Check(FString::Printf(TEXT("with intuition the oni stays much closer to the player (avg %.0f cm vs %.0f cm without)"), T->AvgWith, Avg), T->AvgWith < Avg * 0.6);
+				}
+			} });
+		}
+		// 待ち時間：勘 1 でも、一度働いたら IntuitionCooldown の間は働かない
+		Steps.Add({ 0.2f, [=, this]
+		{
+			AOniCharacter* Oni = TheOni();
+			Oni->Intuition = 1.f;
+			Oni->IntuitionCooldown = 15.f; // 勘 1 の最後の勘は 20 秒以上前なので、すぐ 1 回は働く
+			const TArray<FIntPoint> Gate = GM->GetArena()->GetOniGateCells();
+			Oni->SetActorLocation(Grid()->CellFloorCenter(Gate[0]) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->DebugGoTo(Gate[0] + FIntPoint(-1, 0));
+			T->HunchesBefore = Oni->GetHunchCount();
+		} });
+		Steps.Add({ 14.f, [=, this]
+		{
+			const int32 Hunches = TheOni()->GetHunchCount() - T->HunchesBefore;
+			Check(FString::Printf(TEXT("after a hunch the intuition rests for the cooldown (%d hunches in 14 s)"), Hunches), Hunches == 1);
+		} });
+	}
+	// ================================================================ PowerBox（M15：パワー鬼は前方 2×2×2 の壁に当たる）
+	else if (Scenario.Equals(TEXT("PowerBox"), ESearchCase::IgnoreCase))
+	{
+		struct FBoxTest { FIntPoint Base; };
+		TSharedRef<FBoxTest> T = MakeShared<FBoxTest>();
+		Steps.Add({ 0.3f, [=, this] { SetStageOniTypes({ EOniType::Breaker }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			UKakurenboGridSubsystem* G = Grid();
+			Check(FString::Printf(TEXT("power oni: 2x2x2 box, slow windup %.1f s, short sight %.0f"), Oni->AttackWindup, Oni->SightRadius),
+				Oni->AttackBoxWidth == 2 && Oni->AttackBoxDepth == 2 && Oni->AttackBoxLevels == 2 && Oni->AttackWindup >= 1.5f && Oni->SightRadius < 700.f);
+			TeleportPlayer(G->CellFloorCenter(FIntPoint(1, 1)));
+			// 鬼の東に 2×2 マス × 2 段の壁、その奥（3 マス目）と、横（反対側）と、3 段目にも壁
+			T->Base = FIntPoint(G->GetSizeX() / 2, G->GetSizeY() / 2);
+			auto Put = [G](const FIntPoint& Cell, int32 Levels)
+			{
+				for (int32 L = 0; L < Levels; ++L)
+				{
+					G->PlaceBlock(Cell, 0, 0.5, FLinearColor::Gray);
+				}
+			};
+			Put(T->Base, 3);
+			Put(T->Base + FIntPoint(1, 0), 2);
+			Put(T->Base + FIntPoint(0, 1), 2);
+			Put(T->Base + FIntPoint(1, 1), 2);
+			Put(T->Base + FIntPoint(2, 0), 2);  // 奥行き 3 マス目：当たらない
+			Put(T->Base + FIntPoint(0, -1), 2); // 反対側の横：当たらない
+			// 鬼は壁の西、少し南（+Y）寄りに立って東を向く → 横は +Y 側へ広がる
+			Oni->SetActorLocation(G->CellFloorCenter(T->Base + FIntPoint(-1, 0)) + FVector(0.f, 20.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator::ZeroRotator);
+			Oni->DebugGoTo(T->Base); // 行き先が壁：目の前の壁を攻撃する
+		} });
+		Steps.Add({ 3.0f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			auto H = [G, T](int32 DX, int32 DY) { return G->GetColumnHeight(T->Base + FIntPoint(DX, DY)); };
+			Check(FString::Printf(TEXT("the 2x2x2 box in front is destroyed (heights %d %d %d %d)"), H(0, 0), H(1, 0), H(0, 1), H(1, 1)),
+				H(0, 0) == 1 && H(1, 0) == 0 && H(0, 1) == 0 && H(1, 1) == 0);
+			Check(FString::Printf(TEXT("walls outside the box are not hit (behind %d, other side %d)"), H(2, 0), H(0, -1)), H(2, 0) == 2 && H(0, -1) == 2);
+			LookAtOni();
+			ShotLater(TEXT("powerbox_01"));
+		} });
+	}
+	// ================================================================ WallLimit（ステージごとの置ける壁の数・転生のお店「壁の数」・長押しでなぞって置く／回収・宝石のお店は 1 個ずつ）
+	else if (Scenario.Equals(TEXT("WallLimit"), ESearchCase::IgnoreCase))
+	{
+		struct FLimitTest { TArray<FIntPoint> Row; int32 Gem = INDEX_NONE; FIntPoint Broken = FIntPoint::NoneValue; };
+		TSharedRef<FLimitTest> T = MakeShared<FLimitTest>();
+		const int32 WallCountIndex = static_cast<int32>(EPrestigeUpgrade::WallCount);
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			const int32 Base = GM->GetStageSettings().WallLimit;
+			const int32 Stage = GS()->Stage;
+			Check(FString::Printf(TEXT("stage %d has a wall limit (%d, csv %d)"), Stage, GM->GetWallLimit(), Base), Base > 0 && GM->GetWallLimit() == Base);
+			Check(FString::Printf(TEXT("later stages allow more walls (stage 25: %d, stage 30: %d)"), GM->GetWallLimitFor(25, 0), GM->GetWallLimitFor(30, 0)),
+				GM->GetWallLimitFor(25, 0) > Base && GM->GetWallLimitFor(30, 0) > GM->GetWallLimitFor(25, 0));
+			Check(FString::Printf(TEXT("prestige wall count: Lv1 %d, Lv3 %d (plenty), Lv4 unlimited (%d)"), GM->GetWallLimitFor(Stage, 1), GM->GetWallLimitFor(Stage, 3), GM->GetWallLimitFor(Stage, 4)),
+				GM->GetWallLimitFor(Stage, 1) > Base && GM->GetWallLimitFor(Stage, 3) >= Base * 3 && GM->GetWallLimitFor(Stage, 4) == INDEX_NONE);
+			// 転生のお店で買える
+			GS()->PrestigePoints = 100;
+			ShopTab = EKakurenboShopTab::Prestige;
+			KakuBuyPrestige(WallCountIndex + 1);
+			Check(FString::Printf(TEXT("bought the wall count upgrade in the prestige shop (Lv%d, limit %d)"), GM->GetPrestigeLevel(EPrestigeUpgrade::WallCount), GM->GetWallLimit()),
+				GM->GetPrestigeLevel(EPrestigeUpgrade::WallCount) == 1 && GM->GetWallLimit() == GM->GetWallLimitFor(Stage, 1)
+				&& GM->GetPrestigeShopItems()[WallCountIndex].DisplayName.ToString().Contains(TEXT("壁の数")));
+		} });
+		Steps.Add({ 0.3f, [=, this] { ClickUI(EKakurenboUIAction::ShopTab, static_cast<int32>(EKakurenboShopTab::Prestige)); } });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("walllimit_01_prestige_shop")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 宝石のお店は ×10 を選んでいても 1 個ずつ
+			GS()->PrestigeLevels[WallCountIndex] = 0;
+			GS()->PrestigePoints = 0;
+			ShopTab = EKakurenboShopTab::Gem;
+			BuyAmount = EKakurenboBuyAmount::Ten;
+			KakuAddGems(500);
+			T->Gem = GM->GetGemShopTrapType(0);
+			KakuBuyGem(1);
+			Check(FString::Printf(TEXT("the gem shop sells one at a time even with x10 (stock %d)"), GS()->TrapStock[T->Gem]), GS()->TrapStock[T->Gem] == 1);
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			FVector2D C;
+			Check(TEXT("the gem shop has no bulk buttons"), !GetHUD<AKakurenboHUD>()->GetButtonCenter(EKakurenboUIAction::BuyAmount, 1, C));
+			Shot(TEXT("walllimit_02_gem_shop"));
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			BuyAmount = EKakurenboBuyAmount::One;
+			ShopTab = EKakurenboShopTab::Coin;
+			GS()->WallStock[0] = 100;
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KakuNext(); // → 設置
+			SelectedBuildSlot = 0;
+		} });
+		Steps.Add({ 1.0f, [=, this]
+		{
+			// 自分の 4 マス前（画面の上）に、横 5 マスの列
+			UKakurenboGridSubsystem* G = Grid();
+			AHiderCharacter* Hider = GetHider();
+			const FRotator Yaw(0.f, Hider->GetOverheadYaw(), 0.f);
+			const FVector Fwd = FRotationMatrix(Yaw).GetUnitAxis(EAxis::X);
+			const FVector Right = FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y);
+			for (int32 k = -2; k <= 2; ++k)
+			{
+				T->Row.Add(G->WorldToCell(Hider->GetActorLocation() + Fwd * 400.f + Right * (k * G->GetCellSize())));
+			}
+			FVector2D Screen;
+			ProjectWorldLocationToScreen(G->CellFloorCenter(T->Row[0]), Screen, true);
+			bUseTestCursor = true;
+			TestCursorPosition = Screen;
+			SimulateKey(EKeys::LeftMouseButton, IE_Pressed); // 押したまま
+		} });
+		for (int32 k = 1; k < 5; ++k)
+		{
+			Steps.Add({ 0.2f, [=, this]
+			{
+				FVector2D Screen;
+				ProjectWorldLocationToScreen(Grid()->CellFloorCenter(T->Row[k]), Screen, true);
+				TestCursorPosition = Screen; // なぞる
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			SimulateKey(EKeys::LeftMouseButton, IE_Released);
+			UKakurenboGridSubsystem* G = Grid();
+			FString Heights;
+			bool bAll = true;
+			for (const FIntPoint& Cell : T->Row)
+			{
+				Heights += FString::Printf(TEXT("%d "), G->GetColumnHeight(Cell));
+				bAll &= G->GetColumnHeight(Cell) == 1;
+			}
+			Check(FString::Printf(TEXT("holding the button and dragging places one wall on each cell (heights %s)"), *Heights), bAll);
+		} });
+		Steps.Add({ 0.3f, [=, this] { Shot(TEXT("walllimit_03_dragged_walls")); } });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 右ボタンを押したまま 3 マスなぞる → その 3 マスだけ回収
+			UKakurenboGridSubsystem* G = Grid();
+			FVector2D Screen;
+			ProjectWorldLocationToScreen(G->CellToWorld(T->Row[0], 0) + FVector(0.f, 0.f, G->GetBlockHeight() * 0.5f), Screen, true);
+			TestCursorPosition = Screen;
+			SimulateKey(EKeys::RightMouseButton, IE_Pressed);
+		} });
+		for (int32 k = 1; k < 3; ++k)
+		{
+			Steps.Add({ 0.2f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				FVector2D Screen;
+				ProjectWorldLocationToScreen(G->CellToWorld(T->Row[k], 0) + FVector(0.f, 0.f, G->GetBlockHeight() * 0.5f), Screen, true);
+				TestCursorPosition = Screen;
+			} });
+		}
+		Steps.Add({ 0.2f, [=, this]
+		{
+			SimulateKey(EKeys::RightMouseButton, IE_Released);
+			UKakurenboGridSubsystem* G = Grid();
+			auto H = [G, T](int32 i) { return G->GetColumnHeight(T->Row[i]); };
+			Check(FString::Printf(TEXT("holding the right button and dragging picks up the walls it passes (heights %d %d %d %d %d)"), H(0), H(1), H(2), H(3), H(4)),
+				H(0) == 0 && H(1) == 0 && H(2) == 0 && H(3) == 1 && H(4) == 1);
+			bUseTestCursor = false;
+		} });
+		Steps.Add({ 0.3f, [=, this]
+		{
+			// 上限まで置く（列の 2 個と合わせて）。上限を超える 1 個は置けない
+			UKakurenboGridSubsystem* G = Grid();
+			const int32 Limit = GM->GetWallLimit();
+			const FIntPoint Me = G->WorldToCell(GetPawn()->GetActorLocation());
+			TArray<FIntPoint> Free;
+			for (int32 Y = 1; Y < G->GetSizeY() - 1 && Free.Num() < Limit + 5; Y += 2)
+			{
+				for (int32 X = 1; X < G->GetSizeX() / 2 && Free.Num() < Limit + 5; X += 2)
+				{
+					const FIntPoint C(X, Y);
+					if (G->GetColumnHeight(C) == 0 && FMath::Abs(C.X - Me.X) + FMath::Abs(C.Y - Me.Y) > 2 && GM->CanPlaceWall(C, 0))
+					{
+						Free.Add(C);
+					}
+				}
+			}
+			int32 i = 0;
+			while (GM->GetPlacedWallCount() < Limit && Free.IsValidIndex(i))
+			{
+				GM->PlaceWall(Free[i++], 0);
+			}
+			FText Reason;
+			const bool bCanMore = Free.IsValidIndex(i) && GM->CanPlaceWall(Free[i], 0, &Reason);
+			Check(FString::Printf(TEXT("placed up to the limit (%d / %d) and no more: %s"), GM->GetPlacedWallCount(), Limit, *Reason.ToString()),
+				GM->GetPlacedWallCount() == Limit && Free.IsValidIndex(i) && !bCanMore && Reason.ToString().Contains(TEXT("壁の数")));
+			if (!Free.IsValidIndex(i))
+			{
+				return;
+			}
+			// 壊れた壁（設計図だけのマス）も数える。そのマスには置き直せる
+			T->Broken = Free[0];
+			G->DamageBottomBlock(T->Broken, 1e9);
+			Check(FString::Printf(TEXT("a broken wall still counts (%d / %d), another cell is refused"), GM->GetPlacedWallCount(), Limit),
+				GM->GetPlacedWallCount() == Limit && G->GetColumnHeight(T->Broken) == 0 && !GM->CanPlaceWall(Free[i], 0));
+			Check(TEXT("the broken wall's cell can be refilled"), GM->PlaceWall(T->Broken, 0) && GM->GetPlacedWallCount() == Limit);
+			// 「壁の数」の最大レベルで無制限
+			GS()->PrestigeLevels[WallCountIndex] = GM->PrestigeUpgrades[WallCountIndex].MaxLevel;
+			Check(FString::Printf(TEXT("max level: unlimited walls (limit %d)"), GM->GetWallLimit()), GM->GetWallLimit() == INDEX_NONE && GM->PlaceWall(Free[i], 0));
+			GS()->PrestigeLevels[WallCountIndex] = 0;
+		} });
+		Steps.Add({ 0.4f, [=, this] { Shot(TEXT("walllimit_04_full")); } });
+	}
+	// ================================================================ Overkill（壁の耐久が鬼の攻撃力よりずっと低いと、鬼の壁への攻撃範囲が広がる。最大 3 倍）
+	else if (Scenario.Equals(TEXT("Overkill"), ESearchCase::IgnoreCase))
+	{
+		struct FOverTest { FIntPoint Base; };
+		TSharedRef<FOverTest> T = MakeShared<FOverTest>();
+		Steps.Add({ 0.3f, [=, this] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			UKakurenboGridSubsystem* G = Grid();
+			// 倍率：攻撃力 ÷ 耐久 が 3 倍までは 1、それより上は 2 倍ごとに +0.5、最大 3
+			const double Damage0 = Oni->AttackDamage;
+			Oni->AttackDamage = 2.0;
+			const float S1 = Oni->GetOverkillRangeScale(1.0);
+			Oni->AttackDamage = 12.0;
+			const float S2 = Oni->GetOverkillRangeScale(1.0);
+			Oni->AttackDamage = 1000.0;
+			const float S3 = Oni->GetOverkillRangeScale(1.0);
+			Check(FString::Printf(TEXT("range scale: x2 damage %.2f, x12 %.2f, x1000 %.2f (max 3)"), S1, S2, S3),
+				FMath::IsNearlyEqual(S1, 1.f) && FMath::IsNearlyEqual(S2, 2.f, 0.01f) && FMath::IsNearlyEqual(S3, 3.f));
+			Oni->AttackDamage = Damage0;
+
+			TeleportPlayer(G->CellFloorCenter(FIntPoint(1, 1)));
+			// 鬼の東に壁（耐久 1）：すぐ前・その奥・4 マス先。攻撃力 12 → 半径 ×2
+			T->Base = FIntPoint(G->GetSizeX() / 2, G->GetSizeY() / 2);
+			for (const int32 DX : { 0, 1, 4 })
+			{
+				G->PlaceBlock(T->Base + FIntPoint(DX, 0), 0, 1.0, FLinearColor::Gray);
+			}
+			Oni->AttackDamage = 12.0;
+			Oni->SetActorLocation(G->CellFloorCenter(T->Base + FIntPoint(-1, 0)) + FVector(0.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics);
+			Oni->SetActorRotation(FRotator::ZeroRotator);
+			Oni->DebugGoTo(T->Base);
+		} });
+		Steps.Add({ 1.6f, [=, this]
+		{
+			UKakurenboGridSubsystem* G = Grid();
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			auto H = [G, T](int32 DX) { return G->GetColumnHeight(T->Base + FIntPoint(DX, 0)); };
+			Check(FString::Printf(TEXT("weak walls: the attack reaches twice as far (scale %.2f, heights %d %d / far %d)"), Oni->GetLastAttackRangeScale(), H(0), H(1), H(4)),
+				FMath::IsNearlyEqual(Oni->GetLastAttackRangeScale(), 2.f, 0.01f) && H(0) == 0 && H(1) == 0 && H(4) == 1);
+			LookAtOni();
+			ShotLater(TEXT("overkill_01"));
+		} });
+	}
+	// ================================================================ BuildRay（M15：設置パートのカーソルが、見えない壁に当たらない）
+	else if (Scenario.Equals(TEXT("BuildRay"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			GetHider()->TopDownPitch = -60.f; // 斜めに傾ける（見えない高い壁に一番当たりやすい）
+		} });
+		for (int32 Pass = 0; Pass < 2; ++Pass)
+		{
+			Steps.Add({ 1.0f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				int32 Tested = 0, Correct = 0, HiddenFirst = 0;
+				FString Wrong;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						if (!G->IsWalkable(C))
+						{
+							continue;
+						}
+						FVector2D Screen;
+						if (!ProjectWorldLocationToScreen(G->CellFloorCenter(C) + FVector(0.f, 0.f, 2.f), Screen, true))
+						{
+							continue;
+						}
+						int32 VX = 0, VY = 0;
+						GetViewportSize(VX, VY);
+						if (Screen.X < 5 || Screen.Y < 5 || Screen.X > VX - 5 || Screen.Y > VY - 5)
+						{
+							continue;
+						}
+						// そのマスの床が画面で見えているか（見えている家具・低い壁の陰になっていないか）。見えている物だけに当てて調べる
+						FVector O, D;
+						DeprojectScreenPositionToWorld(Screen.X, Screen.Y, O, D);
+						FCollisionQueryParams RayParams(SCENE_QUERY_STAT(KakuRayRaw), false, GetPawn());
+						FHitResult Raw;
+						bool bFirst = true;
+						bool bHiddenWasFirst = false;
+						bool bVisibleFloor = false;
+						for (int32 Attempt = 0; Attempt < 12; ++Attempt)
+						{
+							if (!GetWorld()->LineTraceSingleByChannel(Raw, O, O + D * 20000.f, ECC_Visibility, RayParams))
+							{
+								break;
+							}
+							const UPrimitiveComponent* Comp = Raw.GetComponent();
+							const bool bHiddenComp = Comp && (Comp->bHiddenInGame || !Comp->IsVisible()) && !Comp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag);
+							if (!bHiddenComp)
+							{
+								bVisibleFloor = FVector::Dist(Raw.ImpactPoint, G->CellFloorCenter(C)) < 30.f;
+								break;
+							}
+							bHiddenWasFirst |= bFirst;
+							bFirst = false;
+							RayParams.AddIgnoredComponent(Comp);
+						}
+						if (!bVisibleFloor)
+						{
+							continue; // 見えている物の陰（正しく指せなくてよい）
+						}
+						// 前の作り（見えない物にも当たる）だと、ほかのマスを指していた
+						HiddenFirst += bHiddenWasFirst ? 1 : 0;
+						++Tested;
+						UpdateBuildTargetAt(Screen);
+						if (bHasBuildTarget && BuildTargetCell == C)
+						{
+							++Correct;
+						}
+						else if (Wrong.Len() < 160)
+						{
+							Wrong += FString::Printf(TEXT(" (%d,%d)->(%d,%d)"), X, Y, BuildTargetCell.X, BuildTargetCell.Y);
+						}
+					}
+				}
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] buildray pitch %.0f: %d of %d floor cells picked correctly, %d rays first hit something hidden (ignored now). wrong:%s"),
+					GetHider()->TopDownPitch, Correct, Tested, HiddenFirst, *Wrong);
+				Check(FString::Printf(TEXT("the build cursor points at the floor cell under it (pitch %.0f: %d / %d, hidden hits ignored %d)"), GetHider()->TopDownPitch, Correct, Tested, HiddenFirst),
+					Tested > 50 && Correct >= Tested * 0.97f);
+				Shot(FString::Printf(TEXT("buildray_%02d"), Pass + 1));
+				GetHider()->TopDownPitch = -90.f;
+			} });
+		}
+	}
+	// ================================================================ StaleDesign（在庫が無くて赤いマスに別の物を置くと、そのマスの設計図は消える）
+	else if (Scenario.Equals(TEXT("StaleDesign"), ESearchCase::IgnoreCase))
+	{
+		TSharedRef<FIntPoint> WallCell = MakeShared<FIntPoint>(0, 0);
+		TSharedRef<FIntPoint> TrapCell = MakeShared<FIntPoint>(0, 0);
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			GS()->WallStock[0] = FMath::Max(GS()->WallStock[0], 1);
+			GS()->TrapStock[0] = FMath::Max(GS()->TrapStock[0], 1);
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			const FIntPoint Me = Grid()->WorldToCell(GetPawn()->GetActorLocation());
+			*WallCell = Me + FIntPoint(2, 0);
+			*TrapCell = Me + FIntPoint(0, 2);
+			KakuPlaceWall(WallCell->X, WallCell->Y, 0);
+			KakuPlaceTrap(TrapCell->X, TrapCell->Y, 0);
+			Check(TEXT("a wall and a trap are placed"), Grid()->GetColumnHeight(*WallCell) == 1 && Grid()->GetTrap(*TrapCell) != nullptr);
+		} });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → かくれんぼ
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 鬼に壊された・踏まれたことにする
+			Grid()->DamageBottomBlock(*WallCell, 1.0e9);
+			Grid()->ConsumeTrap(Grid()->GetTrap(*TrapCell));
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this]
+		{
+			KakuNext(); // → 購入
+			// 同じ種類の在庫は無し（設置パートで置き直せず、赤いマスになる）。別の種類だけ持っている
+			GS()->WallStock[0] = 0;
+			GS()->TrapStock[0] = 0;
+			GS()->WallStock[1] = 1;
+			GS()->TrapStock[1] = 1;
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置
+			Check(FString::Printf(TEXT("without stock the designs stay unbuilt (wall design %d / live %d, trap design %d / live %d)"),
+				Grid()->GetDesignHeight(*WallCell), Grid()->GetColumnHeight(*WallCell), Grid()->GetTrapDesign(*TrapCell), Grid()->GetTrap(*TrapCell) != nullptr),
+				Grid()->GetDesignHeight(*WallCell) == 1 && Grid()->GetColumnHeight(*WallCell) == 0
+				&& Grid()->GetTrapDesign(*TrapCell) == 0 && Grid()->GetTrap(*TrapCell) == nullptr);
+			Shot(TEXT("stale_01_red"));
+		} });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			FText Reason;
+			Check(FString::Printf(TEXT("a trap can go on the cell of a broken wall's design ('%s')"), *Reason.ToString()), GM->CanPlaceTrap(*WallCell, 1, &Reason));
+			Check(FString::Printf(TEXT("a wall can go on the cell of a used trap's design ('%s')"), *Reason.ToString()), GM->CanPlaceWall(*TrapCell, 1, &Reason));
+			KakuPlaceTrap(WallCell->X, WallCell->Y, 1);
+			KakuPlaceWall(TrapCell->X, TrapCell->Y, 1);
+			Check(FString::Printf(TEXT("placing a trap clears the old wall design (design %d, trap design %d)"), Grid()->GetDesignHeight(*WallCell), Grid()->GetTrapDesign(*WallCell)),
+				Grid()->GetDesignHeight(*WallCell) == 0 && Grid()->GetTrapDesign(*WallCell) == 1 && Grid()->GetTrap(*WallCell) != nullptr);
+			Check(FString::Printf(TEXT("placing a wall clears the old trap design (trap design %d, wall design %d)"), Grid()->GetTrapDesign(*TrapCell), Grid()->GetDesignHeight(*TrapCell)),
+				Grid()->GetTrapDesign(*TrapCell) == INDEX_NONE && Grid()->GetDesignHeight(*TrapCell) == 1 && Grid()->GetColumnHeight(*TrapCell) == 1);
+			Check(TEXT("nothing is left to repair"), Grid()->GetMissingWallCount(0) == 0 && Grid()->GetMissingTrapCount(0) == 0);
+			Check(TEXT("a live trap still blocks a wall"), !GM->CanPlaceWall(*WallCell, 1));
+		} });
+		Steps.Add({ 0.5f, [=, this] { Shot(TEXT("stale_02_replaced")); } });
+	}
+	// ================================================================ Heartbeat（M15：鬼が近いほど心臓の音が大きい）
+	else if (Scenario.Equals(TEXT("Heartbeat"), ESearchCase::IgnoreCase))
+	{
+		TSharedRef<float> FarVolume = MakeShared<float>(0.f);
+		Steps.Add({ 0.3f, [=] { SetStageOniTypes({ EOniType::Balanced }); } });
+		Steps.Add({ 3.3f, [=, this]
+		{
+			AOniCharacter* Oni = KeepOnlyOni(0);
+			Oni->GetCharacterMovement()->DisableMovement(); // 動かさない（近さだけを変える。鬼としては働いている）
+			Oni->SightRadius = 0.f;
+			Oni->CloseSenseRadius = 0.f;
+			Oni->SetActorLocation(GetPawn()->GetActorLocation() + FVector(1400.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 2.f, [=, this]
+		{
+			*FarVolume = GM->GetLastHeartbeatVolume();
+			Check(FString::Printf(TEXT("a far oni (14 m) gives a quiet heartbeat (closeness %.2f, volume %.2f)"), GM->GetCurrentCloseness(), *FarVolume), GM->GetHeartbeatCount() > 0 && *FarVolume > 0.f);
+			AOniCharacter* Oni = GM->GetOnis()[0];
+			Oni->SetActorLocation(GetPawn()->GetActorLocation() + FVector(260.f, 0.f, 20.f), false, nullptr, ETeleportType::TeleportPhysics);
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(FString::Printf(TEXT("a near oni (2.6 m) gives a much louder heartbeat (%.2f -> %.2f)"), *FarVolume, GM->GetLastHeartbeatVolume()), GM->GetLastHeartbeatVolume() > *FarVolume * 2.5f);
+			*FarVolume = static_cast<float>(GM->GetHeartbeatCount());
+		} });
+		// 2026-10-19：足音が聞こえている間は心臓の音を小さくする（足音・キラキラを消さない）。お宝のキラキラも下げる音なので、お宝は遠くへ
+		Steps.Add({ 0.05f, [=, this]
+		{
+			for (ATreasureActor* T : GM->GetTreasures())
+			{
+				if (T)
+				{
+					T->SetActorLocation(T->GetActorLocation() + FVector(0.f, 0.f, -20000.f));
+				}
+			}
+		} });
+		for (int32 i = 0; i < 12; ++i)
+		{
+			Steps.Add({ 0.1f, [=, this] { Sound()->PlayAt(EKakurenboSfx::OniStep, GetPawn()->GetActorLocation() + FVector(300.f, 0.f, -80.f)); } });
+		}
+		Steps.Add({ 0.05f, [=, this]
+		{
+			Check(FString::Printf(TEXT("the heartbeat ducks under nearby oni steps (beats %d, ducked %d)"), GM->GetHeartbeatCount() - static_cast<int32>(*FarVolume), Sound()->WasLastHeartbeatDucked() ? 1 : 0),
+				GM->GetHeartbeatCount() > static_cast<int32>(*FarVolume) && Sound()->WasLastHeartbeatDucked());
+		} });
+		Steps.Add({ 1.5f, [=, this]
+		{
+			Check(TEXT("without steps the heartbeat is full again"), !Sound()->WasLastHeartbeatDucked());
+		} });
+	}
+	// ================================================================ OniIntro（M15：初めて出てくる鬼のチュートリアル・鬼の図鑑）
+	else if (Scenario.Equals(TEXT("OniIntro"), ESearchCase::IgnoreCase))
+	{
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 最初のラウンドはもう始まっているので、ここから出すようにする（先に付けると最初のラウンドで止まってしまう）
+			bShowOniIntroInAutoTest = true;
+			if (UKakurenboSettings* S = UKakurenboSettings::Get(this))
+			{
+				S->ResetTips(); // まだ誰も紹介していない
+			}
+			SetStageOniTypes({ EOniType::Scout, EOniType::Breaker, EOniType::Detector });
+			KakuSkipTime(1000.f);
+		} });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } }); // → 購入
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } }); // → 設置
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → かくれんぼ：新しい鬼が 3 種類いるので、チュートリアルが出てゲームが止まる
+			// ここからは止まっているので、実時間で進める
+			RealDelay(0.6f, [=, this]
+			{
+				Check(FString::Printf(TEXT("the oni tutorial opens for the new types (menu %d, pages %d, paused %d)"), static_cast<int32>(GetMenu()), GetOniIntroPages().Num(), IsPaused() ? 1 : 0),
+					GetMenu() == EKakurenboMenu::OniIntro && GetOniIntroPages().Num() == 3 && IsPaused() && !IsOniBook());
+				const AKakurenboOniStudio* Studio = GM->GetOniStudio();
+				Check(TEXT("each oni has a photo"), Studio && Studio->GetPortrait(EOniType::Scout) && Studio->GetPortrait(EOniType::Breaker) && Studio->GetPortrait(EOniType::Detector));
+				// 出てすぐ（移動しようとした D・つい押した Enter）では進まない（読む前に消えないように）
+				SimulateKey(EKeys::D, IE_Pressed);
+				SimulateKey(EKeys::D, IE_Released);
+				SimulateKey(EKeys::Enter, IE_Pressed);
+				SimulateKey(EKeys::Enter, IE_Released);
+				TSharedRef<int32> EarlyFrames = MakeShared<int32>(0);
+				FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+				{
+					if (++*EarlyFrames < 5)
+					{
+						return true;
+					}
+					Check(FString::Printf(TEXT("keys pressed right after it opens do not skip the tutorial (page %d, menu %d)"), GetOniIntroPage(), static_cast<int32>(GetMenu())),
+						GetOniIntroPage() == 0 && GetMenu() == EKakurenboMenu::OniIntro);
+					return false;
+				}));
+				Shot(TEXT("oniintro_01_scout"));
+				RealDelay(0.9f, [=, this]
+				{
+					SimulateKey(EKeys::Enter, IE_Pressed);
+					SimulateKey(EKeys::Enter, IE_Released);
+					// キーは次のフレームで効く。フレーム数で待ってから確かめる（撮影の直後は 1 フレームが長く、秒では足りないことがある）
+					TSharedRef<int32> Frames = MakeShared<int32>(0);
+					FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([=, this](float) -> bool
+					{
+						if (++*Frames < 10)
+						{
+							return true;
+						}
+						Check(TEXT("Enter shows the next oni"), GetOniIntroPage() == 1);
+						return false;
+					}));
+					RealDelay(1.0f, [=, this]
+					{
+						Shot(TEXT("oniintro_02_breaker"));
+						RealDelay(0.5f, [=, this]
+						{
+							TurnOniIntroPage(1);
+							RealDelay(0.5f, [=, this]
+							{
+								Shot(TEXT("oniintro_03_detector"));
+								RealDelay(0.9f, [=, this] // ページが出てから 1 秒は押せない
+								{
+									Check(TEXT("the last page has the OK button"), ClickUI(EKakurenboUIAction::OniPage, 1));
+									RealDelay(0.3f, [=, this]
+									{
+										Check(FString::Printf(TEXT("OK closes the tutorial and the round goes on (menu %d, paused %d)"), static_cast<int32>(GetMenu()), IsPaused() ? 1 : 0),
+											GetMenu() == EKakurenboMenu::None && !IsPaused());
+									});
+								});
+							});
+						});
+					});
+				});
+			});
+		} });
+		// 次のラウンド：もう紹介したので出ない
+		Steps.Add({ 6.f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			Check(TEXT("onis already introduced are not shown again"), GetMenu() == EKakurenboMenu::None && GS()->Phase == EKakurenboPhase::Hide);
+			// 一時停止メニューの「鬼の図鑑」：今まで紹介した鬼
+			OpenMenu(EKakurenboMenu::Pause);
+			ActivatePauseItem(EKakurenboPauseItem::OniBook);
+			RealDelay(0.5f, [=, this]
+			{
+				Check(FString::Printf(TEXT("the oni book lists the introduced onis (%d)"), GetOniIntroPages().Num()), GetMenu() == EKakurenboMenu::OniIntro && IsOniBook() && GetOniIntroPages().Num() == 3);
+				// 全部の種類の写真を確かめる（図鑑に 6 種類を出して 1 枚ずつ撮る）
+				const UEnum* TypeEnum = StaticEnum<EOniType>();
+				TArray<EOniType> All;
+				for (int32 i = 0; i < TypeEnum->NumEnums() - 1; ++i)
+				{
+					All.Add(static_cast<EOniType>(TypeEnum->GetValueByIndex(i)));
+				}
+				CloseMenu();
+				OpenOniIntro(All, true);
+				for (int32 i = 0; i < All.Num(); ++i)
+				{
+					RealDelay(0.6f + i * 0.7f, [=, this]
+					{
+						Shot(FString::Printf(TEXT("oniintro_book_%d"), i + 1));
+						RealDelay(0.3f, [=, this] { TurnOniIntroPage(1); });
+					});
+				}
+				RealDelay(0.6f + All.Num() * 0.7f + 0.5f, [=, this]
+				{
+					Check(TEXT("the book goes back to the pause menu"), GetMenu() == EKakurenboMenu::Pause);
+					CloseAllMenus();
+				});
+			});
+		} });
+		Steps.Add({ 7.f, [=] {} });
+	}
+	// ================================================================ SideGap（背の高い家具どうしの横のすき間。体が入らない 20〜78cm のすき間を全部の館で数える）
+	else if (Scenario.Equals(TEXT("SideGap"), ESearchCase::IgnoreCase))
+	{
+		TSharedRef<int32> TotalGaps = MakeShared<int32>(0);
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 0.5f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				KeepOnlyOni(-1);
+				GS()->HideTimeRemaining = 600.f;
+			} });
+			Steps.Add({ 0.5f, [=, this]
+			{
+				const AKakurenboArena* Arena = GM->GetArena();
+				UKakurenboGridSubsystem* G = Grid();
+				// 背の高い家具の当たり判定の箱（上から見た形）
+				TArray<FBox> Boxes;
+				TArray<UPrimitiveComponent*> Comps;
+				Arena->GetComponents<UPrimitiveComponent>(Comps);
+				for (const UPrimitiveComponent* Comp : Comps)
+				{
+					const FBox B = Comp->Bounds.GetBox();
+					if (Comp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag) && B.GetSize().Z >= Arena->TallFurnitureHeight - 1.f)
+					{
+						Boxes.Add(B);
+					}
+				}
+				const FCollisionShape Body = FCollisionShape::MakeCapsule(35.f, 35.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuSideGap), false, GetPawn());
+				int32 Gaps = 0;
+				FString Examples;
+				for (int32 a = 0; a < Boxes.Num(); ++a)
+				{
+					for (int32 b = a + 1; b < Boxes.Num(); ++b)
+					{
+						for (int32 Axis = 0; Axis < 2; ++Axis)
+						{
+							const int32 Other = 1 - Axis;
+							const FBox& L = Boxes[a].Min[Axis] <= Boxes[b].Min[Axis] ? Boxes[a] : Boxes[b];
+							const FBox& R = Boxes[a].Min[Axis] <= Boxes[b].Min[Axis] ? Boxes[b] : Boxes[a];
+							const double Gap = R.Min[Axis] - L.Max[Axis];
+							const double Overlap = FMath::Min(L.Max[Other], R.Max[Other]) - FMath::Max(L.Min[Other], R.Min[Other]);
+							if (Gap <= 20.0 || Gap >= 78.0 || Overlap < 30.0)
+							{
+								continue;
+							}
+							// すき間の真ん中に体が入るか（入らなければ数える）
+							FVector Mid = (L.GetCenter() + R.GetCenter()) * 0.5;
+							Mid[Axis] = (L.Max[Axis] + R.Min[Axis]) * 0.5;
+							Mid[Other] = (FMath::Max(L.Min[Other], R.Min[Other]) + FMath::Min(L.Max[Other], R.Max[Other])) * 0.5;
+							// すき間の真ん中が別の箱（L 字の本棚の奥の板など）で埋まっていれば、すき間ではない
+							if (GetWorld()->OverlapBlockingTestByChannel(FVector(Mid.X, Mid.Y, G->CellFloorCenter(G->WorldToCell(Mid)).Z + 30.f), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(6.f), Params))
+							{
+								continue;
+							}
+							bool bFits = false;
+							for (int32 k = -4; k <= 4 && !bFits; ++k)
+							{
+								FVector P(Mid.X, Mid.Y, G->CellFloorCenter(G->WorldToCell(Mid)).Z + 37.f);
+								P[Other] += k * 10.0;
+								bFits = !GetWorld()->OverlapBlockingTestByChannel(P, FQuat::Identity, ECC_Pawn, Body, Params);
+							}
+							if (bFits)
+							{
+								continue;
+							}
+							++Gaps;
+							const FIntPoint C = G->WorldToCell(Mid);
+							if (Examples.Len() < 300)
+							{
+								Examples += FString::Printf(TEXT(" [%c|%c gap %.0f at (%d,%d)]"), Arena->GetLayoutChar(G->WorldToCell(L.GetCenter())), Arena->GetLayoutChar(G->WorldToCell(R.GetCenter())), Gap, C.X, C.Y);
+							}
+						}
+					}
+				}
+				*TotalGaps += Gaps;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] sidegap %s: %d tall boxes, %d side gaps the body cannot enter:%s"), *MapName.ToString(), Boxes.Num(), Gaps, *Examples);
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			Check(FString::Printf(TEXT("no side gap between tall furniture is too narrow to enter (%d)"), *TotalGaps), *TotalGaps == 0);
+		} });
+		// 本棚の間に空けたすき間に入って写す（ユーザーが送ってくれた写真の本棚。Archive の左下の本棚の列）
+		TSharedRef<FVector> GapSpot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->bMapOverride = true;
+			GM->MapOverride = FName(TEXT("Archive"));
+			GM->SwitchToMap(GM->MapOverride);
+			KeepOnlyOni(-1);
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			TArray<FBox> Boxes;
+			TArray<UPrimitiveComponent*> Comps;
+			Arena->GetComponents<UPrimitiveComponent>(Comps);
+			for (const UPrimitiveComponent* Comp : Comps)
+			{
+				const FBox B = Comp->Bounds.GetBox();
+				if (Comp->ComponentHasTag(AKakurenboArena::FurnitureCollisionTag) && B.GetSize().Z >= Arena->TallFurnitureHeight - 1.f && Arena->GetLayoutChar(G->WorldToCell(B.GetCenter())) == TEXT('B'))
+				{
+					Boxes.Add(B);
+				}
+			}
+			// 本棚どうしの間が体の入る幅（78〜100cm）になっている所
+			for (int32 a = 0; a < Boxes.Num() && GapSpot->IsZero(); ++a)
+			{
+				for (int32 b = 0; b < Boxes.Num() && GapSpot->IsZero(); ++b)
+				{
+					for (int32 Axis = 0; Axis < 2; ++Axis)
+					{
+						const int32 Other = 1 - Axis;
+						const double Gap = Boxes[b].Min[Axis] - Boxes[a].Max[Axis];
+						const double Overlap = FMath::Min(Boxes[a].Max[Other], Boxes[b].Max[Other]) - FMath::Max(Boxes[a].Min[Other], Boxes[b].Min[Other]);
+						if (Gap >= 76.0 && Gap <= 100.0 && Overlap >= 30.0)
+						{
+							FVector Mid;
+							Mid[Axis] = (Boxes[a].Max[Axis] + Boxes[b].Min[Axis]) * 0.5;
+							Mid[Other] = (FMath::Max(Boxes[a].Min[Other], Boxes[b].Min[Other]) + FMath::Min(Boxes[a].Max[Other], Boxes[b].Max[Other])) * 0.5;
+							Mid.Z = 0.0;
+							*GapSpot = Mid;
+							break;
+						}
+					}
+				}
+			}
+			Check(TEXT("a bookshelf row has a gap wide enough to enter"), !GapSpot->IsZero());
+			if (!GapSpot->IsZero())
+			{
+				const FVector Floor = G->CellFloorCenter(G->WorldToCell(*GapSpot));
+				// 体（立っている大きさ）がすき間に入るか
+				const FVector At(GapSpot->X, GapSpot->Y, Floor.Z + GetHider()->GetSimpleCollisionHalfHeight() + 2.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuSideGapStand), false, GetPawn());
+				const bool bFree = !GetWorld()->OverlapBlockingTestByChannel(At, FQuat::Identity, ECC_Pawn,
+					FCollisionShape::MakeCapsule(GetHider()->GetSimpleCollisionRadius(), GetHider()->GetSimpleCollisionHalfHeight()), Params);
+				Check(TEXT("the player fits standing in the bookshelf gap"), bFree);
+				TeleportPlayer(At);
+				// すき間の外（部屋の空いている側）から、すき間に入った自分を見る
+				float BestYaw = 0.f;
+				for (const float Yaw : { 0.f, 90.f, 180.f, 270.f })
+				{
+					const FVector Dir = FRotator(0.f, Yaw, 0.f).Vector();
+					if (!GetWorld()->OverlapBlockingTestByChannel(At + Dir * 150.f, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(30.f), Params))
+					{
+						BestYaw = Yaw + 180.f; // カメラは空いている側に置き、すき間の方を向く
+						break;
+					}
+				}
+				SetControlRotation(FRotator(-20.f, BestYaw, 0.f));
+				GetHider()->ThirdPersonDistance = 320.f;
+			}
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_01_in_gap")); } });
+
+		// L 字の本棚（角の本棚）の空いている角に入る（ユーザーの依頼：「この本棚の当たり判定を L 字に」。居間の写真）
+		TSharedRef<FVector> CornerSpot = MakeShared<FVector>(FVector::ZeroVector);
+		Steps.Add({ 0.3f, [=, this]
+		{
+			GM->bMapOverride = true;
+			GM->MapOverride = FName(TEXT("Parlor"));
+			GM->SwitchToMap(GM->MapOverride);
+			KeepOnlyOni(-1);
+			GS()->HideTimeRemaining = 600.f;
+		} });
+		Steps.Add({ 0.6f, [=, this]
+		{
+			const AKakurenboArena* Arena = GM->GetArena();
+			UKakurenboGridSubsystem* G = Grid();
+			const TArray<FBox2D> Notches = Arena->GetOpenFurnitureNotches();
+			Check(FString::Printf(TEXT("the parlor has open corners of L-shaped bookshelves (%d, %d filled)"), Notches.Num(), Arena->GetFilledFurnitureNotchCount()), Notches.Num() > 0);
+			const float Radius = GetHider()->GetSimpleCollisionRadius();
+			const float HalfHeight = GetHider()->GetSimpleCollisionHalfHeight();
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuCornerShelf), false, GetPawn());
+			int32 EmptyCorners = 0;
+			for (const FBox2D& Notch : Notches)
+			{
+				// 角の真ん中には当たり判定が無い（前は外形の箱で入れなかった）
+				const FVector2D Mid = Notch.GetCenter();
+				const float FloorZ = G->CellFloorCenter(G->WorldToCell(FVector(Mid.X, Mid.Y, 0.0))).Z;
+				EmptyCorners += GetWorld()->OverlapBlockingTestByChannel(FVector(Mid.X, Mid.Y, FloorZ + 30.f), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(6.f), Params) ? 0 : 1;
+				// 体の中心を角の中に置ける所（立った大きさ）
+				for (float X = Notch.Min.X; X <= Notch.Max.X && CornerSpot->IsZero(); X += 5.f)
+				{
+					for (float Y = Notch.Min.Y; Y <= Notch.Max.Y && CornerSpot->IsZero(); Y += 5.f)
+					{
+						const FVector At(X, Y, FloorZ + HalfHeight + 2.f);
+						if (!GetWorld()->OverlapBlockingTestByChannel(At, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeCapsule(Radius, HalfHeight), Params))
+						{
+							*CornerSpot = At;
+						}
+					}
+				}
+			}
+			Check(FString::Printf(TEXT("no collision in the open corners (%d of %d)"), EmptyCorners, Notches.Num()), EmptyCorners == Notches.Num());
+			Check(TEXT("the player fits standing in an open corner of an L-shaped bookshelf"), !CornerSpot->IsZero());
+			if (!CornerSpot->IsZero())
+			{
+				TeleportPlayer(*CornerSpot);
+				float BestYaw = 0.f;
+				for (const float Yaw : { 0.f, 90.f, 180.f, 270.f })
+				{
+					const FVector Dir = FRotator(0.f, Yaw, 0.f).Vector();
+					if (!GetWorld()->OverlapBlockingTestByChannel(*CornerSpot + Dir * 150.f, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(30.f), Params))
+					{
+						BestYaw = Yaw + 180.f; // カメラは空いている側に置き、角の方を向く
+						break;
+					}
+				}
+				SetControlRotation(FRotator(-35.f, BestYaw, 0.f));
+				GetHider()->ThirdPersonDistance = 320.f;
+			}
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_02_in_corner_shelf")); } });
+		// 上から：並べた L 字の本棚は 2 個ずつ向かい合わせ（片方は左右反転）。反転した方も裏返らずに見えるか
+		Steps.Add({ 0.1f, [=, this]
+		{
+			SetControlRotation(FRotator(-75.f, GetControlRotation().Yaw, 0.f));
+			GetHider()->ThirdPersonDistance = 650.f;
+		} });
+		Steps.Add({ 1.5f, [=, this] { Shot(TEXT("sidegap_03_corner_shelves_above")); } });
+	}
+	// ================================================================ ShelfGap（M15：家具のすき間。床が見えているのに体が入らないマスを全部の館で数える）
+	else if (Scenario.Equals(TEXT("ShelfGap"), ESearchCase::IgnoreCase))
+	{
+		struct FGapStats
+		{
+			int32 Cells = 0;          // 床が見えている家具のマス
+			int32 Blocked = 0;        // そのうち、体が入らないマス
+			TMap<TCHAR, int32> BlockedByKey;
+			TMap<TCHAR, int32> OpenByKey;
+		};
+		TSharedRef<FGapStats> Total = MakeShared<FGapStats>();
+		TSharedRef<FString> Report = MakeShared<FString>();
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 0.5f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				KeepOnlyOni(-1);
+				GS()->HideTimeRemaining = 600.f;
+			} });
+			Steps.Add({ 0.6f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				const AKakurenboArena* Arena = GM->GetArena();
+				const float Cell = G->GetCellSize();
+				// 体の大きさ（しゃがんだプレイヤー：半径 35・高さの半分 35）
+				const FCollisionShape Body = FCollisionShape::MakeCapsule(35.f, 35.f);
+				const FCollisionShape Probe = FCollisionShape::MakeSphere(6.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuShelfGap), false, GetPawn());
+				int32 MapCells = 0, MapBlocked = 0;
+				FString Examples;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint C(X, Y);
+						const TCHAR Key = Arena->GetLayoutChar(C);
+						if (!G->IsObstacle(C) || Key == TEXT('#') || Key == TEXT('.'))
+						{
+							continue;
+						}
+						const FVector Floor = G->CellFloorCenter(C);
+						// 床が見えている割合（マスの中を 10cm おきに、床の少し上に何も無いか）
+						int32 Open = 0, Samples = 0;
+						for (int32 i = 0; i < 9; ++i)
+						{
+							for (int32 j = 0; j < 9; ++j)
+							{
+								const FVector P = Floor + FVector(-40.f + i * 10.f, -40.f + j * 10.f, 30.f);
+								++Samples;
+								Open += GetWorld()->OverlapBlockingTestByChannel(P, FQuat::Identity, ECC_Pawn, Probe, Params) ? 0 : 1;
+							}
+						}
+						if (Open * 4 < Samples) // 床が 1/4 も見えていなければ、すき間ではない
+						{
+							continue;
+						}
+						// 背の高い家具（本棚・たんす・食器棚。M15 で直したもの）だけを数える。低い家具（ベッド・長いす）はよじ登れるので数えない
+						bool bTall = false;
+						for (int32 i = 0; i < 5 && !bTall; ++i)
+						{
+							for (int32 j = 0; j < 5 && !bTall; ++j)
+							{
+								bTall = GetWorld()->OverlapBlockingTestByChannel(Floor + FVector(-40.f + i * 20.f, -40.f + j * 20.f, 170.f), FQuat::Identity, ECC_Pawn, Probe, Params);
+							}
+						}
+						if (!bTall)
+						{
+							continue;
+						}
+						// 体が入るか（体の中心がこのマスの中にあって、何にも重ならない場所があるか）
+						bool bFits = false;
+						for (int32 i = 0; i < 11 && !bFits; ++i)
+						{
+							for (int32 j = 0; j < 11 && !bFits; ++j)
+							{
+								const FVector P = Floor + FVector(-50.f + i * 10.f, -50.f + j * 10.f, 37.f);
+								bFits = !GetWorld()->OverlapBlockingTestByChannel(P, FQuat::Identity, ECC_Pawn, Body, Params);
+							}
+						}
+						++MapCells;
+						Total->OpenByKey.FindOrAdd(Key)++;
+						if (!bFits)
+						{
+							++MapBlocked;
+							Total->BlockedByKey.FindOrAdd(Key)++;
+							if (Examples.Len() < 200)
+							{
+								Examples += FString::Printf(TEXT(" %c(%d,%d,%d%%)"), Key, X, Y, Open * 100 / Samples);
+							}
+						}
+					}
+				}
+				Total->Cells += MapCells;
+				Total->Blocked += MapBlocked;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] shelfgap %s: %d tall furniture cells with open floor, %d cannot be entered:%s"), *MapName.ToString(), MapCells, MapBlocked, *Examples);
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			FString ByKey;
+			for (const TPair<TCHAR, int32>& Pair : Total->OpenByKey)
+			{
+				ByKey += FString::Printf(TEXT(" %c:%d/%d"), Pair.Key, Total->BlockedByKey.FindRef(Pair.Key), Pair.Value);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] shelfgap blocked/open by furniture:%s"), *ByKey);
+			Check(FString::Printf(TEXT("every gap in front of tall furniture (shelves) fits the player (%d of %d cells do not)"), Total->Blocked, Total->Cells), Total->Blocked == 0 && Total->Cells > 0);
+		} });
+	}
+	// ================================================================ WalkGrid（テストプレイ AI の stuck-walk：歩けるはずのマスどうしの間を、立った体が通れるかを全部の館で調べる）
+	else if (Scenario.Equals(TEXT("WalkGrid"), ESearchCase::IgnoreCase))
+	{
+		struct FWalkStats { int32 Edges = 0; int32 Blocked = 0; TMap<FString, int32> ByBlocker; };
+		TSharedRef<FWalkStats> Total = MakeShared<FWalkStats>();
+		const TArray<FName> MapNames = GM->MapOrder;
+		for (int32 m = 0; m < MapNames.Num(); ++m)
+		{
+			const FName MapName = MapNames[m];
+			Steps.Add({ m == 0 ? 0.5f : 0.2f, [=, this]
+			{
+				GM->bMapOverride = true;
+				GM->MapOverride = MapName;
+				GM->SwitchToMap(MapName);
+				KeepOnlyOni(-1);
+				GS()->HideTimeRemaining = 600.f;
+			} });
+			Steps.Add({ 0.6f, [=, this]
+			{
+				UKakurenboGridSubsystem* G = Grid();
+				// 立ったプレイヤーの体（半径 35・高さの半分 80）。床から 3cm 浮かせて、マスの真ん中から隣のマスの真ん中へ動かしてみる
+				const FCollisionShape Body = FCollisionShape::MakeCapsule(35.f, 80.f);
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(KakuWalkGrid), false, GetPawn());
+				for (AOniCharacter* Oni : GM->GetOnis())
+				{
+					Params.AddIgnoredActor(Oni);
+				}
+				int32 MapEdges = 0, MapBlocked = 0;
+				FString Examples;
+				for (int32 Y = 0; Y < G->GetSizeY(); ++Y)
+				{
+					for (int32 X = 0; X < G->GetSizeX(); ++X)
+					{
+						const FIntPoint A(X, Y);
+						if (!G->IsWalkable(A))
+						{
+							continue;
+						}
+						for (const FIntPoint& Step : { FIntPoint(1, 0), FIntPoint(0, 1) })
+						{
+							const FIntPoint B = A + Step;
+							if (!G->IsInside(B) || !G->IsWalkable(B))
+							{
+								continue;
+							}
+							++MapEdges;
+							const FVector From = G->CellFloorCenter(A) + FVector(0.f, 0.f, 83.f);
+							const FVector To = G->CellFloorCenter(B) + FVector(0.f, 0.f, 83.f);
+							FHitResult Hit;
+							if (!GetWorld()->SweepSingleByChannel(Hit, From, To, FQuat::Identity, ECC_Pawn, Body, Params)
+								&& !GetWorld()->SweepSingleByChannel(Hit, To, From, FQuat::Identity, ECC_Pawn, Body, Params))
+							{
+								continue;
+							}
+							++MapBlocked;
+							const FString Name = Hit.GetActor() ? Hit.GetActor()->GetClass()->GetName() + TEXT("/") + (Hit.GetComponent() ? Hit.GetComponent()->GetName() : TEXT("?")) : TEXT("?");
+							Total->ByBlocker.FindOrAdd(Name)++;
+							if (Examples.Len() < 400)
+							{
+								Examples += FString::Printf(TEXT(" (%d,%d)-(%d,%d)%s"), A.X, A.Y, B.X, B.Y, *Name);
+							}
+						}
+					}
+				}
+				Total->Edges += MapEdges;
+				Total->Blocked += MapBlocked;
+				UE_LOG(LogTemp, Display, TEXT("[AutoTest] walkgrid %s: %d edges between walkable cells, %d blocked:%s"), *MapName.ToString(), MapEdges, MapBlocked, *Examples);
+			} });
+		}
+		Steps.Add({ 0.3f, [=, this]
+		{
+			FString ByBlocker;
+			for (const TPair<FString, int32>& Pair : Total->ByBlocker)
+			{
+				ByBlocker += FString::Printf(TEXT(" %s:%d"), *Pair.Key, Pair.Value);
+			}
+			UE_LOG(LogTemp, Display, TEXT("[AutoTest] walkgrid blocked by:%s"), *ByBlocker);
+			Check(FString::Printf(TEXT("the standing player can walk between every pair of neighbouring walkable cells (%d of %d edges blocked)"), Total->Blocked, Total->Edges),
+				Total->Blocked == 0 && Total->Edges > 0);
+		} });
+	}
+	// ================================================================ Lineup（M14：Furniture.csv の家具を全部、壁ぎわに並べて部屋の側から写す。向きと大きさの確認用）
+	else if (Scenario.Equals(TEXT("Lineup"), ESearchCase::IgnoreCase))
+	{
+		// 北の壁ぎわ（部屋の方＝南を向く）と南の壁ぎわ（北を向く）に 1 マスずつあけて並べる。文字・幅・奥行き
+		struct FLineupItem { TCHAR Key; int32 W; int32 H; };
+		static const FLineupItem North[] = { { 'B', 1, 1 }, { 'S', 1, 1 }, { 'O', 1, 1 }, { 'X', 1, 1 }, { 'K', 1, 1 }, { 'F', 2, 1 }, { 'V', 2, 1 }, { 'Q', 2, 1 },
+			{ 'E', 2, 1 }, { 'N', 1, 1 }, { 'J', 2, 1 }, { 'D', 2, 2 }, { 'Y', 2, 1 }, { 'Z', 1, 1 } };
+		static const FLineupItem South[] = { { 'A', 1, 1 }, { 'H', 1, 1 }, { 'T', 1, 1 }, { 'G', 1, 1 }, { 'P', 1, 1 }, { 'R', 1, 1 }, { 'L', 1, 1 }, { 'U', 1, 1 },
+			{ 'W', 1, 1 }, { 'M', 1, 1 }, { '1', 1, 1 }, { '2', 1, 1 }, { '3', 1, 1 }, { '4', 2, 1 }, { '5', 1, 1 }, { 'I', 4, 2 } };
+		constexpr int32 SizeX = 37;
+		constexpr int32 SizeY = 10;
+		TArray<FString> Rows;
+		Rows.Init(FString::ChrN(SizeX, TEXT('.')), SizeY);
+		TArray<TPair<TCHAR, FIntPoint>> Labels;
+		auto Put = [&Rows, &Labels](const FLineupItem* Items, int32 Count, bool bNorth)
+		{
+			int32 X = 1;
+			for (int32 i = 0; i < Count; ++i)
+			{
+				const FLineupItem& It = Items[i];
+				const int32 Y0 = bNorth ? 0 : SizeY - It.H;
+				for (int32 dy = 0; dy < It.H; ++dy)
+				{
+					for (int32 dx = 0; dx < It.W; ++dx)
+					{
+						Rows[Y0 + dy][X + dx] = It.Key;
+					}
+				}
+				Labels.Add(TPair<TCHAR, FIntPoint>(It.Key, FIntPoint(X, bNorth ? Y0 + It.H : Y0 - 1)));
+				X += It.W + 1;
+			}
+		};
+		Put(North, UE_ARRAY_COUNT(North), true);
+		Put(South, UE_ARRAY_COUNT(South), false);
+		FFileHelper::SaveStringToFile(FString::Join(Rows, TEXT("\n")) + TEXT("\n"), *(FPaths::ProjectSavedDir() / TEXT("lineup.txt")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+		Steps.Add({ 0.5f, [=, this]
+		{
+			// 一時的なマップ（居間の色で、間取りだけ Saved/lineup.txt）
+			FKakurenboMapRow Row = GM->MapRows.FindRef(TEXT("Parlor"));
+			Row.LayoutFile = TEXT("../../Saved/lineup.txt");
+			GM->MapRows.Add(TEXT("Lineup"), Row);
+			GM->bMapOverride = true;
+			GM->MapOverride = TEXT("Lineup");
+			GM->SwitchToMap(TEXT("Lineup"));
+			GS()->HideTimeRemaining = 600.f;
+			const AKakurenboArena* Arena = GM->GetArena();
+			Check(FString::Printf(TEXT("lineup map built (%dx%d, %d pieces, %d with meshes)"), Grid()->GetSizeX(), Grid()->GetSizeY(), Arena->GetFurniturePieceCount(), Arena->GetFurnitureMeshCount()),
+				Grid()->GetSizeX() == SizeX && Arena->GetFurniturePieceCount() == UE_ARRAY_COUNT(North) + UE_ARRAY_COUNT(South));
+			Check(FString::Printf(TEXT("lineup: furniture stays in its cells (overhang %.1f, straddle %d)"), Arena->GetMaxFurnitureOverhang(), Arena->GetFurnitureStraddleCount()),
+				Arena->GetMaxFurnitureOverhang() < 8.f && Arena->GetFurnitureStraddleCount() == 0);
+			for (const TPair<TCHAR, FIntPoint>& Label : Labels)
+			{
+				DrawDebugString(GetWorld(), Grid()->CellFloorCenter(Label.Value) + FVector(0.f, 0.f, 30.f), FString::ChrN(1, Label.Key), nullptr, FColor::White, 120.f, true, 2.0f);
+			}
+		} });
+		// 北の列（南を向いているはず）→ 南の列（北を向いているはず）を、真ん中の通路から写す
+		for (int32 Side = 0; Side < 2; ++Side)
+		{
+			for (int32 Part = 0; Part < 4; ++Part)
+			{
+				Steps.Add({ Side == 0 && Part == 0 ? 6.f : 0.5f, [=, this]
+				{
+					KeepOnlyOni(-1); // 鬼は全部どける（後から出てきた鬼も）
+					GS()->HideTimeRemaining = 600.f;
+					TeleportPlayer(Grid()->CellFloorCenter(FIntPoint(5 + Part * 9, Side == 0 ? 6 : 3)));
+					SetControlRotation(FRotator(-12.f, Side == 0 ? -90.f : 90.f, 0.f));
+				} });
+				Steps.Add({ 1.2f, [=] { Shot(FString::Printf(TEXT("lineup_%d_%d"), Side + 1, Part + 1)); } });
+			}
+		}
+		// M14：家具の当たり判定は見えているメッシュの大きさ。浅い衣装だんす（O：奥行き約 55cm）の前のすき間には入れる（家具のマスの中まで歩ける）
+		Steps.Add({ 0.3f, [=, this]
+		{
+			KeepOnlyOni(-1);
+			const FIntPoint Shelf(5, 0);
+			Check(FString::Printf(TEXT("lineup: (5,0) is the wardrobe O (%c)"), GM->GetArena()->GetLayoutChar(Shelf)), GM->GetArena()->GetLayoutChar(Shelf) == TEXT('O'));
+			TeleportPlayer(Grid()->CellFloorCenter(Shelf + FIntPoint(0, 3)));
+			GetPawn()->SetActorRotation(FRotator(0.f, -90.f, 0.f));
+			SetControlRotation(FRotator(-20.f, -90.f, 0.f));
+			SimulateKey(EKeys::W, IE_Pressed);
+		} });
+		Steps.Add({ 2.0f, [=, this]
+		{
+			SimulateKey(EKeys::W, IE_Released);
+			const FVector Me = GetPawn()->GetActorLocation();
+			const FIntPoint Cell = Grid()->WorldToCell(Me);
+			const float IntoCell = static_cast<float>(Grid()->CellFloorCenter(FIntPoint(5, 1)).Y - Grid()->GetCellSize() * 0.5f - Me.Y);
+			Check(FString::Printf(TEXT("lineup: the player walks into the gap in front of the shallow wardrobe (cell %d,%d, %.0f cm into the furniture cell)"), Cell.X, Cell.Y, IntoCell),
+				Cell == FIntPoint(5, 0) && IntoCell > 5.f);
+			Shot(TEXT("lineup_3_gap"));
+		} });
+	}
+	// ================================================================ Catalog（家具のメッシュを並べて写す。素材選び用。Saved/catalog.txt に /Game/... を 1 行ずつ、"#" で次のページ）
+	else if (Scenario.Equals(TEXT("Catalog"), ESearchCase::IgnoreCase))
+	{
+		TArray<FString> Lines;
+		FFileHelper::LoadFileToStringArray(Lines, *(FPaths::ProjectSavedDir() / TEXT("catalog.txt")));
+		TArray<TArray<FString>> Pages;
+		Pages.AddDefaulted();
+		for (const FString& Line : Lines)
+		{
+			const FString Trimmed = Line.TrimStartAndEnd();
+			if (Trimmed.StartsWith(TEXT("#")))
+			{
+				Pages.AddDefaulted();
+			}
+			else if (!Trimmed.IsEmpty())
+			{
+				Pages.Last().Add(Trimmed);
+			}
+		}
+		TSharedRef<TArray<TObjectPtr<AActor>>> Spawned = MakeShared<TArray<TObjectPtr<AActor>>>();
+		Steps.Add({ 0.5f, [=, this] { KakuSkipTime(1000.f); } });
+		Steps.Add({ 1.0f, [=, this] { KakuNext(); } });
+		Steps.Add({ 0.5f, [=, this]
+		{
+			KakuNext(); // → 設置（真上から。斜めに傾けて見る）
+			if (MyHUD)
+			{
+				MyHUD->bShowHUD = false;
+			}
+			const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+			GetHider()->SetTopDownFocus(Center);
+			GetHider()->TopDownDistance = 2300.f;
+			GetHider()->TopDownPitch = -48.f;
+			GetHider()->SetOverheadYaw(0.f);
+			// 見やすいように明るくする
+			for (int32 i = 0; i < 4; ++i)
+			{
+				APointLight* Light = GetWorld()->SpawnActor<APointLight>(Center + FVector(-500.f + (i % 2) * 1000.f, -500.f + (i / 2) * 1000.f, 600.f), FRotator::ZeroRotator);
+				Light->PointLightComponent->SetIntensityUnits(ELightUnits::Candelas);
+				Light->PointLightComponent->SetIntensity(400.f);
+				Light->PointLightComponent->SetAttenuationRadius(2500.f);
+				Light->PointLightComponent->SetCastShadows(false);
+			}
+		} });
+		for (int32 PageIndex = 0; PageIndex < Pages.Num(); ++PageIndex)
+		{
+			const TArray<FString> Page = Pages[PageIndex];
+			Steps.Add({ 0.5f, [=, this]
+			{
+				for (AActor* Old : *Spawned)
+				{
+					if (Old)
+					{
+						Old->Destroy();
+					}
+				}
+				Spawned->Reset();
+				const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+				for (int32 i = 0; i < Page.Num(); ++i)
+				{
+					UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Page[i]);
+					const int32 Col = i % 5;
+					const int32 Row = i / 5;
+					// 画面の上 = +X（カメラの向き）。列は Y 方向、行は X 方向（奥から手前へ）
+					const FVector Slot = Center + FVector(450.f - Row * 330.f, -840.f + Col * 420.f, 0.f);
+					FString Label = FString::Printf(TEXT("%d %s"), i + 1, *FPaths::GetBaseFilename(Page[i]));
+					if (Mesh)
+					{
+						const FBox Box = Mesh->GetBoundingBox();
+						const FVector Size = Box.GetSize();
+						const float Scale = static_cast<float>(FMath::Min(1.0, 300.0 / FMath::Max3(Size.X, Size.Y, 1.0)));
+						AStaticMeshActor* Actor = GetWorld()->SpawnActor<AStaticMeshActor>(Slot, FRotator::ZeroRotator);
+						Actor->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+						Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+						Actor->SetActorScale3D(FVector(Scale));
+						Actor->SetActorLocation(Slot - Box.GetCenter() * Scale + FVector(0.f, 0.f, Box.GetExtent().Z * Scale + 1.f));
+						Spawned->Add(Actor);
+						Label += FString::Printf(TEXT(" %.0fx%.0fx%.0f"), Size.X, Size.Y, Size.Z);
+						UE_LOG(LogTemp, Display, TEXT("[AutoTest] catalog %d-%d %s size %.0f x %.0f x %.0f"), PageIndex + 1, i + 1, *Page[i], Size.X, Size.Y, Size.Z);
+					}
+					else
+					{
+						Label += TEXT(" (missing)");
+						UE_LOG(LogTemp, Warning, TEXT("[AutoTest] catalog %d-%d %s missing"), PageIndex + 1, i + 1, *Page[i]);
+					}
+					DrawDebugString(GetWorld(), Slot + FVector(-130.f, -150.f, 10.f), Label, nullptr, FColor::White, 30.f, true, 1.0f);
+				}
+			} });
+			// 2 段ずつ近くから写す（はじめはシェーダーの準備に時間がかかるので長めに待つ）
+			for (int32 Half = 0; Half < 2; ++Half)
+			{
+				Steps.Add({ PageIndex == 0 && Half == 0 ? 12.f : 2.5f, [=, this]
+				{
+					const FVector Center = Grid()->CellFloorCenter(FIntPoint(Grid()->GetSizeX() / 2, Grid()->GetSizeY() / 2));
+					GetHider()->SetTopDownFocus(Center + FVector(285.f - Half * 660.f, 0.f, 0.f));
+					GetHider()->TopDownDistance = 1500.f;
+				} });
+				Steps.Add({ 1.5f, [=] { Shot(FString::Printf(TEXT("catalog_%02d_%d"), PageIndex + 1, Half + 1)); } });
+			}
+		}
+	}
 	// ================================================================ Loop
 	else
 	{
@@ -3380,9 +7902,14 @@ void AKakurenboPlayerController::KakuAutoTest(const FString& Scenario)
 		{
 			Log(TEXT("start"));
 			Check(FString::Printf(TEXT("treasures spawned (%d)"), GM->GetTreasures().Num()), GM->GetTreasures().Num() == GM->GetNumTreasures());
+			// 準備の間（もういいかい）は連打できない
+			const double CoinsBefore = GS()->Coins;
+			KakuMash(5);
+			Check(FString::Printf(TEXT("no mashing while the oni is still counting (countdown %.1f, coins %.1f -> %.1f, mashes %d)"), GS()->HideStartCountdown, CoinsBefore, GS()->Coins, GS()->MashCountThisRound),
+				GS()->HideStartCountdown > 0.f && GS()->Coins == CoinsBefore && GS()->MashCountThisRound == 0 && !GM->CanMash());
 			Shot(TEXT("loop_01_hide_countdown"));
 		} });
-		Steps.Add({ 1.f, [=, this] { KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("loop_02_hide_mashing")); } });
+		Steps.Add({ 3.f, [=, this] { Check(TEXT("mashing works once the oni comes out"), GM->CanMash()); KakuMash(30); Log(TEXT("after mash 30")); Shot(TEXT("loop_02_hide_mashing")); } });
 		Steps.Add({ 1.f, [=, this] { KakuSkipTime(1000.f); } });
 		Steps.Add({ 1.f, [=, this]
 		{

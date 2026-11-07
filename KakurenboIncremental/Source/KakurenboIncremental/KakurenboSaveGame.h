@@ -31,6 +31,10 @@ struct FKakurenboSavedColumn
 	/** 保存した時点で罠が残っていたか（発動して消えていたら false） */
 	UPROPERTY()
 	bool bTrapLive = false;
+
+	/** 罠の向き（一方通行ののれん：0 +X / 1 +Y / 2 -X / 3 -Y。版 7 から） */
+	UPROPERTY()
+	int32 TrapDir = 0;
 };
 
 /** 1 つのマップの壁・罠の置き方（今ではないマップの設計図をとっておくのに使う） */
@@ -53,9 +57,20 @@ public:
 	 * 保存形式の版（項目を増やしたときに古いデータを見分けるため）。
 	 * 2: 罠・壁の補強を追加 / 3: 壁の補強をやめて転生を追加 / 4: 転生のお店（ポイントを使う永続強化）
 	 * 5: 館のマップ（今のマップと、ほかのマップの設計図）
+	 * 6: 壁の種類を 通常壁・消音壁・クライミング壁 に（版 5 までの 木・石・鉄 は通常壁、消音壁はそのまま）・壁の補強
+	 * 7: 宝石（お宝でもらう。宝石のお店の道具を買う）・一方通行ののれんの向き
+	 * 8: 転生のお店「壁の数」（版 7 までのその場所は時間のお金アップ。読み込むときにポイントを返す）
 	 */
 	UPROPERTY()
-	int32 SaveVersion = 5;
+	int32 SaveVersion = 8;
+
+	/** 宝石（版 7 から） */
+	UPROPERTY()
+	int32 Gems = 0;
+
+	/** このランにゴールドラッシュを買った数（無いセーブは 0） */
+	UPROPERTY()
+	int32 GoldRushBoughtThisRun = 0;
 
 	UPROPERTY()
 	double Coins = 0.0;
@@ -68,6 +83,10 @@ public:
 
 	UPROPERTY()
 	int32 TimeIncomeLevel = 0;
+
+	/** 壁の補強のレベル（版 6 から） */
+	UPROPERTY()
+	int32 WallReinforceLevel = 0;
 
 	/**
 	 * 使える転生ポイント・もらった合計・転生した回数・転生のお店の強化レベル。

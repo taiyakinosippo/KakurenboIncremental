@@ -84,11 +84,20 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 			const bool bDiagonal = D.X != 0 && D.Y != 0;
 			if (bDiagonal)
 			{
-				// 壁の角をすり抜けない／壁へ斜めに入らない
-				if (Extra > 0.f || !Grid.IsFree(FIntPoint(P.X + D.X, P.Y)) || !Grid.IsFree(FIntPoint(P.X, P.Y + D.Y)))
+				// 壁の角をすり抜けない／壁へ斜めに入らない（一方通行ののれんの角もすり抜けない）
+				const FIntPoint CornerA(P.X + D.X, P.Y);
+				const FIntPoint CornerB(P.X, P.Y + D.Y);
+				if (Extra > 0.f || !Grid.IsFree(CornerA) || !Grid.IsFree(CornerB) || Grid.GetOneWay(CornerA) >= 0 || Grid.GetOneWay(CornerB) >= 0)
 				{
 					continue;
 				}
+			}
+			// 一方通行ののれん：決まった向きにまっすぐしか通れない。壊す経路なら、逆向きはのれんを壊すコストを払って通る
+			// （今いるマスがのれんの上なら、出る向きは問わない＝閉じ込められない）
+			const float GateCost = Grid.OneWayStepCost(P, D, P == Start);
+			if (GateCost < 0.f)
+			{
+				continue;
 			}
 
 			const int32 NIndex = Grid.ToIndex(N);
@@ -97,7 +106,7 @@ bool KakurenboPathfinding::FindPath(const FKakurenboPathGrid& Grid, const FIntPo
 				continue;
 			}
 
-			const float Tentative = GScore[Current.Index] + (bDiagonal ? UE_SQRT_2 : 1.f) + Extra;
+			const float Tentative = GScore[Current.Index] + (bDiagonal ? UE_SQRT_2 : 1.f) + Extra + GateCost;
 			if (Tentative < GScore[NIndex])
 			{
 				GScore[NIndex] = Tentative;
@@ -136,7 +145,8 @@ void KakurenboPathfinding::LabelFreeRegions(const FKakurenboPathGrid& Grid, TArr
 	TArray<int32> Stack;
 	for (int32 Index = 0; Index < NumCells; ++Index)
 	{
-		if (OutLabels[Index] != INDEX_NONE || Grid.ExtraCost[Index] != 0.f)
+		// のれん（一方通行）のマスは、向きがあるのでまとまりをつながない（のれんの先の行き止まりは空洞になる）
+		if (OutLabels[Index] != INDEX_NONE || Grid.ExtraCost[Index] != 0.f || Grid.GetOneWay(Grid.FromIndex(Index)) >= 0)
 		{
 			continue;
 		}
@@ -153,7 +163,8 @@ void KakurenboPathfinding::LabelFreeRegions(const FKakurenboPathGrid& Grid, TArr
 			for (const FIntPoint& D : Dirs)
 			{
 				const FIntPoint N = P + D;
-				if (!Grid.IsFree(N))
+				// のれんのマスにも広がらない（広がると、のれんで囲んだ場所が広い場所とつながって空洞にならない）
+				if (!Grid.IsFree(N) || Grid.GetOneWay(N) >= 0)
 				{
 					continue;
 				}
@@ -211,13 +222,20 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 	{
 		OutBoundaryCells->Reset();
 	}
-	if (!Grid.IsFree(Cell))
+	if (!Grid.IsInside(Cell))
 	{
-		return 0.f; // 壁の上や外にいる
+		return 0.f; // 外にいる
+	}
+	// 家具・壁の上に乗っているときは、そのマスも床として数える（囲んだ中のベッドの上で連打しても音が小さくなるように。ユーザーの指摘）。
+	// 囲いの壁そのものの上に乗っていれば、中と外がつながるので囲まれていない扱いになる
+	FKakurenboPathGrid Work = Grid;
+	if (!Work.IsFree(Cell))
+	{
+		Work.ExtraCost[Work.ToIndex(Cell)] = 0.f;
 	}
 	TArray<int32> Labels, Sizes;
-	LabelFreeRegions(Grid, Labels, Sizes);
-	const int32 Region = Labels[Grid.ToIndex(Cell)];
+	LabelFreeRegions(Work, Labels, Sizes);
+	const int32 Region = Labels[Work.ToIndex(Cell)];
 	if (Region == FindLargestRegion(Sizes))
 	{
 		return 0.f; // 囲まれていない（一番広い空間にいる）
@@ -231,16 +249,16 @@ float KakurenboPathfinding::ComputeEnclosureDamping(const FKakurenboPathGrid& Gr
 		{
 			continue;
 		}
-		const FIntPoint P = Grid.FromIndex(Index);
+		const FIntPoint P = Work.FromIndex(Index);
 		for (int32 DY = -1; DY <= 1; ++DY)
 		{
 			for (int32 DX = -1; DX <= 1; ++DX)
 			{
 				const FIntPoint N = P + FIntPoint(DX, DY);
 				// CellDamping が負のマス（家具・部屋の壁）は数えない
-				if (Grid.IsInside(N) && Grid.GetExtra(N) != 0.f && !(CellDamping.IsValidIndex(Grid.ToIndex(N)) && CellDamping[Grid.ToIndex(N)] < 0.f))
+				if (Work.IsInside(N) && Work.GetExtra(N) != 0.f && !(CellDamping.IsValidIndex(Work.ToIndex(N)) && CellDamping[Work.ToIndex(N)] < 0.f))
 				{
-					Walls.Add(Grid.ToIndex(N));
+					Walls.Add(Work.ToIndex(N));
 				}
 			}
 		}

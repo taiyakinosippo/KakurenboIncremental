@@ -120,6 +120,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<UStaticMeshComponent> TypeMarker;
 
+	/** プレイヤーを見つけたとき、頭の上の玉が変わる「!」の棒と点（ユーザーの希望 2026-10-18：「！」の文字が地味だったので） */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<UStaticMeshComponent> ExclaimBar;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
+	TObjectPtr<UStaticMeshComponent> ExclaimDot;
+
+	/** 見つけてから「!」を出しておく秒数（HUD の「！」の記録と同じ長さ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni")
+	float ExclaimSeconds = 1.5f;
+
+	/** 今、頭の上が「!」になっているか（テスト用） */
+	bool IsExclaimShown() const { return ExclaimBar && ExclaimBar->IsVisible(); }
+
 	/** スケルタルメッシュに重ねる小物（包帯など） */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Oni")
 	TObjectPtr<USkeletalMeshComponent> AccessoryMesh;
@@ -161,6 +175,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
 	float ChaseSpeed = 840.f;
 
+	/**
+	 * 曲がり角が苦手（スピード鬼）：進む向きが一度に CornerTurnAngle 度以上変わると、速さが CornerSlowScale 倍まで落ち、
+	 * CornerSlowDuration 秒かけて元に戻る。少しずつ曲がっても、向きを変えられる速さ（CornerTurnRate 度/秒）より速ければ角とみなす。0 なら無し
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerTurnAngle = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerSlowScale = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerSlowDuration = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Move")
+	float CornerTurnRate = 180.f;
+
+	/** 曲がり角で減速した回数（テスト用） */
+	int32 GetCornerSlowCount() const { return CornerSlowCount; }
+
+	/** 今の曲がり角の減速の倍率（1 なら減速していない。テスト用） */
+	float GetCornerSpeedFactor() const { return CornerSpeedFactor(CornerSlowTimer, CornerSlowDuration, CornerSlowScale); }
+
+	/** 曲がり角の減速：残り Timer 秒（Duration 秒から数える）のときの速さの倍率。曲がった瞬間 MinScale、Duration 秒で 1 に戻る（単体テストあり） */
+	static float CornerSpeedFactor(float Timer, float Duration, float MinScale);
+
 	// ===== 感覚 =====
 
 	/** 視界の距離（cm）。見えたら追いかける */
@@ -175,6 +214,38 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CloseSenseRadius = 150.f;
 
+	/**
+	 * M14：しゃがんでいる相手がこの距離（cm）以内（かつ見ている向き・すぐそば）なら、腰の高さの家具（LowCoverHeight より低い物）の陰でも見える（のぞき込む）。
+	 * 低い家具の陰にしゃがめば遠くからは見えないが、近くまで来られると見つかる（しゃがむと無敵、にならないように）。
+	 * 立っている相手には使わない（壁 1 段で隠れるのは今まで通り）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PeekRadius = 250.f;
+
+	/** 「背の高い物」の高さ（足元から cm）。これより低い家具は、近くの鬼ののぞき込み・気配をさえぎらない（壁 1 段 160cm・本棚はさえぎる） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float LowCoverHeight = 150.f;
+
+	/**
+	 * しゃがんでいる相手のすぐ手前（CrouchCoverReach cm 以内）に、足元から CrouchCoverHeight cm の高さをさえぎる物（椅子・小さな台・まきなど）があれば、
+	 * PeekRadius より遠くからは見えない。しゃがんだ体（70cm）より低い家具だと頭が少し出て、まっすぐの視線では見えてしまっていた（ユーザーの指摘：椅子の陰にしゃがんでも見つかる）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CrouchCoverHeight = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float CrouchCoverReach = 120.f;
+
+	/**
+	 * M14：気配。見えていない相手がこの距離（cm）以内にいて、間に背の高い物（壁・本棚）が無いと「あやしさ」がたまり、1 になったら「ン？」と調べに来る。
+	 * たまる速さ ＝ PresenceRate ×（1 − 距離 / PresenceRadius）/ 秒。すぐそばを通る・そばで立ち止まると気づかれる（さっと通り過ぎるだけなら気づかないことが多い）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PresenceRadius = 220.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float PresenceRate = 2.5f;
+
 	/** 体（カプセル）同士がこの距離まで近づいたら「ぶつかった」とみなして発見する（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float TouchMargin = 8.f;
@@ -183,7 +254,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float HearingRadius = 1200.f;
 
-	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（スピード鬼：音に敏感で、にせものとわかる） */
+	/** 種類の倍率を掛ける前の聞こえる距離（cm）。迷い猫の鳴き声はどの鬼もこの距離で聞く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float BaseHearingRadius = 1200.f;
+
+	/** おとりの音が聞こえる距離（cm）。0 ならおとりにだまされない（宝物鬼・探知鬼。スピード鬼は遠くから、パワー鬼は近くからだけ寄っていく） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float DecoyHearingRadius = 1200.f;
 
@@ -202,6 +277,30 @@ public:
 	/** 探知鬼：見張りながら首を回す速さ（度/秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float ScanDegreesPerSecond = 50.f;
+
+	/** 探知鬼：連打の音が聞こえたら、その方を向いて見張る秒数（ユーザーの希望：探知鬼に耳を。動きはしない） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float GuardNoiseLookSeconds = 4.f;
+
+	/** 探知鬼が今、聞こえた音の方を向いているか（テスト用） */
+	bool IsLookingAtNoise() const { return GuardNoiseLookTimer > 0.f; }
+
+	/** 探知鬼：仲間を呼んだおとり・迷い猫がこの秒数鳴らなければ、片付いた（猫がなでられて鳴かなくなった等）とみて、また音を聞く */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float LureForgetSeconds = 8.f;
+
+	/** 探知鬼：仲間を呼んだおとり・迷い猫が片付くのを待っている（その間はほかの音に反応しない） */
+	bool IsWaitingForLure() const;
+
+	/**
+	 * 探知鬼：見張りの場所のまわりに壁（ブロック）があれば壊す（視線をふさがれないように。ユーザーの希望 2026-10-18）。
+	 * この秒数ごとに、攻撃が届くまわりのマス（AttackRadius 以内）に壁があるか調べる。0 なら壊さない
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float GuardClearInterval = 0.5f;
+
+	/** 探知鬼が見張りの場所のまわりの壁を壊しに行った回数（テスト用） */
+	int32 GetGuardClearCount() const { return GuardClearCount; }
 
 	/** 慎重鬼：歩きながら見渡して「調べた」ことにする距離（マス。壁・家具の向こうは見えない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
@@ -233,8 +332,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float StepVolume = 1.f;
 
+	/** 足音の高さ（標準鬼・探知鬼。種類ごとの足音（StepSfx）がある鬼は、その音に高さが入っている） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
 	float StepPitch = 1.f;
+
+	/** 足音の種類（スピード鬼「たったっ」・パワー鬼「ずしん」…。Data/Sounds の WAV が無ければ OniStep の高さ違い） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
+	EKakurenboSfx StepSfx = EKakurenboSfx::OniStep;
 
 	/** 追いかけてくる・音を調べに来るときの足音の大きさの倍率（向かってくるのが音でわかる） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sound")
@@ -287,6 +391,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float PocketInspectChance = 0.5f;
 
+	/**
+	 * 勘（0〜1）：見えず聞こえずでも、うろうろの次の行き先をこの確率でプレイヤーの本当の場所のそばにする（近づいて来やすい）。
+	 * そばの広さは IntuitionRadiusCells マス（勘 1 なら半分。勘が高いほど近く）。勘は最後の駆け引きなので、たまにしか働かない（下の IntuitionCooldown）
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float Intuition = 0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	int32 IntuitionRadiusCells = 6;
+
+	/** 勘が一度働いたら、この秒数は働かない（ずっとプレイヤーへ寄ってこないように） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
+	float IntuitionCooldown = 15.f;
+
+	/** 勘でプレイヤーのそばへ向かった回数（テスト用） */
+	int32 GetHunchCount() const { return HunchCount; }
+
 	/** 慎重鬼：調べたマスを覚えておく時間（秒）。これより前に調べたマスはまた調べる */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Sense")
 	float CarefulMemorySeconds = 60.f;
@@ -321,6 +442,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	double AttackDamage = 1.0;
 
+	float LastAttackRangeScale = 1.f;
+
 	/** true なら目の前の壁 1 個だけを壊す（範囲攻撃しない） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	bool bSingleTargetAttack = false;
@@ -332,6 +455,45 @@ public:
 	/** 攻撃の溜め時間（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
 	float AttackWindup = 0.8f;
+
+	/** 前方の箱の攻撃（パワー鬼）：横・奥（マス）・段の数。0 なら使わない（AttackRadius の範囲攻撃） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxWidth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxDepth = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	int32 AttackBoxLevels = 0;
+
+	/** 前方の箱の攻撃が当たるマス（今攻撃している壁から。テスト・表示用）。Width・Depth を渡すとその大きさで */
+	TArray<FIntPoint> GetAttackBoxCells() const { return GetAttackBoxCells(AttackBoxWidth, AttackBoxDepth); }
+	TArray<FIntPoint> GetAttackBoxCells(int32 Width, int32 Depth) const;
+
+	/**
+	 * 壁の耐久 WallHP が攻撃力よりずっと低いときの、壁への攻撃範囲の倍率（1〜OverkillRangeMax）。
+	 * 攻撃力 ÷ 耐久 が OverkillRangeStart 倍を超えると、2 倍になるごとに OverkillRangePerDoubling ずつ広がる。
+	 * 範囲攻撃は半径・パワー鬼は箱の横・奥・段・慎重鬼は当たる壁の数にかかる
+	 */
+	float GetOverkillRangeScale(double WallHP) const;
+
+	/** 攻撃力 ÷ 壁の耐久 がこの倍を超えると攻撃範囲が広がり始める */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	double OverkillRangeStart = 3.0;
+
+	/** 攻撃力 ÷ 壁の耐久 が 2 倍になるごとに広がる倍率 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	float OverkillRangePerDoubling = 0.5f;
+
+	/** 攻撃範囲の倍率の上限（元の 3 倍まで。ユーザーの指定） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
+	float OverkillRangeMax = 3.f;
+
+	/** 最後の攻撃の範囲の倍率（テスト用） */
+	float GetLastAttackRangeScale() const { return LastAttackRangeScale; }
+
+	/** 今攻撃している（しようとしている）壁のマス */
+	FIntPoint GetAttackCell() const { return AttackCell; }
 
 	/** 攻撃後の硬直（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Attack")
@@ -362,20 +524,27 @@ public:
 
 	/**
 	 * 音を聞かせる。聞こえる距離なら音の方へ向かう（追いかけている間・音を気にしない種類は無視）。
-	 * 聞こえる距離は音の種類で違う（連打・ダッシュ = HearingRadius / 足音 = StepHearingRadius / おとり = DecoyHearingRadius）
+	 * 聞こえる距離は音の種類で違う（連打・ダッシュ = HearingRadius / 足音 = StepHearingRadius / おとり = DecoyHearingRadius）。
+	 * Source は音を出した物（おとり・迷い猫。探知鬼が同じ物で何度も仲間を呼ばないように使う）
 	 */
-	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, EKakurenboNoise Kind = EKakurenboNoise::Mash);
+	void HearNoise(const FVector& NoiseLocation, float Loudness = 1.f, EKakurenboNoise Kind = EKakurenboNoise::Mash, AActor* Source = nullptr);
 
 	/** 探知鬼に呼ばれた：その場所へ急いで向かう（追いかけ中・動けない間・探知鬼自身は無視） */
 	void Summon(const FVector& Location);
 
 	/** 探知鬼：見張る場所（Activate の前に設定する。そこへ行ったら動かない） */
-	void SetGuardCell(const FIntPoint& Cell) { GuardCell = Cell; bHasGuardCell = true; }
+	void SetGuardCell(const FIntPoint& Cell) { GuardCell = Cell; bHasGuardCell = true; bAtGuardPost = false; bHasGoal = false; } // 見張りの場所を変えたら、そこへ向かい直す
 	bool IsAtGuardPost() const { return bAtGuardPost; }
 	FIntPoint GetGuardCell() const { return GuardCell; }
 
 	/** 最後に仲間を呼んだワールド時刻（まだなら負の値） */
 	float GetLastSummonTime() const { return LastSummonTime; }
+
+	/** 探知鬼が最後に見つけて仲間を呼んだのは身代わり人形だったか（そのときは画面に「見つかった」を出さない） */
+	bool WasLastSummonForDoll() const { return bLastSummonForDoll; }
+
+	/** 探知鬼が最後に仲間を呼んだのは、おとり・迷い猫の音の場所へだったか（プレイヤーは見つかっていない） */
+	bool WasLastSummonForSound() const { return bLastSummonForSound; }
 
 	/** 慎重鬼：担当の区画（舞台を Y 方向に Count 等分した Index 番目）。GameMode が出現時に決める */
 	void SetCarefulSector(int32 Index, int32 Count) { CarefulSector = Index; CarefulSectorCount = FMath::Max(1, Count); }
@@ -393,6 +562,41 @@ public:
 
 	/** 音に気づいて「ン？」と鳴らした回数（テスト用） */
 	int32 GetNoticeSoundCount() const { return NoticeSoundCount; }
+
+	/** 気配で気づいた回数・今のあやしさ（0〜1。テスト用） */
+	int32 GetPresenceNoticeCount() const { return PresenceNoticeCount; }
+	float GetPresence() const { return Presence; }
+
+	/** 今、相手が見えるか（テスト用にも使う） */
+	bool CanSeeTarget() const;
+
+	/** その相手（プレイヤー・身代わり人形）が見えるか */
+	bool CanSeeHider(const AHiderCharacter* Who) const;
+
+	/** 今の見える距離（真っ暗ブロックで館が暗いと短い） */
+	float GetEffectiveSightRadius() const;
+
+	/** 追いかけている相手（身代わり人形のこともある。無ければプレイヤー） */
+	AHiderCharacter* GetChaseTarget() const;
+
+	/** プレイヤーを追いかけているか（身代わり人形ではなく） */
+	bool IsChasingPlayer() const;
+
+	/** 迷い猫をなでる（Seconds 秒、その場で動かない。捕まえることもできない） */
+	void Pet(float Seconds);
+	bool IsPettingCat() const { return bPettingCat && State == EOniState::Stunned; }
+
+	/** 捕まえたのが身代わり人形だった（見回してから、うろうろに戻る） */
+	void ReactToFake();
+
+	/**
+	 * 写真用（鬼のチュートリアル）：動かない見本にして、ポーズ（0 待機 / 1 走る / 2 攻撃 / 3 見つけた）の Time（0〜1）の格好で止める。
+	 * 懐中電灯は消す
+	 */
+	void SetPortraitPose(int32 Pose, float Time);
+
+	/** だるまさんがころんだで止まっているか */
+	bool IsDarumaFrozen() const { return bDarumaFrozen; }
 
 	/** 罠などで動けなくする（StunScale 倍の時間） */
 	void Stun(float Seconds);
@@ -426,6 +630,22 @@ public:
 	/** 調べに行っている（または壊している）マス（Inspect 中のみ意味がある） */
 	FIntPoint GetInspectCell() const { return InspectCell; }
 
+	// ===== 赤く光る目（追いかけてくるとき、どの鬼も目が赤く光る） =====
+
+	/** 追いかけているときの目の光の強さ（Cute Creature のマテリアルの Emissive_power。ふだんは元の値：黒い鬼 1・ほかは 0） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float ChaseEyeGlow = 14.f;
+
+	/** 追いかけているとき、顔のまわりを照らす赤い明かりの強さ（カンデラ） */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Oni|Look")
+	float ChaseEyeLightIntensity = 6.f;
+
+	/** 目がどれだけ光っているか（0 = ふだん / 1 = 追いかけている。テスト用） */
+	float GetEyeGlowAmount() const { return EyeGlowBlend; }
+
+	/** 光る目を持っているか（モデルのマテリアル、または円柱の赤い目。テスト用） */
+	bool HasGlowingEyes() const { return EyeMaterials.Num() > 0 || FallbackEyes.Num() > 0; }
+
 	FOnOniFoundHider OnFoundHider;
 	FOnOniDestroyedWalls OnDestroyedWalls;
 	FOnOniSummon OnSummon;
@@ -445,8 +665,14 @@ private:
 	};
 
 	// 感覚
-	bool CanSeeTarget() const;
 	bool IsTouchingTarget() const;
+	bool IsTouching(const ACharacter* Who) const;
+	/** 気配（見えていない相手がすぐそばにいる）をためて、たまったら調べに来る */
+	void UpdatePresence(float DeltaSeconds);
+	/** 自分と相手の間に、LowCoverHeight より背の高い物（壁・本棚）が無いか */
+	bool IsOnlyLowCoverBetween(const AHiderCharacter* Who) const;
+	/** しゃがんでいる相手のすぐ手前（自分の側）に、低い家具などの隠れる物があるか（CrouchCoverHeight・CrouchCoverReach） */
+	bool IsCrouchedBehindCover(const AHiderCharacter* Who) const;
 	void FoundTarget(FName Reason);
 	/** 見えている壁のうち一番近いマス（パワー鬼が壊しに行く） */
 	bool FindVisibleWallCell(FIntPoint& OutCell) const;
@@ -480,18 +706,31 @@ private:
 	// うろうろの行き先（種類ごと）
 	bool ChooseWanderTarget();
 	bool ChooseRandomTarget(int32 MaxDistanceCells);
+	/** 勘：Intuition の確率で、プレイヤーの本当の場所のそばを行き先にする */
+	bool ChooseHunchTarget();
+	int32 HunchCount = 0;
+	float LastHunchTime = -1.e6f;
 	bool ChooseScoutTarget();
 	bool ChooseCarefulTarget();
+	bool ChooseCarefulPatrolTarget();
 	bool ChooseTreasurePatrolTarget();
 	bool TryInspectPocket();
 	/** 探知鬼：見張りの場所へ行き、着いたらその場で首を回して見張る */
 	void TickGuard(float DeltaSeconds);
 	/** 探知鬼：プレイヤーが見えた（仲間を呼ぶ） */
 	void HandleGuardSighting();
+	/** 探知鬼：おとり・迷い猫の音を聞いたら、その場所へ仲間を呼ぶ（1 つの物につき 1 回。呼ぶ間隔は見つけたときと同じ SummonCooldown） */
+	void CallOthersToSound(const FVector& SoundLocation, AActor* Source);
+	/** 探知鬼：見張りの場所のまわり（攻撃が届く所）の壁を探して壊し始める。壊し始めたら true */
+	bool TryClearAroundGuardPost();
 	/** 慎重鬼：見渡せるマスを「調べた」と記録する */
 	void MarkVisibleCellsChecked(float Now);
 	/** 歩いた距離に合わせて足音を鳴らす */
 	void TickFootsteps();
+	/** 曲がり角が苦手（スピード鬼）：向きが大きく変わったら減速し、だんだん元の速さに戻す */
+	void TickCornerSlow(float DeltaSeconds);
+	/** 今の状態の速さ（減速する前。止まっている状態は 0） */
+	float GetStateMoveSpeed() const;
 	/** 種類ごとの飾り（宝物鬼の王冠・探知鬼のアンテナ） */
 	void BuildTypeDecoration();
 	/** 壁に囲まれた場所（出入り口の前を壁で囲まれたときなど）にいたら、壁を壊して外へ出る */
@@ -521,6 +760,17 @@ private:
 	UPROPERTY()
 	TObjectPtr<AHiderCharacter> Target;
 
+	/** 追いかけている相手（見えた相手。身代わり人形のこともある） */
+	TWeakObjectPtr<AHiderCharacter> ChaseTarget;
+
+	bool bPettingCat = false;
+
+	/** 写真用のポーズ（SetPortraitPose） */
+	bool bPortrait = false;
+	int32 PortraitPose = 0;
+	float PortraitTime = 0.f;
+	bool bDarumaFrozen = false;
+
 	EOniState State = EOniState::Wander;
 	EOniState StateBeforeAttack = EOniState::Wander;
 	bool bActive = false;
@@ -541,6 +791,11 @@ private:
 	bool bTargetInSight = false;
 	float ChaseRepathTimer = 0.f;
 	float ChaseStartTime = -1.f;
+	bool bLastSummonForDoll = false;
+	bool bLastSummonForSound = false;
+	/** 探知鬼：仲間を呼んだおとり・迷い猫と、それが最後に聞こえたワールド時刻 */
+	TWeakObjectPtr<AActor> PendingLure;
+	float PendingLureHeardTime = -1.f;
 
 	/** 最後にプレイヤーが見えた場所（見えない間はここへ向かう） */
 	FVector LastKnownTargetLocation = FVector::ZeroVector;
@@ -563,6 +818,11 @@ private:
 	static constexpr int32 RegionSize = 4;
 	TArray<float> RegionVisitTime;
 
+	/** スピード鬼：曲がり角の判定に使う向き（CornerTurnRate でしか向きを変えられない）・減速の残り時間・回数 */
+	FVector2D CornerHeading = FVector2D::ZeroVector;
+	float CornerSlowTimer = 0.f;
+	int32 CornerSlowCount = 0;
+
 	/** 慎重鬼：担当の区画 */
 	int32 CarefulSector = 0;
 	int32 CarefulSectorCount = 1;
@@ -579,6 +839,10 @@ private:
 	bool bHasGuardCell = false;
 	bool bAtGuardPost = false;
 	float GuardLookYaw = 0.f;
+	float GuardNoiseLookTimer = 0.f;
+	float GuardClearTimer = 0.f;
+	int32 GuardClearCount = 0;
+	FVector GuardNoiseLocation = FVector::ZeroVector;
 	float SummonTimer = 0.f;
 	float LastSummonTime = -1.f;
 
@@ -591,9 +855,34 @@ private:
 	float LastNoticeSoundTime = -100.f;
 	int32 NoticeSoundCount = 0;
 
+	/** 気配（あやしさ） */
+	float Presence = 0.f;
+	int32 PresenceNoticeCount = 0;
+
 	/** 種類ごとの飾りの部品 */
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> DecorationMeshes;
+
+	/** 目の光（モデルのマテリアルを鬼ごとに複製したもの）・円柱の見た目のときの赤い目・顔を照らす明かり */
+	UPROPERTY()
+	TArray<TObjectPtr<class UMaterialInstanceDynamic>> EyeMaterials;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> FallbackEyes;
+
+	UPROPERTY()
+	TObjectPtr<class UPointLightComponent> EyeLight;
+
+	/** モデルのマテリアルの、ふだんの目の光の強さ */
+	float BaseEyeGlow = 0.f;
+	float EyeGlowBlend = 0.f;
+	float LastEyeGlowValue = -1.f;
+	/** 目を光らせる仕組みを作る（BeginPlay） */
+	void SetupEyes();
+	/** 追いかけているかで目の光を変える（毎フレーム） */
+	void UpdateEyes(float DeltaSeconds);
+	/** 見つけた直後は頭の上の玉を「!」にする（ポンと大きく出て戻る） */
+	void UpdateExclaim();
 
 	/** Attack 中 */
 	FIntPoint AttackCell = FIntPoint::ZeroValue;

@@ -1,0 +1,10 @@
+# Tools/SoundGen.ps1 が .venv に入れるもの（PyTorch は CUDA 版を別の場所から入れる。SoundGen.ps1 を参照）
+diffusers>=0.32
+transformers>=4.45
+accelerate
+torchsde
+soundfile
+sentencepiece
+protobuf
+huggingface_hub
+numpy

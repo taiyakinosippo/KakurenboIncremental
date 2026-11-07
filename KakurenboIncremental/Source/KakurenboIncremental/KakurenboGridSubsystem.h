@@ -42,6 +42,10 @@ struct FKakurenboBlockColumn
 	UPROPERTY()
 	int32 TrapDesign = INDEX_NONE;
 
+	/** 罠の向き（一方通行ののれん：0 +X / 1 +Y / 2 -X / 3 -Y） */
+	UPROPERTY()
+	int32 TrapDir = 0;
+
 	/** 今ある罠（発動して消えたら null。設計図は残る） */
 	UPROPERTY()
 	TObjectPtr<ATrapActor> Trap;
@@ -83,6 +87,9 @@ public:
 	APlaceableBlock* GetBlock(const FIntPoint& Cell, int32 Level) const;
 	int32 GetBlockCount() const;
 
+	/** 置いた壁の数（マスごとに 設計図の段数 と 今ある段数 の多い方を足す。壊れて直していない壁も数える） */
+	int32 GetDesignWallCount() const;
+
 	/** そのマスの一番上にブロックを置けるか。置けない理由を返す */
 	bool CanPlaceBlock(const FIntPoint& Cell, FText* OutReason = nullptr) const;
 
@@ -101,6 +108,12 @@ public:
 	 * @return 壊れたブロックの数
 	 */
 	int32 DamageBlocksInRadius(const FVector& Center, float Radius, double Damage);
+
+	/**
+	 * 決まったマスの壁に当たる（パワー鬼の前方の箱）。それぞれのマスの下から MaxLevels 段に Damage を与え、壊れたものを取り除く。
+	 * 設計図は変えない。@return 壊れたブロックの数
+	 */
+	int32 DamageBlocksInCells(const TArray<FIntPoint>& Cells, int32 MaxLevels, double Damage);
 
 	/**
 	 * 1 個だけ攻撃。そのマスの一番下のブロックに Damage を与え、壊れたら取り除く（上の段は落ちる）。
@@ -146,6 +159,12 @@ public:
 		if (Surface) { WallSurfaces.Add(WallTypeIndex, *Surface); } else { WallSurfaces.Remove(WallTypeIndex); }
 	}
 
+	/** クライミング壁の種類（足場の横木を付ける） */
+	void SetWallLadder(int32 WallTypeIndex, bool bLadder)
+	{
+		if (bLadder) { LadderWallTypes.Add(WallTypeIndex); } else { LadderWallTypes.Remove(WallTypeIndex); }
+	}
+
 	/** 壁が攻撃されたとき（演出と音に使う） */
 	FOnKakurenboBlockHit OnBlockHit;
 
@@ -176,8 +195,14 @@ public:
 	/** 罠を置けるか（壁も壁の設計図も罠も無い床のマス）。置けない理由を返す */
 	bool CanPlaceTrap(const FIntPoint& Cell, FText* OutReason = nullptr) const;
 
-	/** プレイヤーが置く：罠を置いて設計図にも書く */
-	ATrapActor* PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
+	/** プレイヤーが置く：罠を置いて設計図にも書く（Dir は一方通行ののれんの向き） */
+	ATrapActor* PlaceTrap(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir = 0);
+
+	/** 罠の向き（一方通行ののれん） */
+	int32 GetTrapDir(const FIntPoint& Cell) const;
+
+	/** 置いてある一方通行ののれんの向きを 90 度回す（のれんでなければ false） */
+	bool RotateTrap(const FIntPoint& Cell);
 
 	/**
 	 * プレイヤーが回収する：罠と設計図を消す。
@@ -188,6 +213,9 @@ public:
 
 	/** 罠が発動して消える（設計図は残る） */
 	void ConsumeTrap(ATrapActor* Trap);
+
+	/** 罠をグリッドから外す（壊れた扱い。設計図は残る）。アクターは消さない（迷い猫は鬼の頭の上に残る） */
+	void ReleaseTrap(ATrapActor* Trap);
 
 	/** 今ある罠の数（種類ごと） */
 	int32 GetLiveTrapCount(int32 TrapTypeIndex) const;
@@ -285,12 +313,25 @@ public:
 	/** ランダムな空きマス（見つからなければ false） */
 	bool FindRandomFreeCell(FIntPoint& OutCell, const FRandomStream* Stream = nullptr) const;
 
+	/**
+	 * 経路のグリッドに、今ある一方通行ののれんを書き込む。AttackDamage > 0 なら、逆向きはのれんを壊して通れる
+	 * （壊すのに必要な攻撃回数 × CostPerAttack のコスト。M15：その先が行き止まりのときだけ壊される）
+	 */
+	void ApplyOneWays(FKakurenboPathGrid& Grid, double AttackDamage = 0.0, float CostPerAttack = 0.f) const;
+
+	/** From から To へ動くと、のれんを逆向きに通ることになるか（なるなら、そののれんのマス） */
+	bool IsWrongWayThroughGate(const FIntPoint& From, const FIntPoint& To, FIntPoint& OutGate) const;
+
+	/** 配置が変わったことにする（鬼の経路を作り直させる。のれんの耐久を変えたときなど） */
+	void NotifyChanged() { MarkChanged(); }
+
 private:
 	int32 ToIndex(const FIntPoint& Cell) const { return Cell.Y * SizeX + Cell.X; }
 	/** 一番大きな空き地に含まれるマスなら true（マスごと） */
 	TArray<bool> BuildMainAreaMask() const;
 	APlaceableBlock* SpawnBlockActor(const FIntPoint& Cell, int32 Level, int32 WallTypeIndex, double MaxHP, const FLinearColor& Color, double SoundHP = 0.0);
-	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def);
+	ATrapActor* SpawnTrapActor(const FIntPoint& Cell, int32 TrapTypeIndex, const FKakurenboTrapRow& Def, int32 Dir = 0);
+
 	void RemoveAtLevel(const FIntPoint& Cell, int32 Level);
 	void RestackColumn(const FIntPoint& Cell);
 	void SyncDesignToBlocks(const FIntPoint& Cell);
@@ -308,6 +349,7 @@ private:
 	TArray<FIntPoint> ReservedCells;
 
 	TMap<int32, FKakurenboSurfaceRow> WallSurfaces;
+	TSet<int32> LadderWallTypes;
 
 	/** マスごとの「家具・部屋の壁がある」 */
 	TArray<bool> Obstacles;

@@ -20,6 +20,10 @@ namespace KakurenboBalance
 		double OniDamageGrowth = 1.6;
 		float OniHearingRadiusPerStage = 100.f;
 		float OniSpeedBonusPerStage = 15.f;
+		/** 表より後は、このステージ数ごとに鬼が 1 体増える（0 なら増えない）。増える種類は最後の行の鬼（探知鬼を除く）を順に */
+		int32 ExtraOniEveryStages = 3;
+		/** 表より後は、置ける壁の数（WallLimit）がこの数ずつ増える */
+		int32 WallLimitPerStage = 2;
 	};
 
 	/**
@@ -28,8 +32,14 @@ namespace KakurenboBalance
 	 */
 	KAKURENBOINCREMENTAL_API FKakurenboStageRow ResolveStage(const TArray<FKakurenboStageRow>& Rows, int32 Stage, const FStageGrowth& Growth);
 
-	/** ステージ Stage で転生したときにもらえる転生ポイント（MinStage より前なら 0） */
+	/** ステージ Stage で転生したときにもらえる転生ポイント（MinStage より前なら 0。切り捨て(PointsBase × PointsGrowth ^ (Stage - MinStage))） */
 	KAKURENBOINCREMENTAL_API int32 GetPrestigePoints(int32 Stage, const FKakurenboPrestigeRow& Settings);
+
+	/** 転生した後のはじめのコイン（転生した回数 × StartCoinsPerPrestige。転生するたびに自動で増える） */
+	KAKURENBOINCREMENTAL_API double GetPrestigeStartCoins(int32 PrestigeCount, const FKakurenboPrestigeRow& Settings);
+
+	/** 転生した回数で自動で硬くなる壁の耐久の倍率（WallHPPerPrestige ^ 転生した回数） */
+	KAKURENBOINCREMENTAL_API double GetPrestigeWallHPMultiplier(int32 PrestigeCount, const FKakurenboPrestigeRow& Settings);
 
 	/** 転生のお店：今のレベルから 1 つ上げる価格（転生ポイント。最大レベルなら INDEX_NONE） */
 	KAKURENBOINCREMENTAL_API int32 GetPrestigeUpgradeCost(const FKakurenboPrestigeUpgradeRow& Row, int32 Level);

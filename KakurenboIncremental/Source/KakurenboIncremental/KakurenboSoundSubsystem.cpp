@@ -4,8 +4,11 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Audio.h"
+#include "KakurenboBalance.h"
 #include "KakurenboGameMode.h"
 #include "KakurenboSynth.h"
+#include "Misc/FileHelper.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundAttenuation.h"
 #include "Sound/SoundWaveProcedural.h"
@@ -19,15 +22,15 @@ namespace
 	/** 鬼の足音・お宝のキラキラ：場所の手がかりになる音（何体ぶん重なってもよい。近いほど大きい減り方） */
 	bool IsCueSfx(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
-			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert;
+		return KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::Summon
+			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Alert || Sfx == EKakurenboSfx::Meow;
 	}
 
 	/** 重なってもよい音（間隔を空けない） */
 	bool AllowsOverlap(EKakurenboSfx Sfx)
 	{
-		return Sfx == EKakurenboSfx::OniStep || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
-			|| Sfx == EKakurenboSfx::OniNotice;
+		return KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::PlayerStep
+			|| Sfx == EKakurenboSfx::OniNotice || Sfx == EKakurenboSfx::Meow;
 	}
 
 	/**
@@ -36,6 +39,10 @@ namespace
 	 */
 	void GetDistanceRange(EKakurenboSfx Sfx, float& OutFullCm, float& OutMaxCm)
 	{
+		if (KakurenboSynth::IsOniStepSfx(Sfx))
+		{
+			Sfx = EKakurenboSfx::OniStep; // 種類ごとの足音・飛び乗り・人形の足音も同じ距離で聞こえる
+		}
 		switch (Sfx)
 		{
 		case EKakurenboSfx::OniStep:         OutFullCm = 300.f;  OutMaxCm = 3200.f; break;
@@ -43,6 +50,7 @@ namespace
 		case EKakurenboSfx::OniNotice:       OutFullCm = 600.f;  OutMaxCm = 4000.f; break;
 		case EKakurenboSfx::Alert:           OutFullCm = 800.f;  OutMaxCm = 6000.f; break;
 		case EKakurenboSfx::Summon:          OutFullCm = 1000.f; OutMaxCm = 6000.f; break;
+		case EKakurenboSfx::Meow:            OutFullCm = 300.f;  OutMaxCm = 3000.f; break;
 		default:                             OutFullCm = 500.f;  OutMaxCm = 4000.f; break;
 		}
 	}
@@ -177,24 +185,35 @@ void UKakurenboSoundSubsystem::PlayMusic(EKakurenboMusic Music)
 		}
 	}
 
-	// 1 周ぶんの波形は最初に一度だけ作る
-	TArray<int16>* Loop = MusicCache.Find(Music);
+	// 1 周ぶんの波形は最初に一度だけ読む（Data/Sounds の WAV。無ければプログラムで作る）
+	FMusicLoop* Loop = MusicCache.Find(Music);
 	if (!Loop)
 	{
-		Loop = &MusicCache.Add(Music, KakurenboSynth::RenderMusic(Music));
+		Loop = &MusicCache.Add(Music);
+		// 大きな館の曲が無ければ、ふつうのかくれんぼの曲
+		Loop->bFromFile = LoadMusicWav(Music, Loop->Samples, Loop->SampleRate, Loop->Channels)
+			|| (Music == EKakurenboMusic::HideDeep && LoadMusicWav(EKakurenboMusic::Hide, Loop->Samples, Loop->SampleRate, Loop->Channels));
+		if (!Loop->bFromFile)
+		{
+			Loop->Samples = KakurenboSynth::RenderMusic(Music);
+			Loop->SampleRate = KakurenboSynth::MusicSampleRate;
+			Loop->Channels = 1;
+		}
+		UE_LOG(LogTemp, Log, TEXT("BGM %s: %s (%.1f s)"), *UEnum::GetValueAsString(Music), Loop->bFromFile ? TEXT("Data/Sounds") : TEXT("synth"),
+			Loop->Samples.Num() / static_cast<float>(FMath::Max(Loop->SampleRate * Loop->Channels, 1)));
 	}
-	if (Loop->Num() == 0)
+	if (Loop->Samples.Num() == 0)
 	{
 		return;
 	}
 	USoundWaveProcedural* Wave = NewObject<USoundWaveProcedural>(this);
-	Wave->SetSampleRate(KakurenboSynth::MusicSampleRate);
-	Wave->NumChannels = 1;
+	Wave->SetSampleRate(Loop->SampleRate);
+	Wave->NumChannels = Loop->Channels;
 	Wave->Duration = INDEFINITELY_LOOPING_DURATION;
 	Wave->SoundGroup = SOUNDGROUP_Music;
 	Wave->bLooping = false;
-	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), Loop->Num() * sizeof(int16));
-	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), Loop->Num() * sizeof(int16));
+	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), Loop->Samples.Num() * sizeof(int16));
+	Wave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), Loop->Samples.Num() * sizeof(int16));
 
 	// bPersistAcrossLevelTransition などは不要。2D（画面全体）で流し、1 秒かけて大きくする
 	UAudioComponent* Component = UGameplayStatics::SpawnSound2D(World, Wave, 1.f);
@@ -211,16 +230,110 @@ void UKakurenboSoundSubsystem::PlayMusic(EKakurenboMusic Music)
 
 void UKakurenboSoundSubsystem::RefillMusic()
 {
-	const TArray<int16>* Loop = MusicCache.Find(CurrentMusic);
-	if (!MusicWave || !Loop || Loop->Num() == 0)
+	const FMusicLoop* Loop = MusicCache.Find(CurrentMusic);
+	if (!MusicWave || !Loop || Loop->Samples.Num() == 0)
 	{
 		return;
 	}
-	const int32 LoopBytes = Loop->Num() * sizeof(int16);
+	const int32 LoopBytes = Loop->Samples.Num() * sizeof(int16);
 	if (MusicWave->GetAvailableAudioByteCount() < LoopBytes)
 	{
-		MusicWave->QueueAudio(reinterpret_cast<const uint8*>(Loop->GetData()), LoopBytes);
+		MusicWave->QueueAudio(reinterpret_cast<const uint8*>(Loop->Samples.GetData()), LoopBytes);
 	}
+}
+
+bool UKakurenboSoundSubsystem::IsMusicFromFile(EKakurenboMusic Music) const
+{
+	const FMusicLoop* Loop = MusicCache.Find(Music);
+	return Loop && Loop->bFromFile;
+}
+
+bool UKakurenboSoundSubsystem::LoadMusicWav(EKakurenboMusic Music, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels)
+{
+	// 曲の名前は enum の名前（EKakurenboMusic::Calm → Music_Calm.wav）
+	const FString Name = UEnum::GetValueAsName(Music).ToString().RightChop(FString(TEXT("EKakurenboMusic::")).Len());
+	return Music != EKakurenboMusic::None
+		&& ReadWav16(KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/Music_%s.wav"), *Name)), OutSamples, OutSampleRate, OutChannels);
+}
+
+bool UKakurenboSoundSubsystem::ReadWav16(const FString& Path, TArray<int16>& OutSamples, int32& OutSampleRate, int32& OutChannels)
+{
+	TArray<uint8> Bytes;
+	if (!FFileHelper::LoadFileToArray(Bytes, *Path, FILEREAD_Silent))
+	{
+		return false;
+	}
+	// FWaveModInfo: WAV の頭の情報（周波数・チャンネル数・ビット数）と波形の場所を読む UE の道具
+	FWaveModInfo Info;
+	if (!Info.ReadWaveInfo(Bytes.GetData(), Bytes.Num()) || *Info.pBitsPerSample != 16 || *Info.pChannels < 1 || *Info.pChannels > 2)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Sound: %s is not a 16-bit mono/stereo WAV"), *Path);
+		return false;
+	}
+	OutSampleRate = static_cast<int32>(*Info.pSamplesPerSec);
+	OutChannels = *Info.pChannels;
+	OutSamples.SetNumUninitialized(Info.SampleDataSize / sizeof(int16));
+	FMemory::Memcpy(OutSamples.GetData(), Info.SampleDataStart, OutSamples.Num() * sizeof(int16));
+	return OutSamples.Num() > 0;
+}
+
+bool UKakurenboSoundSubsystem::LoadSfxWav(EKakurenboSfx Sfx, TArray<int16>& OutSamples)
+{
+	// 音の名前は enum の名前（EKakurenboSfx::OniStep → OniStep.wav）。ゲームの効果音と同じモノラル・44100Hz だけ使う
+	const FString Name = UEnum::GetValueAsName(Sfx).ToString().RightChop(FString(TEXT("EKakurenboSfx::")).Len());
+	int32 Rate = 0;
+	int32 Channels = 0;
+	if (!ReadWav16(KakurenboBalance::GetDataFilePath(FString::Printf(TEXT("Sounds/%s.wav"), *Name)), OutSamples, Rate, Channels))
+	{
+		return false;
+	}
+	if (Channels != 1 || Rate != KakurenboSynth::DefaultSampleRate)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Sound: Data/Sounds/%s.wav must be mono %d Hz (Tools/SoundGen/ExportForGame.py)"), *Name, KakurenboSynth::DefaultSampleRate);
+		OutSamples.Reset();
+		return false;
+	}
+	return true;
+}
+
+TArray<int16> UKakurenboSoundSubsystem::GetSfxSamples(EKakurenboSfx Sfx, float PitchScale)
+{
+	// Data/Sounds に WAV があればそれ（一度読んだら使い回す。無かったことも覚えておく）、無ければプログラムで作る
+	TArray<int16>* File = SfxFileCache.Find(Sfx);
+	if (!File)
+	{
+		File = &SfxFileCache.Add(Sfx);
+		if (LoadSfxWav(Sfx, *File))
+		{
+			UE_LOG(LogTemp, Log, TEXT("Sound %s: Data/Sounds (%.2f s)"), *UEnum::GetValueAsString(Sfx), File->Num() / static_cast<float>(KakurenboSynth::DefaultSampleRate));
+		}
+	}
+	if (File->Num() == 0)
+	{
+		return KakurenboSynth::RenderSfx(Sfx, PitchScale);
+	}
+	if (FMath::IsNearlyEqual(PitchScale, 1.f, 0.001f) || PitchScale <= 0.f)
+	{
+		return *File;
+	}
+	// 高さを変える：速く（遅く）読む。プログラムの音と違って長さも変わる（レコードの回転を変えるのと同じ）
+	const int32 OutNum = FMath::Max(1, FMath::FloorToInt(File->Num() / PitchScale));
+	TArray<int16> Out;
+	Out.SetNumUninitialized(OutNum);
+	for (int32 i = 0; i < OutNum; ++i)
+	{
+		const float Pos = i * PitchScale;
+		const int32 A = FMath::Min(FMath::FloorToInt(Pos), File->Num() - 1);
+		const int32 B = FMath::Min(A + 1, File->Num() - 1);
+		Out[i] = static_cast<int16>(FMath::Lerp(static_cast<float>((*File)[A]), static_cast<float>((*File)[B]), Pos - A));
+	}
+	return Out;
+}
+
+bool UKakurenboSoundSubsystem::IsSfxFromFile(EKakurenboSfx Sfx) const
+{
+	const TArray<int16>* File = SfxFileCache.Find(Sfx);
+	return File && File->Num() > 0;
 }
 
 void UKakurenboSoundSubsystem::SetMusicVolume(float Volume)
@@ -230,6 +343,12 @@ void UKakurenboSoundSubsystem::SetMusicVolume(float Volume)
 	{
 		MusicComponent->SetVolumeMultiplier(FMath::Clamp(MasterVolume * MusicVolume, 0.f, 1.f));
 	}
+}
+
+void UKakurenboSoundSubsystem::SetMasterVolume(float Volume)
+{
+	MasterVolume = FMath::Clamp(Volume, 0.f, 1.f);
+	SetMusicVolume(MusicVolume); // BGM にも全体の音量が掛かる
 }
 
 void UKakurenboSoundSubsystem::Deinitialize()
@@ -261,7 +380,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	LastPlayTimes[Index] = Now;
 	PlayCounts[Index]++;
 
-	float Volume = FMath::Clamp(MasterVolume * VolumeScale, 0.f, 4.f);
+	float Volume = FMath::Clamp(MasterVolume * SfxVolume * VolumeScale, 0.f, 4.f);
 	const float BaseVolume = Volume; // 音アセットで鳴らすときは、距離の減り方をエンジンに任せる
 	if (Volume <= 0.f)
 	{
@@ -273,6 +392,8 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 	bool bSpatial = false;
 	FVector ListenerLocation;
 	FRotator ListenerRotation;
+	float HeardLoudness = VolumeScale; // M16：テキストの窓口に伝える大きさ（音量の設定を掛けない）
+	bool bHeardOccluded = false;
 	if (Location && GetListener(ListenerLocation, ListenerRotation))
 	{
 		bSpatial = true;
@@ -299,7 +420,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		Spatial.LowPass *= KakurenboSynth::DistanceLowPass(ToSource.Size2D(), FullCm, MaxCm);
 		// 近くの音が割れて（頭打ちになって）遠くの音と同じ大きさに聞こえないよう、1 を超えないようにしてから距離で小さくする
 		// 鬼の足音は種類・走っているかで大きさが変わる（最大 ×2.5）ので、その差が残るよう先に小さくしておく
-		const float Headroom = Sfx == EKakurenboSfx::OniStep ? 0.55f : 1.f;
+		const float Headroom = KakurenboSynth::IsOniStepSfx(Sfx) ? 0.55f : 1.f;
 		Volume = FMath::Min(Volume * Headroom, 1.f) * DistanceGain;
 
 		LastSpatial.SetNum(static_cast<int32>(EKakurenboSfx::Count));
@@ -312,10 +433,45 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		Debug.LowPass = Spatial.LowPass;
 		Debug.bBehind = Spatial.bBehind;
 		Debug.bValid = true;
+		HeardLoudness = VolumeScale * DistanceGain * FMath::Max(Spatial.GainL, Spatial.GainR);
+		bHeardOccluded = bBlocked;
 		if (Volume <= 0.001f)
 		{
 			return; // 遠すぎて聞こえない
 		}
+	}
+
+	// 心臓の音は手がかりの音（鬼の足音・お宝のキラキラ・「ン？」）を消さないよう、それが聞こえている間は小さくする（ダッキング）
+	const AKakurenboGameMode* DuckGM = World->GetAuthGameMode<AKakurenboGameMode>();
+	const float DuckScale = DuckGM ? DuckGM->HeartbeatDuckScale : 0.35f;
+	const float DuckSeconds = DuckGM ? DuckGM->HeartbeatDuckSeconds : 0.6f;
+	const double RealNow = World->GetRealTimeSeconds();
+	// 下げる量は聞こえた大きさに比例（かすかに聞こえる遠くの音ではほとんど下げない。0.25 以上で DuckScale まで）
+	const bool bCue = bSpatial && Volume > 0.02f && (KakurenboSynth::IsOniStepSfx(Sfx) || Sfx == EKakurenboSfx::TreasureSparkle || Sfx == EKakurenboSfx::OniNotice);
+	if (bCue)
+	{
+		const float Strength = FMath::Clamp(Volume / 0.25f, 0.f, 1.f);
+		LastCueStrength = RealNow - LastCueHeardTime < DuckSeconds ? FMath::Max(LastCueStrength, Strength) : Strength;
+		LastCueHeardTime = RealNow;
+		if (UAudioComponent* Beat = HeartbeatComponent.Get(); Beat && Beat->IsPlaying())
+		{
+			Beat->AdjustVolume(0.03f, FMath::Lerp(1.f, DuckScale, LastCueStrength)); // 鳴っている途中の「ドクン」もすぐ下げる（今の音量に掛ける倍率）
+		}
+	}
+	if (Sfx == EKakurenboSfx::Heartbeat)
+	{
+		const float Duck = RealNow - LastCueHeardTime < DuckSeconds ? FMath::Lerp(1.f, DuckScale, LastCueStrength) : 1.f;
+		bLastHeartbeatDucked = Duck < 0.9f;
+		Volume *= Duck;
+	}
+	if (bRecordHeard && Heard.Num() < 512)
+	{
+		FKakurenboHeardSound& Entry = Heard.AddDefaulted_GetRef();
+		Entry.Sfx = Sfx;
+		Entry.bSpatial = bSpatial;
+		Entry.Location = Location ? *Location : FVector::ZeroVector;
+		Entry.Loudness = HeardLoudness;
+		Entry.bOccluded = bHeardOccluded;
 	}
 
 	// 音アセットが設定されていればそれを鳴らす
@@ -340,7 +496,7 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 
 	// 無ければ波形を作って鳴らす。
 	// USoundWaveProcedural: 渡した波形データ（16bit・モノラル）をそのまま再生する音。1 回鳴らすごとに新しく作る
-	const TArray<int16> Samples = KakurenboSynth::RenderSfx(Sfx, PitchScale);
+	const TArray<int16> Samples = GetSfxSamples(Sfx, PitchScale);
 	if (Samples.Num() == 0)
 	{
 		return;
@@ -364,6 +520,10 @@ void UKakurenboSoundSubsystem::PlayInternal(EKakurenboSfx Sfx, const FVector* Lo
 		return; // -NoSound などで音が出ない
 	}
 	++StartedCount;
+	if (Sfx == EKakurenboSfx::Heartbeat)
+	{
+		HeartbeatComponent = Component;
+	}
 
 	// 波形を流し終わっても自分では止まらない（無音を出し続ける）ので、長さぶん経ったら止める（止まると自動で消える）
 	const float Seconds = static_cast<float>(Data.Num() / Channels) / KakurenboSynth::DefaultSampleRate + 0.1f;

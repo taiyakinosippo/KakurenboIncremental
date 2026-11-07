@@ -1,0 +1,83 @@
+<!doctype html>
+<!--
+  タイトルロゴ「かせぐんぼ」の元の絵。Tools\MakeLogo.ps1 が Edge（ヘッドレス）でこのページを写して
+  TitleLogo.png（背景は透明）にする。ゲームはそれを /Game/Kakurenbo/UI/T_TitleLogo として使う。
+  文字は Google Fonts の Dela Gothic One（SIL Open Font License）。
+  「かせぐ」は稼ぐ＝小判の金色、「んぼ」はかくれんぼ＝夜の月の色。ぐ の濁点は小判 2 枚、ぼ の濁点はのぞく目。
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { width: 1000px; height: 284px; overflow: hidden; }
+  .logo { position: relative; width: 1000px; height: 284px; }
+
+  /* 大きな文字。1 文字ずつ少し傾けて、跳ねているように */
+  .word { position: absolute; left: 40px; top: 52px; display: flex; align-items: flex-end; }
+  .ch { position: relative; font-family: "Dela Gothic One", "HGSoeiKakugothicUB", sans-serif; font-size: 190px; line-height: 1; width: 176px; text-align: center; }
+  .ch .stroke, .ch .fill { position: absolute; left: -60px; top: 0; width: calc(100% + 120px); }
+  .ch .ghost { visibility: hidden; }
+  /* ふちどり（太い線を外側に）と影 */
+  .ch .stroke { color: #1a0a2c; -webkit-text-stroke: 26px #1a0a2c; filter: drop-shadow(0 10px 0 #0b0414); }
+  /* 中の色（グラデーション） */
+  .ch .fill { background-clip: text; -webkit-background-clip: text; color: transparent; }
+  .ch.gold .fill { background-image: linear-gradient(180deg, #fffbe0 0%, #ffe27a 34%, #ffb22e 64%, #e5761a 100%); -webkit-text-stroke: 3px #fff6c8; }
+  .ch.night .fill { background-image: linear-gradient(180deg, #ffffff 0%, #e6dcff 30%, #b996ff 66%, #7b4fd0 100%); -webkit-text-stroke: 3px #f3edff; }
+
+  .c1 { transform: rotate(-7deg) translateY(-14px); }
+  .c2 { transform: rotate(5deg) translateY(-30px); }
+  .c3 { transform: rotate(-4deg) translateY(-18px); }
+  /* 「んぼ」は少し低く、しゃがんで隠れている */
+  .c4 { transform: rotate(3deg) translateY(14px) scale(0.92); margin-left: -6px; }
+  .c5 { transform: rotate(-3deg) translateY(10px) scale(0.98); margin-left: -12px; }
+
+  /* ぐ の濁点：小判 2 枚 */
+  .koban { position: absolute; width: 38px; height: 56px; border-radius: 50%;
+    background: radial-gradient(ellipse at 38% 30%, #fffbe2 0%, #ffd95a 38%, #f0a020 75%, #b8640e 100%);
+    border: 6px solid #1a0a2c; box-shadow: inset 0 0 0 3px #fff2b0, 0 6px 0 #0b0414; }
+  .koban::after { content: ""; position: absolute; left: 50%; top: 18%; width: 4px; height: 64%; margin-left: -2px; border-radius: 2px; background: rgba(150, 80, 10, 0.55); }
+  .k1 { right: -6px; top: 6px; transform: rotate(18deg); }
+  .k2 { right: 30px; top: -10px; transform: rotate(10deg); }
+
+  /* ぼ の濁点：暗がりからのぞく 2 つの目 */
+  .eye { position: absolute; width: 36px; height: 44px; border-radius: 50%; background: #fffdf2;
+    border: 6px solid #1a0a2c; box-shadow: 0 6px 0 #0b0414; overflow: hidden; }
+  .eye::after { content: ""; position: absolute; left: 4px; top: 13px; width: 17px; height: 21px; border-radius: 50%; background: #1a0a2c; box-shadow: inset 4px 4px 0 -1px #fff; }
+  .e1 { right: 6px; top: 2px; transform: rotate(8deg); }
+  .e2 { right: 42px; top: -14px; transform: rotate(-4deg); }
+
+  /* まわりのキラキラと小判 */
+  .spark { position: absolute; width: 30px; height: 30px; background: #fff3b8;
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+    filter: drop-shadow(0 0 3px #ffd860); }
+  .coin { position: absolute; width: 34px; height: 34px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff8d0, #ffc63a 55%, #c8720e);
+    border: 5px solid #1a0a2c; box-shadow: 0 5px 0 #0b0414; }
+  .coin::after { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: #1a0a2c; border-radius: 2px; }
+
+</style>
+</head>
+<body>
+<div class="logo">
+  <div class="spark" style="left: 36px; top: 40px; transform: scale(0.8);"></div>
+  <div class="spark" style="left: 372px; top: 8px;"></div>
+  <div class="spark" style="left: 560px; top: 36px; transform: scale(0.6);"></div>
+  <div class="spark" style="left: 930px; top: 92px; transform: scale(0.7); background: #e8dcff; filter: drop-shadow(0 0 3px #b48cff);"></div>
+  <div class="coin" style="left: 8px; top: 230px; transform: rotate(-12deg);"></div>
+
+  <div class="word">
+    <div class="ch gold c1"><span class="ghost">か</span><span class="stroke">か</span><span class="fill">か</span></div>
+    <div class="ch gold c2"><span class="ghost">せ</span><span class="stroke">せ</span><span class="fill">せ</span></div>
+    <div class="ch gold c3"><span class="ghost">く</span><span class="stroke">く</span><span class="fill">く</span>
+      <div class="koban k2"></div><div class="koban k1"></div></div>
+    <div class="ch night c4"><span class="ghost">ん</span><span class="stroke">ん</span><span class="fill">ん</span></div>
+    <div class="ch night c5"><span class="ghost">ほ</span><span class="stroke">ほ</span><span class="fill">ほ</span>
+      <div class="eye e2"></div><div class="eye e1"></div></div>
+  </div>
+
+ </div>
+</div>
+</body>
+</html>
